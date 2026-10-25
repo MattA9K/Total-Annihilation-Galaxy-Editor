@@ -1,0 +1,12 @@
+# Local CMake build. This also holds fetched dependencies, the compiled
+# editor, and the tileset archives used while running Galaxy Editor.
+/build/
+
+# macOS Finder metadata
+.DS_Store
+
+# Window layout saved while the editor is running
+imgui.ini
+
+# Per-user CMake presets
+CMakeUserPresets.json
