@@ -329,6 +329,13 @@ bool GlassBlur::update(const std::uint8_t* rgba, int width, int height, const Se
     if (failed_ || width < 2 || height < 2) {
         return false;
     }
+    // SavedState's constructor/destructor call glActiveTexture, glBindFramebuffer,
+    // glUseProgram and glBindVertexArray. Outside macOS those are function pointers
+    // filled in by loadOpenGl(), so they must be loaded before SavedState exists.
+    if (!loadOpenGl()) {
+        failed_ = true;
+        return false;
+    }
     SavedState saved;
     if (!ready_) {
         if (!initialize()) {
