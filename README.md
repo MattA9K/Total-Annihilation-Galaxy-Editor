@@ -13,7 +13,7 @@ Paint tiles, place trees and metal, set player starts, and shape the height of t
 | Platform | Download |
 | --- | --- |
 | macOS | [Install Galaxy Editor.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/macOS/Install.Galaxy.Editor.dmg) |
-| Windows | [build-windows.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/Microsoft-Windows/build-windows.zip) |
+| Windows | [GalaxyEditor-1.0.1-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.0.1/GalaxyEditor-1.0.1-windows-x64.zip) |
 
 On macOS, open the disk image and drag Galaxy Editor to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -108,3 +108,8 @@ On macOS, Command takes the place of Ctrl.
 The arrow keys slide a stamp or a paste off the tile under the cursor. Esc cancels a paste, leaves Delete mode, or clears the selection.
 
 Editor Options are remembered the next time you open the editor. Preview size, height-map spacing, sidebar text size, and autosave all live there. Autosave writes a backup beside the map on a timer and leaves the file from Save alone.
+
+## Copyright
+
+Copyright © 2026 Black Cat Software  
+Developed by Matt Andrzejczuk
