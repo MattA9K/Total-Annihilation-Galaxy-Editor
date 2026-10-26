@@ -197,19 +197,52 @@ elseif(WIN32)
     if(MINGW)
         target_link_options(GalaxyEditor PRIVATE -static -static-libgcc -static-libstdc++ $<$<CONFIG:Release>:-s>)
     endif()
-    # The icon shown in Explorer and on the taskbar comes from the executable itself.
+    # The icon shown in Explorer and on the taskbar comes from the executable itself,
+    # and so do the version shown in its Properties and, for MinGW, the manifest.
     enable_language(RC)
     set(WIN_RC "${CMAKE_BINARY_DIR}/generated/GalaxyEditor.rc")
-    set(WIN_RC_TEXT "1 ICON \"${CMAKE_SOURCE_DIR}/assets/icons/AppIcon.ico\"\n")
+    set(WIN_ICON "${CMAKE_SOURCE_DIR}/assets/icons/AppIcon.ico")
+    set(WIN_MANIFEST_IN "${CMAKE_SOURCE_DIR}/assets/windows/GalaxyEditor.manifest.in")
+    set(WIN_MANIFEST "${CMAKE_BINARY_DIR}/generated/GalaxyEditor.manifest")
+    set(WIN_RC_TEXT "#include <winver.h>\n")
+    string(APPEND WIN_RC_TEXT
+        "VS_VERSION_INFO VERSIONINFO\n"
+        "FILEVERSION ${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},${PROJECT_VERSION_PATCH},0\n"
+        "PRODUCTVERSION ${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},${PROJECT_VERSION_PATCH},0\n"
+        "FILEOS VOS_NT_WINDOWS32\n"
+        "FILETYPE VFT_APP\n"
+        "BEGIN\n"
+        "  BLOCK \"StringFileInfo\"\n"
+        "  BEGIN\n"
+        "    BLOCK \"040904B0\"\n"
+        "    BEGIN\n"
+        "      VALUE \"FileDescription\", \"Galaxy Editor\"\n"
+        "      VALUE \"FileVersion\", \"${PROJECT_VERSION}\"\n"
+        "      VALUE \"ProductName\", \"Galaxy Editor\"\n"
+        "      VALUE \"ProductVersion\", \"${PROJECT_VERSION}\"\n"
+        "      VALUE \"OriginalFilename\", \"GalaxyEditor.exe\"\n"
+        "    END\n"
+        "  END\n"
+        "  BLOCK \"VarFileInfo\"\n"
+        "  BEGIN\n"
+        "    VALUE \"Translation\", 0x409, 1200\n"
+        "  END\n"
+        "END\n")
+    if(EXISTS "${WIN_ICON}")
+        string(APPEND WIN_RC_TEXT "1 ICON \"${WIN_ICON}\"\n")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${WIN_ICON}")
+    else()
+        message(WARNING "${WIN_ICON} is missing. The editor will build without its Explorer icon.")
+    endif()
     if(MINGW)
         # MinGW does not make a manifest, so it goes in as a resource (1 is the id of an
         # executable's manifest, 24 the manifest resource type). The Microsoft linker
         # makes its own, and FileDialog_win.cpp asks for the same controls with a linker comment.
-        string(APPEND WIN_RC_TEXT "1 24 \"${CMAKE_SOURCE_DIR}/assets/windows/GalaxyEditor.manifest\"\n")
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/windows/GalaxyEditor.manifest")
+        # The manifest also turns on the UTF-8 code page and long paths.
+        configure_file("${WIN_MANIFEST_IN}" "${WIN_MANIFEST}" @ONLY)
+        string(APPEND WIN_RC_TEXT "1 24 \"${WIN_MANIFEST}\"\n")
     endif()
     file(WRITE "${WIN_RC}" "${WIN_RC_TEXT}")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/icons/AppIcon.ico")
     target_sources(GalaxyEditor PRIVATE "${WIN_RC}")
 else()
     target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_posix.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_posix.cpp)
