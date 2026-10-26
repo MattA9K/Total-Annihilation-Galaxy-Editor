@@ -10,10 +10,60 @@ namespace galaxy::theme {
 // control sizes of the 2013 OS X guidelines. Call once after ImGui::CreateContext.
 void setup(float contentScale);
 
+// Switches every color between the light and the dark look, at any time after
+// setup. The next frame is drawn in the new look.
+void setDark(bool dark);
+bool dark();
+
+// How the frosted glass panels (toolbar, sidebar, minimap) are tinted and edged.
+struct GlassStyle {
+    ImVec4 tint;          // the color the blurred map is pushed toward
+    float amount;         // how far: 0 keeps the map colors, 1 is the plain tint
+    float saturation;     // color strength applied before the tint
+    ImU32 border;         // line along the edge of a bar
+    ImU32 outline;        // outline of the floating minimap
+    ImU32 sheenTop;       // soft light-to-shade overlay on the toolbar
+    ImU32 sheenBottom;
+    ImVec4 titleText;     // minimap title
+    ImU32 closeMark;      // minimap close mark, and when the pointer is over it
+    ImU32 closeMarkHot;
+};
+const GlassStyle& glassStyle();
+// Secondary text, such as the status bar.
+ImVec4 secondaryTextColor();
+
 // 11 pt system font for informative and status text. Never null after setup.
 ImFont* smallFont();
 // 13 pt bold for alert messages and titles. Falls back to the regular font.
 ImFont* boldFont();
+
+// 10 pt for the labels under toolbar icons.
+ImFont* toolbarLabelFont();
+// One layout unit: 1.0 at the 13 pt system size.
+float unit();
+float toolbarItemHeight();
+float toolbarHeight();
+float toolbarGap();
+
+enum class ToolIcon {
+    Select,
+    Cut,
+    Copy,
+    CopyHeights,
+    Paste,
+    ModifyHeight,
+    Blend,
+    HeightMap,
+    Undo,
+    Redo,
+    Opacity,
+    Delete,
+};
+
+// A freestanding toolbar item: a 32 pt icon with its label underneath. When on is
+// true the item shows the pressed look of a two-state control. widthLabel reserves
+// room for the longest label an item can show so the toolbar does not shift.
+bool toolbarItem(const char* id, ToolIcon icon, const char* label, bool on = false, const char* widthLabel = nullptr);
 
 // Menu and button labels that open a dialog end with this.
 const char* ellipsis();

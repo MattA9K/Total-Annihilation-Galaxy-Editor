@@ -1,8 +1,21 @@
+<p align="center">
+  <img src="src/SplashScreen.png" alt="Galaxy Editor splash screen" width="760">
+</p>
+
 # Galaxy Editor
 
 A map editor for [Total Annihilation](https://en.wikipedia.org/wiki/Total_Annihilation), for macOS, Windows, and Linux.
 
 Paint tiles, place trees and metal, set player starts, and shape the height of the ground. Maps open and save as `.ufo` files the game can load.
+
+## Download
+
+| Platform | Download |
+| --- | --- |
+| macOS | [Install Galaxy Editor.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/macOS/Install.Galaxy.Editor.dmg) |
+| Windows | [build-windows.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/Microsoft-Windows/build-windows.zip) |
+
+On macOS, open the disk image and drag Galaxy Editor to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -20,7 +33,15 @@ Paint tiles, place trees and metal, set player starts, and shape the height of t
 
 You need CMake 3.24 or newer, a C++20 compiler, zlib, and OpenGL. The first configure downloads [GLFW](https://www.glfw.org/) 3.4 and [Dear ImGui](https://github.com/ocornut/imgui) 1.91.8, so that step needs a network connection.
 
-macOS and Linux:
+macOS builds `build/GalaxyEditor.app`. Open it from the Finder, or run `open build/GalaxyEditor.app`:
+
+```bash
+cmake --preset default
+cmake --build build
+open build/GalaxyEditor.app
+```
+
+Linux:
 
 ```bash
 cmake --preset default
@@ -28,7 +49,16 @@ cmake --build build
 ./build/GalaxyEditor
 ```
 
-On Windows, pick a generator your compiler understands:
+To build the Windows `.exe` on a Mac or Linux machine, install MinGW-w64 (`brew install mingw-w64`, or `apt install g++-mingw-w64-x86-64-posix`), then:
+
+```bash
+cmake --preset windows
+cmake --build --preset windows
+```
+
+This writes `build-windows/GalaxyEditor.exe`. It is one file with the C++ runtime built in, and it needs only the DLLs that ship with Windows. The first configure also downloads zlib. Put your own tileset archives beside the `.exe`.
+
+On Windows itself, pick a generator your compiler understands:
 
 ```bat
 cmake -S . -B build
@@ -46,9 +76,13 @@ cmake --build build --target galaxy_tests
 
 ## Tilesets
 
-Galaxy Editor looks for game archives in the `GalaxyEditor` folder, beside the `GalaxyEditor` executable, and in the folder you launch it from. It reads `.hpi`, `.ccx`, `.gp3`, and `.gpf` files. A world archive such as `GreenWorld.hpi` fills the Tilesets tab. `totala1.hpi`, `rev31.gp3`, or `ccdata.ccx` supply the feature list and the feature pictures.
+Galaxy Editor loads game archives from your Total Annihilation install folder. The first time it starts, it asks for that folder before the splash screen appears. Choose Cancel to start without it. The editor still runs, but the Tilesets and Features tabs stay empty, and it does not ask again at the next launch.
 
-Those archives are game data. They are not part of this repository. Drop them next to the editor and restart it.
+Change the folder at any time in Options, under Total Annihilation. Choose Folder reloads the archives right away, and Clear forgets the folder, so the next launch asks for it again, as on a first launch. The folder is saved in the per-user `settings.json`.
+
+Galaxy Editor reads `.hpi`, `.ccx`, `.gp3`, and `.gpf` files directly inside that folder, and then in the folder that holds the `GalaxyEditor` executable. On macOS that is the folder that holds `GalaxyEditor.app`, so a folder named Galaxy Editor with the app and your own `.hpi` files side by side works, the way Photoshop is laid out. Put your own tileset archives beside the executable (or the `.app`). If a file there has the same name as one in the Total Annihilation folder, such as `worlds.hpi` or `totala1.hpi`, it is skipped, so nothing loads twice. A world archive such as `worlds.hpi` fills the Tilesets tab. `totala1.hpi`, `rev31.gp3`, or `ccdata.ccx` supply the feature list and the feature pictures.
+
+These archives are game data. They are not part of this repository.
 
 Open Map reads `.ufo`, `.hpi`, and `.tnt`. Save writes a `.ufo`.
 

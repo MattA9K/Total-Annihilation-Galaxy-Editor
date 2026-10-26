@@ -158,4 +158,54 @@ std::optional<std::filesystem::path> saveMapDialog(
     }
 }
 
+std::optional<std::filesystem::path> chooseFolderDialog(
+    const std::string& title,
+    const std::filesystem::path& initialDirectory) {
+    @autoreleasepool {
+        // The dialog can appear before any window exists, so bring the app forward first.
+        [NSApp activateIgnoringOtherApps:YES];
+
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.canChooseFiles = NO;
+        panel.canChooseDirectories = YES;
+        panel.canCreateDirectories = NO;
+        panel.allowsMultipleSelection = NO;
+        panel.prompt = @"Choose";
+        if (NSString* text = [NSString stringWithUTF8String:title.c_str()]) {
+            panel.title = text;
+            panel.message = text;
+        }
+        if (!initialDirectory.empty()) {
+            NSString* directory = [NSString stringWithUTF8String:initialDirectory.string().c_str()];
+            if (directory != nil) {
+                panel.directoryURL = [NSURL fileURLWithPath:directory];
+            }
+        }
+        if ([panel runModal] != NSModalResponseOK || panel.URL.path == nil) {
+            return std::nullopt;
+        }
+        return std::filesystem::path(panel.URL.path.UTF8String);
+    }
+}
+
+bool alertDialog(
+    const std::string& message,
+    const std::string& detail,
+    const std::string& cancelLabel,
+    const std::string& acceptLabel) {
+    @autoreleasepool {
+        [NSApp activateIgnoringOtherApps:YES];
+        NSAlert* alert = [[NSAlert alloc] init];
+        alert.alertStyle = NSAlertStyleInformational;
+        alert.messageText = [NSString stringWithUTF8String:message.c_str()];
+        alert.informativeText = [NSString stringWithUTF8String:detail.c_str()];
+        // The first button is the default one, on the right. A button named Cancel answers to Esc.
+        [alert addButtonWithTitle:[NSString stringWithUTF8String:acceptLabel.c_str()]];
+        [alert addButtonWithTitle:[NSString stringWithUTF8String:cancelLabel.c_str()]];
+        const NSInteger response = [alert runModal];
+        [alert release];
+        return response == NSAlertFirstButtonReturn;
+    }
+}
+
 }  // namespace galaxy

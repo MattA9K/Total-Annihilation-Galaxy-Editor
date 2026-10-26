@@ -6,12 +6,29 @@
       "displayName": "Default",
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows (MinGW-w64 cross build)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-windows",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-mingw-w64.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "default",
       "configurePreset": "default"
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "targets": [
+        "GalaxyEditor"
+      ]
     }
   ]
 }

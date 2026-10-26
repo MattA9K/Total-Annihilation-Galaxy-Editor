@@ -1,6 +1,7 @@
 #include "core/EditorSettings.hpp"
 #include "core/MapGenerator.hpp"
 #include "core/TilesetLibrary.hpp"
+#include "core/Version.hpp"
 #include "format/GafImage.hpp"
 #include "format/HpiArchive.hpp"
 #include "format/MapFile.hpp"
@@ -1598,6 +1599,142 @@ void testEditorSettings() {
     expect(!galaxy::editorSettingsPath().empty(), "settings path is set");
 }
 
+void testVersion() {
+    const std::string version = galaxy::versionString();
+    int numbers = 0;
+    bool shapeOk = !version.empty() && std::isdigit(static_cast<unsigned char>(version.front())) != 0 && std::isdigit(static_cast<unsigned char>(version.back())) != 0;
+    for (const char c : version) {
+        if (c == '.') {
+            ++numbers;
+        } else if (std::isdigit(static_cast<unsigned char>(c)) == 0) {
+            shapeOk = false;
+        }
+    }
+    expect(shapeOk && numbers == 2, "version looks like 1.0.0, got " + version);
+    std::ifstream versionFile(std::filesystem::path(GALAXY_SOURCE_DIR) / "VERSION");
+    std::string fileVersion;
+    std::getline(versionFile, fileVersion);
+    expect(fileVersion == version, "the compiled-in version matches the VERSION file");
+    expect(galaxy::applicationTitle() == "Galaxy Editor v" + version, "the title is the name followed by v and the version");
+}
+
+void testAppearanceSettings() {
+    const auto settingsPath = std::filesystem::temp_directory_path() / "galaxy-editor-appearance-test.json";
+    galaxy::EditorSettings saved;
+    expect(saved.appearance == 0, "appearance defaults to following the system");
+    saved.appearance = 2;
+    galaxy::saveEditorSettings(settingsPath, saved);
+    expect(galaxy::loadEditorSettings(settingsPath).appearance == 2, "appearance survives a save and load");
+    saved.appearance = 1;
+    galaxy::saveEditorSettings(settingsPath, saved);
+    expect(galaxy::loadEditorSettings(settingsPath).appearance == 1, "light appearance survives a save and load");
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"appearance\": 9 }";
+    }
+    expect(galaxy::loadEditorSettings(settingsPath).appearance == 2, "an out-of-range appearance is clamped");
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"previewSize\": 64 }";
+    }
+    expect(galaxy::loadEditorSettings(settingsPath).appearance == 0, "a settings file from before dark mode follows the system");
+    std::error_code ignored;
+    std::filesystem::remove(settingsPath, ignored);
+}
+
+void testGameFolder() {
+    const auto directory = std::filesystem::temp_directory_path() / "galaxy-game-folder-test";
+    std::error_code ignored;
+    std::filesystem::remove_all(directory, ignored);
+    std::filesystem::create_directories(directory / "nested");
+    for (const char* name : {"totala1.hpi", "Rev31.GP3", "ccdata.ccx", "extras.gpf", "readme.txt", "map.ufo"}) {
+        std::ofstream(directory / name) << "x";
+    }
+    std::ofstream(directory / "nested" / "inner.hpi") << "x";
+
+    const auto found = galaxy::TilesetLibrary::archivePathsIn(directory);
+    expect(found.size() == 4, "the game folder scan finds the four archive types and nothing else");
+    expect(!found.empty() && found.front().filename() == "ccdata.ccx" && found.back().filename() == "totala1.hpi", "archives come back in name order");
+    for (const auto& path : found) {
+        expect(path.parent_path() == directory, "the scan stays in the game folder: " + path.string());
+    }
+    expect(galaxy::TilesetLibrary::archivePathsIn(directory / "missing").empty(), "a missing folder has no archives");
+    expect(galaxy::TilesetLibrary::archivePathsIn({}).empty(), "an unset folder has no archives");
+
+    {
+        const auto game = directory / "ta";
+        const auto program = directory / "program";
+        std::filesystem::create_directories(game);
+        std::filesystem::create_directories(program);
+        for (const char* name : {"worlds.hpi", "totala1.hpi"}) {
+            std::ofstream(game / name) << "x";
+        }
+        for (const char* name : {"WORLDS.HPI", "TotalA1.hpi", "MyTiles.hpi", "readme.txt"}) {
+            std::ofstream(program / name) << "x";
+        }
+        const auto both = galaxy::TilesetLibrary::archivePathsFor(game, program);
+        expect(both.size() == 3, "program-folder archives that repeat a game archive name are skipped");
+        expect(both.size() == 3 && both[0].parent_path() == game && both[1].parent_path() == game, "the game folder's archives come first");
+        expect(both.size() == 3 && both[2] == program / "MyTiles.hpi", "a user's own archive beside the program still loads");
+        expect(galaxy::TilesetLibrary::archivePathsFor({}, program).size() == 3, "with no game folder every program-folder archive loads");
+        expect(galaxy::TilesetLibrary::archivePathsFor(game, {}).size() == 2, "with no program folder only the game folder loads");
+        expect(galaxy::TilesetLibrary::archivePathsFor(game, game).size() == 2, "the same folder twice loads each archive once");
+        expect(galaxy::TilesetLibrary::archivePathsFor({}, {}).empty(), "no folders means no archives");
+        expect(!galaxy::programDirectory().empty(), "the program folder is known");
+        expect(galaxy::folderBesideAppBundle("/Applications/Galaxy Editor/GalaxyEditor.app/Contents/MacOS") == "/Applications/Galaxy Editor",
+            "an app bundle uses the folder that holds the .app");
+        expect(galaxy::folderBesideAppBundle("/Users/me/build/GalaxyEditor.app/Contents/MacOS") == "/Users/me/build", "a bundle in a build folder uses the build folder");
+        expect(galaxy::folderBesideAppBundle("/Users/me/build") == "/Users/me/build", "a plain executable folder is unchanged");
+        expect(galaxy::folderBesideAppBundle("/Users/me/Contents/MacOS") == "/Users/me/Contents/MacOS", "a Contents/MacOS folder outside an .app is unchanged");
+    }
+
+    galaxy::TilesetLibrary library;
+    expect(library.archives().empty(), "an empty library has no archives");
+    library.clear();
+    expect(library.archives().empty(), "clearing an empty library is fine");
+
+    galaxy::EditorSettings fresh;
+    expect(fresh.gameFolder.empty() && !fresh.gameFolderAsked, "the game folder starts unset and unasked");
+    expect(galaxy::shouldAskForGameFolder(fresh), "an unset, unasked folder is asked about");
+    fresh.gameFolderAsked = true;
+    expect(!galaxy::shouldAskForGameFolder(fresh), "a folder that was skipped is not asked about again");
+    fresh.gameFolder = directory;
+    expect(!galaxy::shouldAskForGameFolder(fresh), "a saved folder that exists is not asked about");
+    fresh.gameFolder = directory / "gone";
+    expect(galaxy::shouldAskForGameFolder(fresh), "a saved folder that no longer exists is asked about");
+
+    const auto settingsPath = std::filesystem::temp_directory_path() / "galaxy-game-folder-settings.json";
+    galaxy::EditorSettings saved;
+    saved.gameFolder = galaxy::pathFromUtf8("C:\\Games\\Total \"Annihilation\"\\caf\xC3\xA9");
+    saved.gameFolderAsked = true;
+    galaxy::saveEditorSettings(settingsPath, saved);
+    const galaxy::EditorSettings loaded = galaxy::loadEditorSettings(settingsPath);
+    expect(galaxy::pathToUtf8(loaded.gameFolder) == "C:\\Games\\Total \"Annihilation\"\\caf\xC3\xA9", "backslashes, quotes, and accents survive a save and load");
+    expect(loaded.gameFolderAsked, "the asked flag survives a save and load");
+    expect(loaded.previewSize == saved.previewSize && loaded.appearance == saved.appearance, "other settings are unchanged by the game folder");
+
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"gameFolder\": \"/Games/TA\\u0020Folder\", \"gameFolderAsked\": false }";
+    }
+    const galaxy::EditorSettings escaped = galaxy::loadEditorSettings(settingsPath);
+    expect(galaxy::pathToUtf8(escaped.gameFolder) == "/Games/TA Folder" && !escaped.gameFolderAsked, "a hand-written unicode escape and a false flag are read");
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"gameFolder\": \"/Games/unterminated }";
+    }
+    expect(galaxy::loadEditorSettings(settingsPath).gameFolder.empty(), "an unterminated folder string is ignored");
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"previewSize\": 64 }";
+    }
+    const galaxy::EditorSettings older = galaxy::loadEditorSettings(settingsPath);
+    expect(older.gameFolder.empty() && !older.gameFolderAsked, "a settings file from before the game folder leaves it unset");
+
+    std::filesystem::remove(settingsPath, ignored);
+    std::filesystem::remove_all(directory, ignored);
+}
+
 int main() {
     testBlankMap();
     testArchiveFooterAndStarts();
@@ -1616,6 +1753,9 @@ int main() {
     testGafImages();
     testMapSettings();
     testEditorSettings();
+    testGameFolder();
+    testVersion();
+    testAppearanceSettings();
     testSyntheticSections();
     testHeightGrid();
 

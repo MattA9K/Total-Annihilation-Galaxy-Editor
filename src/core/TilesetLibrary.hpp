@@ -45,8 +45,22 @@ struct TilesetArchive {
 
 class TilesetLibrary {
 public:
-    void loadDefaultLocations();
+    // Lists every game archive (.hpi, .ccx, .gp3, .gpf) directly inside a folder
+    // without opening any of them, so a caller can load them one at a time. An
+    // empty or missing folder gives an empty list.
+    static std::vector<std::filesystem::path> archivePathsIn(const std::filesystem::path& directory);
+    // The archives to load at startup: everything in the game folder, then the
+    // archives next to the program, which is where users add their own tilesets.
+    // A program-folder archive whose file name is already taken by the game folder
+    // is skipped, so worlds.hpi or totala1.hpi never loads twice.
+    static std::vector<std::filesystem::path> archivePathsFor(
+        const std::filesystem::path& gameFolder,
+        const std::filesystem::path& programFolder);
+    // Forgets every loaded archive.
+    void clear();
     void addArchive(const std::filesystem::path& path);
+    // Puts the archives in file name order. Call after the last addArchive.
+    void sortArchives();
 
     const std::vector<TilesetArchive>& archives() const { return archives_; }
     int sectionCount() const;
@@ -55,6 +69,14 @@ private:
     std::vector<TilesetArchive> archives_;
 };
 
-std::vector<std::filesystem::path> defaultTilesetDirectories();
+// The folder that holds the running program. Empty when the system will not say.
+// A macOS app bundle reports the folder that holds the .app, so tilesets sit
+// beside GalaxyEditor.app instead of buried inside it.
+std::filesystem::path programDirectory();
+
+// Maps the folder of an executable to the folder users put archives in. For
+// /Apps/Galaxy/GalaxyEditor.app/Contents/MacOS it gives /Apps/Galaxy. Any other
+// folder comes back unchanged.
+std::filesystem::path folderBesideAppBundle(const std::filesystem::path& executableDirectory);
 
 }  // namespace galaxy

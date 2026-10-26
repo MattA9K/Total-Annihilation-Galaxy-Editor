@@ -22,9 +22,17 @@
 #endif
 
 namespace galaxy {
-namespace {
 
-std::filesystem::path executableDirectory() {
+std::filesystem::path folderBesideAppBundle(const std::filesystem::path& executableDirectory) {
+    const std::filesystem::path contents = executableDirectory.parent_path();
+    const std::filesystem::path bundle = contents.parent_path();
+    if (executableDirectory.filename() == "MacOS" && contents.filename() == "Contents" && bundle.extension() == ".app") {
+        return bundle.parent_path();
+    }
+    return executableDirectory;
+}
+
+std::filesystem::path programDirectory() {
 #if defined(__APPLE__)
     std::uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);
@@ -32,7 +40,7 @@ std::filesystem::path executableDirectory() {
     if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
         return {};
     }
-    return std::filesystem::path(buffer.c_str()).parent_path();
+    return folderBesideAppBundle(std::filesystem::path(buffer.c_str()).parent_path());
 #elif defined(_WIN32)
     wchar_t buffer[MAX_PATH];
     const DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
@@ -50,6 +58,8 @@ std::filesystem::path executableDirectory() {
     return std::filesystem::path(buffer).parent_path();
 #endif
 }
+
+namespace {
 
 std::string lower(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
@@ -362,32 +372,53 @@ void TilesetLibrary::addArchive(const std::filesystem::path& path) {
     archives_.push_back(std::move(info));
 }
 
-std::vector<std::filesystem::path> defaultTilesetDirectories() {
-    std::vector<std::filesystem::path> directories;
-    directories.push_back(std::filesystem::path(GALAXY_SOURCE_DIR));
-    if (const auto exe = executableDirectory(); !exe.empty()) {
-        directories.push_back(exe);
+std::vector<std::filesystem::path> TilesetLibrary::archivePathsIn(const std::filesystem::path& directory) {
+    std::vector<std::filesystem::path> found;
+    std::error_code error;
+    if (directory.empty() || !std::filesystem::is_directory(directory, error)) {
+        return found;
     }
-    directories.push_back(std::filesystem::current_path());
-    return directories;
-}
-
-void TilesetLibrary::loadDefaultLocations() {
-    for (const std::filesystem::path& directory : defaultTilesetDirectories()) {
-        std::error_code error;
-        if (!std::filesystem::is_directory(directory, error)) {
+    for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
+        if (error) {
+            break;
+        }
+        std::error_code entryError;
+        if (!entry.is_regular_file(entryError) || !isGameArchive(entry.path())) {
             continue;
         }
-        for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
-            if (error || !entry.is_regular_file()) {
-                continue;
-            }
-            if (!isGameArchive(entry.path())) {
-                continue;
-            }
-            addArchive(entry.path());
-        }
+        found.push_back(entry.path());
     }
+    std::sort(found.begin(), found.end(), [](const std::filesystem::path& a, const std::filesystem::path& b) {
+        return lower(a.filename().string()) < lower(b.filename().string());
+    });
+    return found;
+}
+
+std::vector<std::filesystem::path> TilesetLibrary::archivePathsFor(
+    const std::filesystem::path& gameFolder,
+    const std::filesystem::path& programFolder) {
+    std::vector<std::filesystem::path> paths = archivePathsIn(gameFolder);
+    std::vector<std::string> taken;
+    taken.reserve(paths.size());
+    for (const std::filesystem::path& path : paths) {
+        taken.push_back(lower(path.filename().string()));
+    }
+    for (const std::filesystem::path& path : archivePathsIn(programFolder)) {
+        const std::string name = lower(path.filename().string());
+        if (std::find(taken.begin(), taken.end(), name) != taken.end()) {
+            continue;
+        }
+        taken.push_back(name);
+        paths.push_back(path);
+    }
+    return paths;
+}
+
+void TilesetLibrary::clear() {
+    archives_.clear();
+}
+
+void TilesetLibrary::sortArchives() {
     std::sort(archives_.begin(), archives_.end(), [](const TilesetArchive& a, const TilesetArchive& b) {
         const std::string left = lower(a.path.filename().string());
         const std::string right = lower(b.path.filename().string());

@@ -2,8 +2,10 @@
 
 #include "core/EditorSettings.hpp"
 #include "core/MapGenerator.hpp"
+#include "core/Version.hpp"
 #include "format/GafImage.hpp"
 #include "platform/FileDialog.hpp"
+#include "platform/SystemAppearance.hpp"
 #include "ui/Theme.hpp"
 
 #if defined(__APPLE__)
@@ -11,6 +13,10 @@
 #include <OpenGL/gl3.h>
 #else
 #include <GL/gl.h>
+// The Windows header stops at OpenGL 1.1, which predates this constant.
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
 #endif
 
 #include <imgui.h>
@@ -203,6 +209,22 @@ bool textHas(std::string_view haystack, std::string_view needle) {
     return lowerText(haystack).find(lowerText(needle)) != std::string::npos;
 }
 
+// needleFolded must already be lower case. Compares without building any strings.
+bool containsFolded(std::string_view haystack, std::string_view needleFolded) {
+    if (needleFolded.empty()) {
+        return true;
+    }
+    if (needleFolded.size() > haystack.size()) {
+        return false;
+    }
+    const auto fold = [](char character) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    };
+    return std::search(haystack.begin(), haystack.end(), needleFolded.begin(), needleFolded.end(),
+               [&](char left, char right) { return fold(left) == right; })
+        != haystack.end();
+}
+
 std::string trimmed(std::string_view text) {
     std::size_t begin = 0;
     while (begin < text.size() && std::isspace(static_cast<unsigned char>(text[begin])) != 0) {
@@ -241,11 +263,81 @@ std::string fitLabel(const std::string& text, float width) {
 }  // namespace
 
 void EditorApp::loadTilesets() {
+    beginLoadingTilesets();
+    while (loadingTilesets()) {
+        continueLoadingTilesets(std::chrono::milliseconds(1000));
+    }
+}
+
+void EditorApp::beginLoadingTilesets() {
     loadEditorOptions();
-    try {
-        tilesets_.loadDefaultLocations();
-    } catch (const std::exception& ex) {
-        error_ = ex.what();
+    std::error_code folderError;
+    gameFolderFound_ = !gameFolder_.empty() && std::filesystem::is_directory(gameFolder_, folderError);
+    gameFolderArchives_ = TilesetLibrary::archivePathsIn(gameFolder_).size();
+    tilesetLoadQueue_ = TilesetLibrary::archivePathsFor(gameFolder_, programDirectory());
+    tilesetLoadNext_ = 0;
+    tilesetLoadFailures_.clear();
+    if (tilesetLoadQueue_.empty()) {
+        tilesets_.sortArchives();
+    }
+}
+
+void EditorApp::reloadTilesets() {
+    tilesets_.clear();
+    tilesetLoadQueue_.clear();
+    tilesetLoadNext_ = 0;
+    loadQueue_.clear();
+    categories_.clear();
+    for (CachedSection& section : sections_) {
+        destroyTexture(section.preview);
+    }
+    sections_.clear();
+    selectedSection_ = -1;
+    ghostFor_ = -1;
+    destroyTexture(ghostTexture_);
+    for (auto& entry : featureSprites_) {
+        destroyTexture(entry.second.texture);
+    }
+    featureSprites_.clear();
+    armedFeature_.clear();
+    tilesetIndex_.clear();
+    tilesetIndexArchives_ = 0;
+    tilesetIndexSections_ = -1;
+    tilesetQueryApplied_.clear();
+    beginLoadingTilesets();
+}
+
+std::string EditorApp::tilesetLoadNextName() const {
+    if (tilesetLoadNext_ >= tilesetLoadQueue_.size()) {
+        return {};
+    }
+    return tilesetLoadQueue_[tilesetLoadNext_].filename().string();
+}
+
+void EditorApp::continueLoadingTilesets(std::chrono::milliseconds budget) {
+    const auto started = std::chrono::steady_clock::now();
+    while (tilesetLoadNext_ < tilesetLoadQueue_.size()) {
+        const std::filesystem::path& path = tilesetLoadQueue_[tilesetLoadNext_];
+        try {
+            tilesets_.addArchive(path);
+        } catch (const std::exception& ex) {
+            tilesetLoadFailures_.push_back(path.filename().string() + ": " + ex.what());
+        }
+        ++tilesetLoadNext_;
+        if (std::chrono::steady_clock::now() - started >= budget) {
+            break;
+        }
+    }
+    if (tilesetLoadNext_ >= tilesetLoadQueue_.size()) {
+        tilesets_.sortArchives();
+        if (!tilesetLoadFailures_.empty()) {
+            std::string message = "Some tileset archives could not be opened.";
+            for (const std::string& failure : tilesetLoadFailures_) {
+                message += "\n" + failure;
+            }
+            error_ = message;
+            tilesetLoadFailures_.clear();
+        }
     }
 }
 
@@ -346,6 +438,7 @@ void EditorApp::renderViewport(float canvasWidth, float canvasHeight) {
     viewZoom_ = zoom_;
     viewCanvasW_ = canvasWidth;
     viewCanvasH_ = canvasHeight;
+    ++viewGeneration_;
 }
 
 void EditorApp::renderHeightOverlay(float canvasWidth, float canvasHeight) {
@@ -397,112 +490,136 @@ void EditorApp::renderHeightOverlay(float canvasWidth, float canvasHeight) {
     heightDirty_ = false;
 }
 
+void EditorApp::toggleSelectMode() {
+    selectionMode_ = !selectionMode_;
+    selecting_ = false;
+    pasteArmed_ = false;
+}
+
+void EditorApp::toggleDeleteMode() {
+    featureDelete_ = !featureDelete_;
+    if (featureDelete_) {
+        armedFeature_.clear();
+    }
+}
+
 void EditorApp::drawToolbar() {
-    theme::toolbarBackground();
-    if (theme::toggleButton("Select", selectionMode_)) {
-        selectionMode_ = !selectionMode_;
-        selecting_ = false;
-        pasteArmed_ = false;
+    using theme::ToolIcon;
+    drawToolbarBackground();
+    const float gap = theme::toolbarGap();
+    const auto next = [&]() { ImGui::SameLine(0.0f, gap); };
+
+    // Select is a two-state control, so it carries a label for each state.
+    if (theme::toolbarItem("select", ToolIcon::Select, selectionMode_ ? "Selecting" : "Select", selectionMode_, "Selecting")) {
+        toggleSelectMode();
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Drag a rectangle around tiles. Shift-drag adds to the selection. Shift+Ctrl-drag removes from it");
+        ImGui::SetTooltip("Select Tiles\nDrag a rectangle around tiles. Shift-drag adds to the selection. Shift+Ctrl-drag removes from it");
     }
     theme::toolbarSeparator();
+
     ImGui::BeginDisabled(!map_ || !hasSelection());
-    if (ImGui::Button("Cut")) {
+    if (theme::toolbarItem("cut", ToolIcon::Cut, "Cut")) {
         cutSelection();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Copy Terrain + Height Map")) {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Cut\nRemove the selected tiles and keep a copy to paste");
+    }
+    next();
+    if (theme::toolbarItem("copy", ToolIcon::Copy, "Copy")) {
         copySelection(false);
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Copy the selected tiles and their heights");
+        ImGui::SetTooltip("Copy Terrain + Height Map\nCopy the selected tiles and their heights");
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Copy Height Map")) {
+    next();
+    if (theme::toolbarItem("copy-heights", ToolIcon::CopyHeights, "Copy Heights")) {
         copySelection(true);
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Copy only the heights in the selection. Paste leaves the tiles in place");
+        ImGui::SetTooltip("Copy Height Map\nCopy only the heights in the selection. Paste leaves the tiles in place");
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
+    next();
     ImGui::BeginDisabled(!map_ || !clipboard_);
-    if (theme::toggleButton("Paste", pasteArmed_)) {
+    if (theme::toolbarItem("paste", ToolIcon::Paste, pasteArmed_ ? "Pasting" : "Paste", pasteArmed_, "Pasting")) {
         armPaste();
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Leave select mode. Drag to pan, then click to place the copy");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Paste\nLeave select mode. Drag to pan, then click to place the copy");
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
+
     ImGui::BeginDisabled(!map_ || !hasSelection());
-    if (ImGui::Button(theme::withEllipsis("Modify Height").c_str())) {
+    if (theme::toolbarItem("modify-height", ToolIcon::ModifyHeight, "Modify Height")) {
         showModifyHeight_ = true;
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Add, subtract, or set the height of the selected tiles");
+        ImGui::SetTooltip("Modify Height\nAdd, subtract, or set the height of the selected tiles");
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Blend Textures")) {
+    next();
+    if (theme::toolbarItem("blend", ToolIcon::Blend, "Blend")) {
         blendSelection();
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Fade the textures across edges where selected tiles touch");
+        ImGui::SetTooltip("Blend Textures\nFade the textures across edges where selected tiles touch");
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
-    if (theme::toggleButton("Height Map", showHeightGrid_)) {
+
+    if (theme::toolbarItem("height-map", ToolIcon::HeightMap, showHeightGrid_ ? "Hide Heights" : "Show Heights", showHeightGrid_, "Show Heights")) {
         showHeightGrid_ = !showHeightGrid_;
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Show or hide the height grid");
+        ImGui::SetTooltip(showHeightGrid_ ? "Hide the height grid" : "Show the height grid");
     }
     theme::toolbarSeparator();
+
     ImGui::BeginDisabled(!map_ || undo_.empty());
-    if (ImGui::Button("Undo")) {
+    if (theme::toolbarItem("undo", ToolIcon::Undo, "Undo")) {
         undoPlacement();
     }
-    ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("Undo the last tile edit");
     }
-    ImGui::SameLine();
+    ImGui::EndDisabled();
+    next();
     ImGui::BeginDisabled(!map_ || redo_.empty());
-    if (ImGui::Button("Redo")) {
+    if (theme::toolbarItem("redo", ToolIcon::Redo, "Redo")) {
         redoPlacement();
     }
-    ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("Redo the tile edit that was undone");
     }
+    ImGui::EndDisabled();
     theme::toolbarSeparator();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Opacity:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::CalcTextSize("100%").x + ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x * 2.0f);
-    const std::string opacityLabel = std::to_string(placeOpacity_) + "%";
-    if (ImGui::BeginCombo("##opacity", opacityLabel.c_str())) {
+
+    const std::string opacityLabel = "Opacity " + std::to_string(placeOpacity_) + "%";
+    if (theme::toolbarItem("opacity", ToolIcon::Opacity, opacityLabel.c_str(), false, "Opacity 100%")) {
+        ImGui::OpenPopup("opacity-menu");
+    }
+    const ImVec2 opacityMin = ImGui::GetItemRectMin();
+    const ImVec2 opacityMax = ImGui::GetItemRectMax();
+    if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("opacity-menu")) {
+        ImGui::SetTooltip("Mix the placed tile into the tile already on the map. 100%% replaces it.");
+    }
+    ImGui::SetNextWindowPos(ImVec2(opacityMin.x, opacityMax.y + 2.0f));
+    if (ImGui::BeginPopup("opacity-menu")) {
         for (int value = 5; value <= 100; value += 5) {
             const std::string choice = std::to_string(value) + "%";
-            if (ImGui::Selectable(choice.c_str(), placeOpacity_ == value)) {
+            if (ImGui::MenuItem(choice.c_str(), nullptr, placeOpacity_ == value)) {
                 placeOpacity_ = value;
             }
         }
-        ImGui::EndCombo();
+        ImGui::EndPopup();
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Mix the placed tile into the tile already on the map. 100%% replaces it.");
-    }
+
     if (featuresTab_) {
         theme::toolbarSeparator();
         ImGui::BeginDisabled(!map_);
-        if (theme::toggleButton("Delete", featureDelete_)) {
-            featureDelete_ = !featureDelete_;
-            if (featureDelete_) {
-                armedFeature_.clear();
-            }
+        if (theme::toolbarItem("delete", ToolIcon::Delete, featureDelete_ ? "Deleting" : "Delete", featureDelete_, "Deleting")) {
+            toggleDeleteMode();
         }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -1107,9 +1224,251 @@ void EditorApp::drawStartLocations() {
     }
 }
 
+void EditorApp::rebuildTilesetIndex() {
+    tilesetIndex_.clear();
+    for (std::size_t archiveIndex = 0; archiveIndex < tilesets_.archives().size(); ++archiveIndex) {
+        const TilesetArchive& archive = tilesets_.archives()[archiveIndex];
+        std::map<std::string, std::map<std::string, std::vector<std::uint32_t>>> grouped;
+        for (std::size_t i = 0; i < archive.sections.size(); ++i) {
+            const TilesetSection& section = archive.sections[i];
+            grouped[section.world][section.category].push_back(static_cast<std::uint32_t>(i));
+        }
+        TilesetIndexArchive row;
+        row.archiveIndex = archiveIndex;
+        row.filename = archive.path.filename().string();
+        row.title = row.filename + "  \xC2\xB7  " + std::to_string(archive.sections.size()) + " sections";
+        for (auto& [world, categories] : grouped) {
+            TilesetIndexWorld worldRow;
+            worldRow.name = world;
+            for (auto& [category, ids] : categories) {
+                TilesetIndexCategory categoryRow;
+                categoryRow.name = category;
+                categoryRow.total = static_cast<int>(ids.size());
+                categoryRow.shown = categoryRow.total;
+                categoryRow.sectionIds = std::move(ids);
+                worldRow.categories.push_back(std::move(categoryRow));
+            }
+            row.worlds.push_back(std::move(worldRow));
+        }
+        tilesetIndex_.push_back(std::move(row));
+    }
+    tilesetIndexArchives_ = tilesets_.archives().size();
+    tilesetIndexSections_ = tilesets_.sectionCount();
+    tilesetQueryApplied_ = "\x01";  // forces the next search pass
+}
+
+void EditorApp::applyTilesetSearch(const std::string& query) {
+    tilesetQueryApplied_ = query;
+    tilesetQueryFolded_ = lowerText(query);
+    const std::string& needle = tilesetQueryFolded_;
+    const bool searching = !needle.empty();
+
+    // Opening a category loads and decodes every picture in it, so a short
+    // query that matches hundreds of categories must not open them all.
+    constexpr int kMaxAutoOpenCategories = 6;
+    constexpr int kMaxAutoOpenWorlds = 60;
+    int matchedCategories = 0;
+
+    for (TilesetIndexArchive& archive : tilesetIndex_) {
+        const TilesetArchive& source = tilesets_.archives()[archive.archiveIndex];
+        const bool archiveNamed = searching && containsFolded(archive.filename, needle);
+        archive.visible = false;
+        for (TilesetIndexWorld& world : archive.worlds) {
+            const bool worldHit = !searching || archiveNamed || containsFolded(world.name, needle);
+            world.visible = false;
+            world.openOnSearch = false;
+            for (TilesetIndexCategory& category : world.categories) {
+                category.openOnSearch = false;
+                category.filterNames = false;
+                category.shown = category.total;
+                if (!searching) {
+                    category.visible = true;
+                    world.visible = true;
+                    continue;
+                }
+                const bool categoryHit = containsFolded(category.name, needle);
+                int nameHits = 0;
+                if (!worldHit || !categoryHit) {
+                    for (const std::uint32_t id : category.sectionIds) {
+                        if (containsFolded(source.sections[id].name, needle)) {
+                            ++nameHits;
+                        }
+                    }
+                }
+                category.visible = worldHit || categoryHit || nameHits > 0;
+                if (!category.visible) {
+                    continue;
+                }
+                world.visible = true;
+                category.filterNames = !worldHit && !categoryHit;
+                category.shown = category.filterNames ? nameHits : category.total;
+                if (categoryHit || nameHits > 0) {
+                    category.openOnSearch = true;
+                    world.openOnSearch = true;
+                    ++matchedCategories;
+                }
+            }
+            archive.visible = archive.visible || world.visible;
+        }
+    }
+
+    if (matchedCategories > kMaxAutoOpenWorlds) {
+        for (TilesetIndexArchive& archive : tilesetIndex_) {
+            for (TilesetIndexWorld& world : archive.worlds) {
+                world.openOnSearch = false;
+            }
+        }
+    }
+    if (matchedCategories > kMaxAutoOpenCategories) {
+        for (TilesetIndexArchive& archive : tilesetIndex_) {
+            for (TilesetIndexWorld& world : archive.worlds) {
+                for (TilesetIndexCategory& category : world.categories) {
+                    category.openOnSearch = false;
+                }
+            }
+        }
+    }
+    tilesetQueryOpenPending_ = searching;
+}
+
+// Settles on light or dark. While the choice is Auto the system is asked every
+// couple of seconds, on a worker thread because some systems answer by running a
+// helper program, so a change made in the system settings shows up here shortly.
+void EditorApp::updateAppearance() {
+    using namespace std::chrono_literals;
+    if (appearanceMode_ == 0) {
+        const auto now = std::chrono::steady_clock::now();
+        if (!systemDarkKnown_) {
+            // The first answer is taken at once so the window opens in the right look.
+            systemDark_ = systemPrefersDarkMode();
+            systemDarkKnown_ = true;
+            systemDarkAsked_ = now;
+        } else if (systemDarkProbe_.valid()) {
+            if (systemDarkProbe_.wait_for(0s) == std::future_status::ready) {
+                systemDark_ = systemDarkProbe_.get();
+            }
+        } else if (now - systemDarkAsked_ >= 2s) {
+            systemDarkAsked_ = now;
+            systemDarkProbe_ = std::async(std::launch::async, systemPrefersDarkMode);
+        }
+    }
+    const bool wantDark = appearanceMode_ == 2 || (appearanceMode_ == 0 && systemDark_);
+    if (!appearanceApplied_ || wantDark != theme::dark()) {
+        theme::setDark(wantDark);
+        // The glass was tinted for the old look.
+        ++viewGeneration_;
+        appearanceApplied_ = true;
+    }
+    if (nativeAppearanceApplied_ != appearanceMode_) {
+        applyNativeAppearance(appearanceMode_);
+        nativeAppearanceApplied_ = appearanceMode_;
+    }
+}
+
+// Redraws a panel's glass only when the map behind it has changed. The picture is
+// a quarter-size copy of the map under the panel plus a strip around it (so the
+// blur has real neighbors at the edges), which keeps the work tiny.
+bool EditorApp::updateGlass(GlassPanel& panel, float left, float top, float width, float height) {
+    constexpr float kEdgeStrip = 48.0f;
+    constexpr float kPixelsPerGlassPixel = 4.0f;
+    if (!frostedGlass_ || !map_ || zoom_ <= 0.0f || panel.blur.failed() || width < 8.0f || height < 8.0f) {
+        return false;
+    }
+    const float regionW = width + kEdgeStrip * 2.0f;
+    const float regionH = height + kEdgeStrip * 2.0f;
+    const int texW = std::max(2, static_cast<int>(std::lround(regionW / kPixelsPerGlassPixel)));
+    const int texH = std::max(2, static_cast<int>(std::lround(regionH / kPixelsPerGlassPixel)));
+    // Where the map's top-left corner falls inside the glass region.
+    const float panX = panX_ + mapOriginX_ - (left - kEdgeStrip);
+    const float panY = panY_ + mapOriginY_ - (top - kEdgeStrip);
+
+    const bool unchanged = panel.blur.texture() != 0
+        && panel.generation == viewGeneration_
+        && panel.texW == texW
+        && panel.texH == texH
+        && panel.panX == panX
+        && panel.panY == panY
+        && panel.zoom == zoom_;
+    if (unchanged) {
+        return true;
+    }
+
+    panel.image.resize(static_cast<std::size_t>(texW) * static_cast<std::size_t>(texH) * 4);
+    renderMapView(*map_, panel.image.data(), texW, texH, regionW, regionH, panX, panY, zoom_);
+
+    GlassBlur::Settings settings;
+    const theme::GlassStyle& style = theme::glassStyle();
+    settings.whiteness = style.amount;
+    settings.saturation = style.saturation;
+    settings.tintRed = style.tint.x;
+    settings.tintGreen = style.tint.y;
+    settings.tintBlue = style.tint.z;
+    const ImVec4 canvas = ImGui::ColorConvertU32ToFloat4(theme::canvasColor());
+    settings.backgroundRed = canvas.x;
+    settings.backgroundGreen = canvas.y;
+    settings.backgroundBlue = canvas.z;
+    if (!panel.blur.update(panel.image.data(), texW, texH, settings)) {
+        return false;
+    }
+    panel.generation = viewGeneration_;
+    panel.texW = texW;
+    panel.texH = texH;
+    panel.panX = panX;
+    panel.panY = panY;
+    panel.zoom = zoom_;
+    return true;
+}
+
+bool EditorApp::drawGlass(GlassPanel& panel, float left, float top, float right, float bottom, float rounding) {
+    constexpr float kEdgeStrip = 48.0f;
+    const float width = right - left;
+    const float height = bottom - top;
+    if (!updateGlass(panel, left, top, width, height)) {
+        return false;
+    }
+    // Show only the middle of the picture; the strip around it was there for the blur.
+    const float regionW = width + kEdgeStrip * 2.0f;
+    const float regionH = height + kEdgeStrip * 2.0f;
+    const ImVec2 uv0(kEdgeStrip / regionW, kEdgeStrip / regionH);
+    const ImVec2 uv1((kEdgeStrip + width) / regionW, (kEdgeStrip + height) / regionH);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    if (rounding > 0.0f) {
+        draw->AddImageRounded(textureId(panel.blur.texture()), ImVec2(left, top), ImVec2(right, bottom), uv0, uv1, IM_COL32_WHITE, rounding);
+    } else {
+        draw->AddImage(textureId(panel.blur.texture()), ImVec2(left, top), ImVec2(right, bottom), uv0, uv1);
+    }
+    return true;
+}
+
+void EditorApp::drawSidebarBackground() {
+    const ImVec2 min = ImGui::GetWindowPos();
+    const ImVec2 size = ImGui::GetWindowSize();
+    if (!drawGlass(sidebarGlass_, min.x, min.y, min.x + size.x, min.y + size.y, 0.0f)) {
+        theme::sidebarBackground();
+        return;
+    }
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddLine(ImVec2(min.x + size.x - 1.0f, min.y), ImVec2(min.x + size.x - 1.0f, min.y + size.y), theme::glassStyle().border);
+}
+
+void EditorApp::drawToolbarBackground() {
+    const ImVec2 min = ImGui::GetWindowPos();
+    const ImVec2 size = ImGui::GetWindowSize();
+    const ImVec2 max(min.x + size.x, min.y + size.y);
+    if (!drawGlass(toolbarGlass_, min.x, min.y, max.x, max.y, 0.0f)) {
+        theme::toolbarBackground();
+        return;
+    }
+    // A soft sheen from light at the top to a touch of shade at the bottom keeps the bar reading as a bar.
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const theme::GlassStyle& style = theme::glassStyle();
+    draw->AddRectFilledMultiColor(min, max, style.sheenTop, style.sheenTop, style.sheenBottom, style.sheenBottom);
+    draw->AddLine(ImVec2(min.x, max.y - 1.0f), ImVec2(max.x, max.y - 1.0f), style.border);
+}
+
 void EditorApp::drawSidebar() {
     ImGui::BeginChild("sidebar", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    theme::sidebarBackground();
+    drawSidebarBackground();
     ImGui::SetWindowFontScale(std::clamp(sidebarFontPercent_, 75, 200) / 100.0f);
     static const char* const kSidebarTabs[] = {"Tilesets", "Features", "Start Locations"};
     theme::segmented("sidebar-tabs", kSidebarTabs, 3, sidebarTab_, true);
@@ -1134,85 +1493,53 @@ void EditorApp::drawSidebar() {
     }
     ImGui::Separator();
     if (tilesets_.archives().empty()) {
-        ImGui::TextWrapped("No .hpi tileset was found next to Galaxy Editor. Put archives such as GreenWorld.hpi in the GalaxyEditor folder.");
+        if (loadingTilesets()) {
+            ImGui::TextWrapped("Loading tileset archives...");
+        } else if (gameFolder_.empty()) {
+            ImGui::TextWrapped("The Total Annihilation folder is not set. Choose it in Options to load the game's tilesets.");
+        } else if (!gameFolderFound_) {
+            ImGui::TextWrapped("The Total Annihilation folder was not found. Choose it again in Options.");
+        } else {
+            ImGui::TextWrapped("No tileset archives (.hpi, .ccx, .gp3, or .gpf) were found in the Total Annihilation folder or beside Galaxy Editor.");
+        }
     }
+    if (tilesetIndexArchives_ != tilesets_.archives().size() || tilesetIndexSections_ != tilesets_.sectionCount()) {
+        rebuildTilesetIndex();
+    }
+    if (query != tilesetQueryApplied_) {
+        applyTilesetSearch(query);
+    }
+    const bool openFromSearch = tilesetQueryOpenPending_;
+    tilesetQueryOpenPending_ = false;
     int visibleArchives = 0;
-    for (std::size_t archiveIndex = 0; archiveIndex < tilesets_.archives().size(); ++archiveIndex) {
-        const TilesetArchive& archive = tilesets_.archives()[archiveIndex];
-        const std::string filename = archive.path.filename().string();
-        const bool archiveNamed = !query.empty() && textHas(filename, query);
-        struct CatInfo {
-            int total = 0;
-            int nameHits = 0;
-            bool categoryHit = false;
-        };
-        std::map<std::string, std::map<std::string, CatInfo>> grouped;
-        for (const TilesetSection& section : archive.sections) {
-            CatInfo& info = grouped[section.world][section.category];
-            ++info.total;
-            if (!query.empty() && textHas(section.name, query)) {
-                ++info.nameHits;
-            }
-            if (!query.empty() && textHas(section.category, query)) {
-                info.categoryHit = true;
-            }
-        }
-        struct VisibleCat {
-            std::string category;
-            int shown = 0;
-            bool expand = false;
-            bool filterNames = false;
-        };
-        struct VisibleWorld {
-            std::string world;
-            bool expand = false;
-            std::vector<VisibleCat> categories;
-        };
-        std::vector<VisibleWorld> visibleWorlds;
-        for (const auto& [world, categories] : grouped) {
-            const bool worldHit = query.empty() || archiveNamed || textHas(world, query);
-            VisibleWorld row;
-            row.world = world;
-            for (const auto& [category, info] : categories) {
-                if (!query.empty() && !worldHit && !info.categoryHit && info.nameHits == 0) {
-                    continue;
-                }
-                VisibleCat cat;
-                cat.category = category;
-                cat.filterNames = !query.empty() && !worldHit && !archiveNamed && !info.categoryHit;
-                cat.shown = cat.filterNames ? info.nameHits : info.total;
-                cat.expand = !query.empty() && (info.categoryHit || info.nameHits > 0);
-                if (cat.expand) {
-                    row.expand = true;
-                }
-                row.categories.push_back(std::move(cat));
-            }
-            if (!row.categories.empty()) {
-                visibleWorlds.push_back(std::move(row));
-            }
-        }
-        if (visibleWorlds.empty()) {
+    for (const TilesetIndexArchive& indexed : tilesetIndex_) {
+        if (!indexed.visible) {
             continue;
         }
         ++visibleArchives;
+        const std::size_t archiveIndex = indexed.archiveIndex;
         ImGui::PushID(static_cast<int>(archiveIndex));
-        const std::string archiveTitle = filename + "  \xC2\xB7  " + std::to_string(archive.sections.size()) + " sections";
-        theme::sourceListTitle(archiveTitle.c_str());
-        for (const VisibleWorld& world : visibleWorlds) {
-            if (world.expand) {
+        theme::sourceListTitle(indexed.title.c_str());
+        for (const TilesetIndexWorld& world : indexed.worlds) {
+            if (!world.visible) {
+                continue;
+            }
+            if (openFromSearch && world.openOnSearch) {
                 ImGui::SetNextItemOpen(true, ImGuiCond_Always);
             }
-            if (ImGui::TreeNode(world.world.c_str(), "%s", world.world.c_str())) {
-                for (const VisibleCat& category : world.categories) {
-                    const std::string key = categoryKey(archiveIndex, world.world, category.category);
-                    ImGui::PushID(category.category.c_str());
-                    if (category.expand) {
+            if (ImGui::TreeNode(world.name.c_str(), "%s", world.name.c_str())) {
+                for (const TilesetIndexCategory& category : world.categories) {
+                    if (!category.visible) {
+                        continue;
+                    }
+                    ImGui::PushID(category.name.c_str());
+                    if (openFromSearch && category.openOnSearch) {
                         ImGui::SetNextItemOpen(true, ImGuiCond_Always);
                     }
-                    const bool open = ImGui::TreeNodeEx("category", ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%d)", category.category.c_str(), category.shown);
+                    const bool open = ImGui::TreeNodeEx("category", ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%d)", category.name.c_str(), category.shown);
                     if (open) {
-                        requestCategory(archiveIndex, world.world, category.category);
-                        const CategoryPages& page = categories_.at(key);
+                        requestCategory(archiveIndex, world.name, category.name);
+                        const CategoryPages& page = categories_.at(categoryKey(archiveIndex, world.name, category.name));
                         const float image = static_cast<float>(previewSize_);
                         const ImGuiStyle& style = ImGui::GetStyle();
                         const float cardWidth = image + style.FramePadding.x * 2.0f;
@@ -1222,7 +1549,7 @@ void EditorApp::drawSidebar() {
                         shown.reserve(page.sections.size());
                         for (int index : page.sections) {
                             const CachedSection& cached = sections_[static_cast<std::size_t>(index)];
-                            if (category.filterNames && !textHas(cached.name, query)) {
+                            if (category.filterNames && !containsFolded(cached.name, tilesetQueryFolded_)) {
                                 continue;
                             }
                             shown.push_back(index);
@@ -1415,7 +1742,7 @@ void EditorApp::drawFeatures() {
     }
 
     if (catalog == 0) {
-        ImGui::TextWrapped("No feature records were found. Trees, rocks, metal, and vents are listed in features/*.tdf inside a game archive (.hpi, .ccx, .gp3, or .gpf). Put that archive next to Galaxy Editor.");
+        ImGui::TextWrapped("No feature records were found. Trees, rocks, metal, and vents are listed in features/*.tdf inside a game archive (.hpi, .ccx, .gp3, or .gpf). Set the Total Annihilation folder in Options to load them.");
         return;
     }
     if (groups.empty()) {
@@ -1512,6 +1839,8 @@ void EditorApp::drawMap() {
     mapCanvasW_ = canvas.x;
     mapCanvasH_ = canvas.y;
     const ImVec2 origin = ImGui::GetCursorScreenPos();
+    mapOriginX_ = origin.x;
+    mapOriginY_ = origin.y;
     ImGui::InvisibleButton("canvas", canvas, ImGuiButtonFlags_MouseButtonLeft);
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
@@ -2482,6 +2811,24 @@ void EditorApp::requestClose() {
     quit_ = true;
 }
 
+void EditorApp::drawAbout() {
+    if (aboutRequested_) {
+        ImGui::OpenPopup("About Galaxy Editor");
+        aboutRequested_ = false;
+    }
+    if (!ImGui::BeginPopupModal("About Galaxy Editor", nullptr, theme::alertFlags())) {
+        return;
+    }
+    // \xC2\xA9 is the copyright sign.
+    theme::alertText(applicationTitle().c_str(), "Copyright \xC2\xA9 2026 Black Cat Software\nDeveloped by Matt Andrzejczuk");
+    const float okWidth = theme::pushButtonWidth("OK");
+    theme::alignRight(okWidth);
+    if (theme::defaultButton("OK", ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 void EditorApp::drawClosePrompt() {
     if (!showClosePrompt_) {
         return;
@@ -2626,6 +2973,9 @@ void EditorApp::loadEditorOptions() {
     sidebarFontPercent_ = settings.sidebarFontPercent;
     autosaveMinutes_ = settings.autosaveMinutes;
     autosaveBackups_ = settings.autosaveBackups;
+    appearanceMode_ = settings.appearance;
+    gameFolder_ = settings.gameFolder;
+    gameFolderAsked_ = settings.gameFolderAsked;
 }
 
 void EditorApp::saveEditorOptions() const {
@@ -2635,6 +2985,9 @@ void EditorApp::saveEditorOptions() const {
     settings.sidebarFontPercent = sidebarFontPercent_;
     settings.autosaveMinutes = autosaveMinutes_;
     settings.autosaveBackups = autosaveBackups_;
+    settings.appearance = appearanceMode_;
+    settings.gameFolder = gameFolder_;
+    settings.gameFolderAsked = gameFolderAsked_;
     saveEditorSettings(editorSettingsPath(), settings);
 }
 
@@ -2877,6 +3230,29 @@ void EditorApp::drawMapSettings() {
     ImGui::End();
 }
 
+void EditorApp::setGameFolder(const std::filesystem::path& folder) {
+    gameFolder_ = folder;
+    // Clearing the folder returns to a first launch, so the next start asks again.
+    gameFolderAsked_ = !folder.empty();
+    saveEditorOptions();
+    reloadTilesets();
+}
+
+void EditorApp::chooseGameFolder() {
+    std::filesystem::path start = gameFolder_;
+    std::error_code error;
+    if (!start.empty() && !std::filesystem::is_directory(start, error)) {
+        start = start.parent_path();
+        if (!std::filesystem::is_directory(start, error)) {
+            start.clear();
+        }
+    }
+    const auto chosen = chooseFolderDialog("Select the Total Annihilation install folder", start);
+    if (chosen && *chosen != gameFolder_) {
+        setGameFolder(*chosen);
+    }
+}
+
 void EditorApp::drawOptions() {
     if (!showOptions_) {
         return;
@@ -2895,6 +3271,57 @@ void EditorApp::drawOptions() {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
     ImGui::PushItemWidth(width * 0.62f);
     bool optionsChanged = false;
+    ImGui::SeparatorText("Appearance");
+    {
+        static const char* const kAppearances[] = {"Auto", "Light", "Dark"};
+        if (theme::segmented("appearance", kAppearances, 3, appearanceMode_)) {
+            optionsChanged = true;
+        }
+    }
+    theme::helpText(
+        "Auto follows the light or dark setting of this computer and changes when it does. Where the system does not report a setting, Auto stays light.");
+    ImGui::SeparatorText("Total Annihilation");
+    if (gameFolder_.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+        ImGui::TextUnformatted("Not set");
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::TextWrapped("%s", pathToUtf8(gameFolder_).c_str());
+    }
+    if (loadingTilesets()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+        ImGui::Text("Loading %d of %d archives", static_cast<int>(tilesetLoadDone()), static_cast<int>(tilesetLoadTotal()));
+        ImGui::PopStyleColor();
+    } else if (!gameFolder_.empty() && !gameFolderFound_) {
+        ImGui::TextWrapped("This folder was not found.");
+    } else if (!gameFolder_.empty() && gameFolderArchives_ == 0) {
+        ImGui::TextWrapped("This folder has no .hpi, .ccx, .gp3, or .gpf archives.");
+    } else if (!gameFolder_.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+        ImGui::Text("%d archives loaded from this folder", static_cast<int>(gameFolderArchives_));
+        ImGui::PopStyleColor();
+    }
+    if (!loadingTilesets() && tilesetLoadTotal() > gameFolderArchives_) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+        ImGui::Text("%d more loaded from beside Galaxy Editor", static_cast<int>(tilesetLoadTotal() - gameFolderArchives_));
+        ImGui::PopStyleColor();
+    }
+    ImGui::Dummy(ImVec2(0.0f, 2.0f));
+    {
+        const std::string chooseLabel = theme::withEllipsis("Choose Folder");
+        const float chooseWidth = theme::pushButtonWidth(chooseLabel.c_str());
+        if (ImGui::Button(chooseLabel.c_str(), ImVec2(chooseWidth, 0.0f))) {
+            chooseGameFolder();
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(gameFolder_.empty());
+        if (ImGui::Button("Clear", ImVec2(theme::pushButtonWidth("Clear"), 0.0f))) {
+            setGameFolder({});
+        }
+        ImGui::EndDisabled();
+    }
+    theme::helpText(
+        "Galaxy Editor reads tilesets and features from the .hpi, .ccx, .gp3, and .gpf files in this folder, such as totala1.hpi. Archives in the folder beside Galaxy Editor load too, so you can add your own tilesets there. A file with the same name as one in this folder loads only once. Changing the folder reloads everything right away.");
     ImGui::SeparatorText("Tile Previews");
     optionsChanged |= ImGui::SliderInt("Preview size", &previewSize_, 32, 256, "%d px", ImGuiSliderFlags_AlwaysClamp);
     theme::helpText(
@@ -3099,7 +3526,7 @@ void EditorApp::drawGenerate() {
     ImGui::Spacing();
 
     if (worlds.empty()) {
-        ImGui::TextWrapped("No tileset is loaded. Put a world archive such as GreenWorld.hpi next to Galaxy Editor.");
+        ImGui::TextWrapped("No tileset is loaded. Set the Total Annihilation folder in Options to load the world archives.");
     } else if (ImGui::BeginCombo("World", genWorld_.c_str())) {
         for (const std::string& world : worlds) {
             if (ImGui::Selectable(world.c_str(), world == genWorld_)) {
@@ -3300,6 +3727,10 @@ void EditorApp::autosaveIfDue() {
 }
 
 bool EditorApp::draw() {
+    updateAppearance();
+    if (loadingTilesets()) {
+        continueLoadingTilesets(std::chrono::milliseconds(16));
+    }
     autosaveIfDue();
     const int placementId = pasteArmed_ ? -2 : selectedSection_;
     if (placementId != placementOffsetFor_) {
@@ -3438,6 +3869,28 @@ bool EditorApp::draw() {
             if (ImGui::MenuItem("Paste", theme::shortcut("V").c_str(), false, map_.has_value() && clipboard_.has_value())) {
                 armPaste();
             }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Select Tiles", nullptr, selectionMode_, map_.has_value())) {
+                toggleSelectMode();
+            }
+            if (ImGui::MenuItem(theme::withEllipsis("Modify Height").c_str(), nullptr, false, map_.has_value() && hasSelection())) {
+                showModifyHeight_ = true;
+            }
+            if (ImGui::MenuItem("Blend Textures", nullptr, false, map_.has_value() && hasSelection())) {
+                blendSelection();
+            }
+            if (ImGui::MenuItem("Delete Features", nullptr, featureDelete_, map_.has_value() && featuresTab_)) {
+                toggleDeleteMode();
+            }
+            if (ImGui::BeginMenu("Tile Opacity")) {
+                for (int value = 5; value <= 100; value += 5) {
+                    const std::string choice = std::to_string(value) + "%";
+                    if (ImGui::MenuItem(choice.c_str(), nullptr, placeOpacity_ == value)) {
+                        placeOpacity_ = value;
+                    }
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Map")) {
@@ -3468,14 +3921,24 @@ bool EditorApp::draw() {
                 ImGui::EndMenu();
             }
             ImGui::Separator();
+            if (ImGui::MenuItem(showHeightGrid_ ? "Hide Height Map" : "Show Height Map")) {
+                showHeightGrid_ = !showHeightGrid_;
+            }
             ImGui::MenuItem("Feature Markers", nullptr, &showFeatures_);
             ImGui::MenuItem("Start Positions", nullptr, &showStarts_);
             ImGui::MenuItem("Minimap", nullptr, &showMinimap_);
+            ImGui::MenuItem("Frosted Glass", nullptr, &frostedGlass_);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Options")) {
             if (ImGui::MenuItem(theme::withEllipsis("Editor Options").c_str(), theme::shortcut(",").c_str())) {
                 showOptions_ = true;
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Help")) {
+            if (ImGui::MenuItem("About Galaxy Editor")) {
+                aboutRequested_ = true;
             }
             ImGui::EndMenu();
         }
@@ -3485,14 +3948,7 @@ bool EditorApp::draw() {
     const ImGuiStyle& style = ImGui::GetStyle();
     const float top = ImGui::GetCursorPosY();
     const ImVec2 body = ImGui::GetContentRegionAvail();
-    const float toolbarHeight = std::floor(ImGui::GetFrameHeight() + 16.0f * ImGui::GetFontSize() / 13.0f);
-    ImGui::SetCursorPos(ImVec2(0.0f, top));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, std::floor((toolbarHeight - ImGui::GetFrameHeight()) * 0.5f)));
-    ImGui::BeginChild("toolbar", ImVec2(body.x, toolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::PopStyleVar();
-    drawToolbar();
-    ImGui::EndChild();
-
+    const float toolbarHeight = theme::toolbarHeight();
     const float cardWidth = static_cast<float>(previewSize_) + style.FramePadding.x * 2.0f;
     const float sidebarFontScale = std::clamp(sidebarFontPercent_, 75, 200) / 100.0f;
     const float sidebarWidth = std::clamp(
@@ -3503,13 +3959,22 @@ bool EditorApp::draw() {
     const float statusHeight = std::floor(ImGui::GetFrameHeight() + 2.0f);
     const float bodyTop = top + toolbarHeight;
     const float bodyHeight = std::max(1.0f, body.y - toolbarHeight - statusHeight);
-    ImGui::SetCursorPos(ImVec2(0.0f, bodyTop));
-    ImGui::BeginChild("sidebar-slot", ImVec2(sidebarWidth, bodyHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
-    drawSidebar();
-    ImGui::EndChild();
+    // The map goes first so that panning and zooming are settled before the
+    // toolbar and sidebar glass copy the part of the map that lies behind them.
     ImGui::SetCursorPos(ImVec2(sidebarWidth, bodyTop));
     ImGui::BeginChild("map-slot", ImVec2(std::max(1.0f, body.x - sidebarWidth), bodyHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
     drawMap();
+    ImGui::EndChild();
+    ImGui::SetCursorPos(ImVec2(0.0f, top));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, std::floor((toolbarHeight - theme::toolbarItemHeight()) * 0.5f)));
+    ImGui::BeginChild("toolbar", ImVec2(body.x, toolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    drawToolbar();
+    ImGui::EndChild();
+
+    ImGui::SetCursorPos(ImVec2(0.0f, bodyTop));
+    ImGui::BeginChild("sidebar-slot", ImVec2(sidebarWidth, bodyHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
+    drawSidebar();
     ImGui::EndChild();
     ImGui::SetCursorPos(ImVec2(0.0f, bodyTop + bodyHeight));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, std::floor((statusHeight - ImGui::GetTextLineHeight() * 11.0f / 13.0f) * 0.5f)));
@@ -3517,13 +3982,14 @@ bool EditorApp::draw() {
     ImGui::PopStyleVar();
     theme::bottomBarBackground();
     ImGui::PushFont(theme::smallFont());
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.27f, 0.27f, 0.27f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
     drawStatus();
     ImGui::PopStyleColor();
     ImGui::PopFont();
     ImGui::EndChild();
 
     drawClosePrompt();
+    drawAbout();
 
     if (!error_.empty()) {
         ImGui::OpenPopup("Error");
@@ -3630,13 +4096,29 @@ void EditorApp::drawMinimap() {
         ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - 280.0f, viewport->WorkPos.y + 28.0f),
         ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(ImVec2(80.0f, 60.0f), ImVec2(800.0f, 800.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse;
-    const bool visible = ImGui::Begin("Minimap", &showMinimap_, flags);
-    ImGui::PopStyleVar();
+    // The window draws its own glass, title and close button, because a title bar
+    // that ImGui draws would be painted before (and so hidden by) the glass.
+    constexpr float kRounding = 5.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 5.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, kRounding);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize
+        | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground;
+    const bool visible = ImGui::Begin("Minimap", nullptr, flags);
+    ImGui::PopStyleVar(3);
     if (!visible) {
         ImGui::End();
         return;
+    }
+
+    {
+        const ImVec2 windowMin = ImGui::GetWindowPos();
+        const ImVec2 windowSize = ImGui::GetWindowSize();
+        const ImVec2 windowMax(windowMin.x + windowSize.x, windowMin.y + windowSize.y);
+        if (!drawGlass(minimapGlass_, windowMin.x, windowMin.y, windowMax.x, windowMax.y, kRounding)) {
+            ImGui::GetWindowDrawList()->AddRectFilled(windowMin, windowMax, ImGui::GetColorU32(ImGuiCol_WindowBg), kRounding);
+        }
+        ImGui::GetWindowDrawList()->AddRect(windowMin, windowMax, theme::glassStyle().outline, kRounding);
     }
 
     ensureMinimap();
@@ -3644,6 +4126,30 @@ void EditorApp::drawMinimap() {
         ImGui::TextUnformatted("Minimap unavailable");
         ImGui::End();
         return;
+    }
+
+    {
+        const float startX = ImGui::GetCursorPosX();
+        ImGui::PushFont(theme::smallFont());
+        const float lineHeight = ImGui::GetTextLineHeight();
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::glassStyle().titleText);
+        ImGui::TextUnformatted("Minimap");
+        ImGui::PopStyleColor();
+        const float closeSize = lineHeight;
+        ImGui::SameLine(startX + miniDisplayW_ - closeSize, 0.0f);
+        const ImVec2 closeMin = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("minimap-close", ImVec2(closeSize, lineHeight))) {
+            showMinimap_ = false;
+        }
+        const bool closeHot = ImGui::IsItemHovered();
+        const ImVec2 center(closeMin.x + closeSize * 0.5f, closeMin.y + lineHeight * 0.5f);
+        const float arm = closeSize * 0.22f;
+        const ImU32 xColor = closeHot ? theme::glassStyle().closeMarkHot : theme::glassStyle().closeMark;
+        ImDrawList* titleDraw = ImGui::GetWindowDrawList();
+        titleDraw->AddLine(ImVec2(center.x - arm, center.y - arm), ImVec2(center.x + arm, center.y + arm), xColor, 1.5f);
+        titleDraw->AddLine(ImVec2(center.x - arm, center.y + arm), ImVec2(center.x + arm, center.y - arm), xColor, 1.5f);
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2(0.0f, 1.0f));
     }
 
     const ImVec2 imageSize(miniDisplayW_, miniDisplayH_);
