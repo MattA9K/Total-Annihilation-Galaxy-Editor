@@ -96,8 +96,10 @@ add_library(galaxy_format STATIC
     src/format/SctSection.cpp
     src/format/GafImage.cpp
     src/core/TilesetLibrary.cpp
+    src/core/FavoritesArchive.cpp
     src/core/MapGenerator.cpp
     src/core/EditorSettings.cpp
+    src/core/OrbitCamera.cpp
     src/core/Version.cpp
     "${VERSION_CPP}"
 )
@@ -150,6 +152,7 @@ add_executable(GalaxyEditor
     src/ui/Theme.cpp
     src/ui/ToolbarIcons.cpp
     src/ui/GlassBlur.cpp
+    src/ui/Terrain3D.cpp
     src/ui/Splash.cpp
     src/ui/StbImage.cpp
     "${EMBED_CPP}")

@@ -319,7 +319,22 @@ void TilesetLibrary::addArchive(const std::filesystem::path& path) {
             return;
         }
     }
+    archives_.push_back(openTilesetArchive(path));
+}
 
+std::size_t TilesetLibrary::refreshArchive(const std::filesystem::path& path) {
+    TilesetArchive fresh = openTilesetArchive(path);
+    for (std::size_t i = 0; i < archives_.size(); ++i) {
+        if (sameFile(archives_[i].path, path)) {
+            archives_[i] = std::move(fresh);
+            return i;
+        }
+    }
+    archives_.push_back(std::move(fresh));
+    return archives_.size() - 1;
+}
+
+TilesetArchive openTilesetArchive(const std::filesystem::path& path) {
     HpiArchive opened = HpiArchive::open(path);
     TilesetArchive info;
     info.path = path;
@@ -369,7 +384,7 @@ void TilesetLibrary::addArchive(const std::filesystem::path& path) {
         } catch (const std::exception&) {
         }
     }
-    archives_.push_back(std::move(info));
+    return info;
 }
 
 std::vector<std::filesystem::path> TilesetLibrary::archivePathsIn(const std::filesystem::path& directory) {

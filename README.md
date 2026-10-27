@@ -29,6 +29,8 @@ On macOS, open the disk image and drag Galaxy Editor to your Applications folder
 
 **The map itself.** Map Settings holds the values the game reads from the map: wind, tides, solar strength, gravity, sea level, metal, the AI profile, and the special rules. Generate Map builds a new landscape from a tileset. A minimap sits over the corner of the view, and undo covers tile, feature, and height edits.
 
+**3D view.** The 3D View button in the toolbar (View menu, Ctrl+3) shows the map as terrain, with the height map lifting the ground. A see-through plane marks the sea level from Map Settings, and Editor Options sets its color and opacity. The 3D view is for looking around, so edit in the flat view and switch back and forth as you like.
+
 ## Build
 
 You need CMake 3.24 or newer, a C++20 compiler, zlib, and OpenGL. The first configure downloads [GLFW](https://www.glfw.org/) 3.4 and [Dear ImGui](https://github.com/ocornut/imgui) 1.91.8, so that step needs a network connection.
@@ -86,6 +88,14 @@ These archives are game data. They are not part of this repository.
 
 Open Map reads `.ufo`, `.hpi`, and `.tnt`. Save writes a `.ufo`.
 
+## Favorites
+
+The Favorites tab, between Tilesets and Features, holds tiles you save yourself. In Select Tiles mode, select some tiles and right-click. The menu offers Cut, Copy, Copy Heights, Modify Height, Blend, and Add to Favorites. In the Tilesets tab, pointing at a picture shows a star button in its corner that adds that tile instead. In the Favorites tab, the same corner holds a trash button that deletes the tile after you confirm.
+
+Add to Favorites asks for three things: a favorites archive, a category, and a subcategory. Type new names or choose existing ones. The names work the way they do in the game's own tilesets: in `Acid_New_1.hpi` the category is Acid_New_1, and Rivers and Sm Lakes are its subcategories. Create Favorites Archive asks for a name such as FirstOne and writes `GE-Favorites-FirstOne.hpi` next to the `GalaxyEditor` executable (next to the `.app` on macOS).
+
+Only archives named `GE-Favorites-<name>.hpi` appear on the Favorites tab, and they are kept off the Tilesets tab. Inside, a tile is `sections/<category>/<subcategory>/<tile>.sct`, so the archive is an ordinary tileset that you can share by copying the file into someone else's folder. A saved tile is a full rectangle. When the selection has gaps, the tiles between the selected ones are saved too, because a section file has no room for holes. A tile can be at most 512 tiles on each side.
+
 ## Shortcuts
 
 On macOS, Command takes the place of Ctrl.
@@ -104,8 +114,11 @@ On macOS, Command takes the place of Ctrl.
 | Copy Height Map | Ctrl+Shift+C |
 | Paste | Ctrl+V |
 | Editor Options | Ctrl+, |
+| 3D View on or off | Ctrl+3 |
 
 The arrow keys slide a stamp or a paste off the tile under the cursor. Esc cancels a paste, leaves Delete mode, or clears the selection.
+
+In the 3D view, drag to orbit, right-drag or Shift-drag to pan, and scroll to zoom. W A S D (or the arrow keys) move over the ground, Shift moves faster, Q and E turn, and Home starts over.
 
 Editor Options are remembered the next time you open the editor. Preview size, height-map spacing, sidebar text size, and autosave all live there. Autosave writes a backup beside the map on a timer and leaves the file from Save alone.
 

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "core/OrbitCamera.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "format/MapFile.hpp"
 #include "format/SctSection.hpp"
 #include "ui/GlassBlur.hpp"
+#include "ui/Terrain3D.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -38,7 +40,7 @@ public:
     void openMap(const std::filesystem::path& path);
     bool draw();
     void requestClose();
-    bool selectionMode() const { return selectionMode_ && !featuresTab_; }
+    bool selectionMode() const { return selectionMode_ && !featuresTab_ && !view3d_; }
     bool hasSelection() const { return !selection_.empty(); }
 
     std::filesystem::path suggestedOpenDirectory() const;
@@ -92,6 +94,7 @@ private:
         std::string title;
         std::vector<TilesetIndexWorld> worlds;
         bool visible = true;
+        bool favorite = false;  // a GE-Favorites-<name>.hpi archive: shown on the Favorites tab only
     };
 
     void rebuildTilesetIndex();
@@ -103,6 +106,9 @@ private:
     void toggleSelectMode();
     void toggleDeleteMode();
     void drawSidebar();
+    // The tree of archives, categories and tiles. The Tilesets tab lists every
+    // archive except favorites archives, and the Favorites tab lists only those.
+    void drawTilesetBrowser(bool favorites);
     void drawSidebarBackground();
     void updateAppearance();
     void drawToolbarBackground();
@@ -145,6 +151,9 @@ private:
     const FeatureSprite* featurePicture(const std::string& name);
     bool featurePictureBounds(const std::string& name, int cellX, int cellY, float& x0, float& y0, float& x1, float& y1);
     void drawMap();
+    void drawMap3d();
+    void upload3d();
+    void set3dView(bool on);
     void drawStatus();
     void drawOptions();
     void drawMapSettings();
@@ -155,6 +164,16 @@ private:
     void drawGenerate();
     void drawNewMap();
     void drawModifyHeight();
+    void drawSelectionMenu();
+    // Favorites: tiles the user keeps in GE-Favorites-<name>.hpi archives.
+    void openAddToFavorites(SectionStamp stamp, std::string description, std::string note = {});
+    void drawAddFavorite();
+    void drawCreateFavorites();
+    void drawDeleteFavorite();
+    void requestDeleteFavorite(std::size_t archiveIndex, const CachedSection& section);
+    // Reads a favorites archive again after it changed and drops the pictures cached from it.
+    void refreshFavoritesArchive(const std::filesystem::path& path);
+    void createFavoritesArchiveNamed();
     void drawClosePrompt();
     void drawAbout();
     void drawMinimap();
@@ -215,6 +234,20 @@ private:
     // Counts every time the map picture is redrawn, so the sidebar glass knows when to follow.
     std::uint64_t viewGeneration_ = 0;
     bool frostedGlass_ = true;
+    // The 3D view of the map, which replaces the flat view while it is on.
+    bool view3d_ = false;
+    OrbitCamera camera3d_;
+    Terrain3D terrain3d_;
+    std::vector<std::uint8_t> colors3d_;
+    // Bumped whenever the map's tiles or heights change, so the 3D textures follow.
+    std::uint64_t mapRevision_ = 1;
+    std::uint64_t uploaded3dRevision_ = 0;
+    // Bumped when a different map is opened or created, which resets the camera.
+    std::uint64_t mapSerial_ = 1;
+    std::uint64_t framed3dSerial_ = 0;
+    // Sea plane in the 3D view: opacity in percent, and color as 0xRRGGBB.
+    int seaOpacity_ = 45;
+    int seaColor_ = 0x2E7FDC;
     GlassPanel sidebarGlass_;
     GlassPanel toolbarGlass_;
     GlassPanel minimapGlass_;
@@ -266,6 +299,27 @@ private:
     std::chrono::steady_clock::time_point systemDarkAsked_{};
     std::future<bool> systemDarkProbe_;
     char tilesetSearch_[128] = {};
+    char favoritesSearch_[128] = {};
+    // Right-click menu over the selected tiles.
+    bool selectionMenuRequested_ = false;
+    bool selectionMenuOpen_ = false;
+    // The Add to Favorites sheet. The archive and the names stay as they were last
+    // time, since people add several tiles to the same place in a row.
+    bool showAddFavorite_ = false;
+    std::optional<SectionStamp> favoriteStamp_;
+    std::string favoriteDescription_;
+    std::string favoriteNote_;
+    std::string favoriteProblem_;
+    GLuint favoritePreview_ = 0;
+    std::filesystem::path favoriteArchive_;
+    char favoriteCategory_[128] = {};
+    char favoriteSubcategory_[128] = {};
+    bool showCreateFavorites_ = false;
+    char favoriteNewName_[128] = {};
+    bool showDeleteFavorite_ = false;
+    std::filesystem::path deleteFavoriteArchive_;
+    std::string deleteFavoritePath_;
+    std::string deleteFavoriteName_;
     // Where Total Annihilation is installed. The tileset archives come from here.
     std::filesystem::path gameFolder_;
     bool gameFolderAsked_ = false;

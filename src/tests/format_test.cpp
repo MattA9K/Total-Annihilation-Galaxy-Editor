@@ -1,5 +1,7 @@
 #include "core/EditorSettings.hpp"
+#include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
+#include "core/OrbitCamera.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
@@ -10,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <filesystem>
@@ -1642,6 +1645,115 @@ void testAppearanceSettings() {
     std::filesystem::remove(settingsPath, ignored);
 }
 
+void testSeaSettings() {
+    const auto settingsPath = std::filesystem::temp_directory_path() / "galaxy-editor-sea-test.json";
+    galaxy::EditorSettings saved;
+    expect(saved.seaOpacity > 0 && saved.seaOpacity < 100, "the sea is translucent by default");
+    saved.seaOpacity = 72;
+    saved.seaColor = 0x12AB34;
+    galaxy::saveEditorSettings(settingsPath, saved);
+    const galaxy::EditorSettings loaded = galaxy::loadEditorSettings(settingsPath);
+    expect(loaded.seaOpacity == 72, "sea opacity survives a save and load");
+    expect(loaded.seaColor == 0x12AB34, "sea color survives a save and load");
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"seaOpacity\": 400, \"seaColor\": -5 }";
+    }
+    const galaxy::EditorSettings clamped = galaxy::loadEditorSettings(settingsPath);
+    expect(clamped.seaOpacity == 100, "an out-of-range sea opacity is clamped");
+    expect(clamped.seaColor == 0, "an out-of-range sea color is clamped");
+    {
+        std::ofstream out(settingsPath, std::ios::trunc);
+        out << "{ \"previewSize\": 64 }";
+    }
+    expect(galaxy::loadEditorSettings(settingsPath).seaColor == galaxy::EditorSettings().seaColor, "a settings file from before 3D mode gets the default sea");
+    std::error_code ignored;
+    std::filesystem::remove(settingsPath, ignored);
+}
+
+void testOrbitCamera() {
+    const auto close = [](float a, float b, float tolerance = 0.01f) { return std::fabs(a - b) <= tolerance; };
+    const auto project = [](const galaxy::OrbitCamera& camera, float x, float y, float z, float out[3]) {
+        float matrix[16];
+        camera.viewProjection(1.5f, matrix);
+        const float cx = matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12];
+        const float cy = matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13];
+        const float cz = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
+        const float cw = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+        out[0] = cx / cw;
+        out[1] = cy / cw;
+        out[2] = cz / cw;
+        return cw;
+    };
+
+    galaxy::OrbitCamera camera;
+    camera.frame(2048.0f, 1024.0f);
+    expect(close(camera.targetX, 1024.0f) && close(camera.targetZ, 512.0f), "framing looks at the middle of the map");
+    float eye[3];
+    camera.eye(eye);
+    expect(eye[1] > 0.0f && eye[2] > camera.targetZ && close(eye[0], camera.targetX), "the camera starts south of the map, looking north");
+
+    float ndc[3];
+    float w = project(camera, camera.targetX, camera.targetY, camera.targetZ, ndc);
+    expect(w > 0.0f && close(ndc[0], 0.0f) && close(ndc[1], 0.0f), "the target sits in the middle of the view");
+    expect(ndc[2] > -1.0f && ndc[2] < 1.0f, "the target is inside the depth range");
+    w = project(camera, camera.targetX + 300.0f, 0.0f, camera.targetZ, ndc);
+    expect(w > 0.0f && ndc[0] > 0.0f, "east of the target appears on the right");
+    w = project(camera, camera.targetX, 0.0f, camera.targetZ - 300.0f, ndc);
+    expect(w > 0.0f && ndc[1] > 0.0f, "north of the target appears higher on the screen");
+    w = project(camera, camera.targetX, 200.0f, camera.targetZ, ndc);
+    expect(w > 0.0f && ndc[1] > 0.0f, "higher ground appears higher on the screen");
+    for (const float corner : {0.0f, 2048.0f}) {
+        project(camera, corner, 0.0f, 0.0f, ndc);
+        expect(ndc[2] > -1.0f && ndc[2] < 1.0f, "the map corners are inside the depth range");
+    }
+
+    const float yawBefore = camera.yaw;
+    camera.orbit(100.0f, 0.0f);
+    expect(camera.yaw != yawBefore, "dragging sideways turns the camera");
+    camera.orbit(0.0f, 100000.0f);
+    expect(camera.pitch <= galaxy::OrbitCamera::kMaxPitch, "the camera cannot go past straight down");
+    camera.orbit(0.0f, -100000.0f);
+    expect(camera.pitch >= galaxy::OrbitCamera::kMinPitch, "the camera cannot go below the ground");
+
+    camera.frame(2048.0f, 1024.0f);
+    const float distance = camera.distance;
+    camera.zoom(1.0f);
+    expect(camera.distance < distance, "scrolling forward moves closer");
+    camera.zoom(-1.0f);
+    expect(close(camera.distance, distance, 0.5f), "scrolling back returns to the same distance");
+    for (int i = 0; i < 200; ++i) {
+        camera.zoom(5.0f);
+    }
+    expect(camera.distance > 0.0f, "zooming in stops before the target");
+    for (int i = 0; i < 200; ++i) {
+        camera.zoom(-5.0f);
+    }
+    expect(camera.distance < camera.reach * 10.0f, "zooming out stops");
+
+    camera.frame(2048.0f, 1024.0f);
+    camera.move(1.0f, 0.0f, 0.5f, false);
+    expect(camera.targetZ < 512.0f && close(camera.targetX, 1024.0f), "forward moves the target north when facing north");
+    camera.frame(2048.0f, 1024.0f);
+    camera.move(0.0f, 1.0f, 0.5f, false);
+    expect(camera.targetX > 1024.0f && close(camera.targetZ, 512.0f), "right moves the target east when facing north");
+    camera.frame(2048.0f, 1024.0f);
+    camera.turn(1.5707963f);
+    camera.move(1.0f, 0.0f, 0.5f, false);
+    expect(camera.targetX < 1024.0f && close(camera.targetZ, 512.0f, 0.5f), "forward follows the camera after turning");
+
+    camera.frame(2048.0f, 1024.0f);
+    camera.pan(50.0f, 0.0f, 800.0f);
+    expect(camera.targetX < 1024.0f, "dragging right slides the ground to the right");
+    camera.frame(2048.0f, 1024.0f);
+    camera.pan(0.0f, -50.0f, 800.0f);
+    expect(camera.targetZ > 512.0f, "dragging up slides the ground up");
+    camera.targetX = -500.0f;
+    camera.targetZ = 99999.0f;
+    camera.keepOver(2048.0f, 1024.0f);
+    expect(camera.targetX == 0.0f && camera.targetZ == 1024.0f, "the target stays over the map");
+}
+
 void testGameFolder() {
     const auto directory = std::filesystem::temp_directory_path() / "galaxy-game-folder-test";
     std::error_code ignored;
@@ -1735,7 +1847,121 @@ void testGameFolder() {
     std::filesystem::remove_all(directory, ignored);
 }
 
+void testFavorites() {
+    using namespace galaxy;
+    expect(isFavoritesArchiveName("GE-Favorites-FirstOne.hpi"), "favorites archive name");
+    expect(isFavoritesArchiveName("ge-favorites-two words.HPI"), "favorites archive name ignores case");
+    expect(!isFavoritesArchiveName("GE-Favorites-.hpi"), "favorites archive needs a name");
+    expect(!isFavoritesArchiveName("GE-Favorites-One.ccx"), "favorites archive is an hpi");
+    expect(!isFavoritesArchiveName("Acid_New_1.hpi"), "tileset is not a favorites archive");
+    expect(!isFavoritesArchiveName("My-GE-Favorites-One.hpi"), "prefix must start the name");
+    expect(favoritesArchiveFilename("  FirstOne ") == "GE-Favorites-FirstOne.hpi", "favorites file name");
+    expect(favoritesArchiveName("GE-Favorites-FirstOne.hpi") == "FirstOne", "favorites archive name part");
+    expect(favoritesNameProblem("Rivers").empty(), "plain name is fine");
+    expect(favoritesNameProblem("Sm Lakes").empty(), "name with a space is fine");
+    expect(!favoritesNameProblem("   ").empty(), "blank name is refused");
+    expect(!favoritesNameProblem("a/b").empty(), "slash is refused");
+    expect(!favoritesNameProblem("a:b").empty(), "colon is refused");
+    expect(!favoritesNameProblem(std::string(65, 'x')).empty(), "long name is refused");
+    expect(!favoritesNameProblem(".hidden").empty(), "leading period is refused");
+
+    // A 3 x 2 section with three tile pictures, a gradient of heights, and a varied grid.
+    SectionStamp stamp;
+    stamp.tileWidth = 3;
+    stamp.tileHeight = 2;
+    stamp.tileCount = 3;
+    stamp.indices = {0, 1, 2, 2, 1, 0};
+    stamp.tileImages.resize(3 * 1024);
+    for (std::size_t i = 0; i < stamp.tileImages.size(); ++i) {
+        stamp.tileImages[i] = static_cast<std::uint8_t>(i / 1024 * 60 + 10 + (i % 7));
+    }
+    stamp.heights.resize(static_cast<std::size_t>(3 * 2 * 2 * 2));
+    for (std::size_t i = 0; i < stamp.heights.size(); ++i) {
+        stamp.heights[i] = static_cast<std::uint8_t>(i * 5);
+    }
+    stamp.tileMask = {1, 0, 1, 1, 1, 1};
+
+    const std::vector<std::uint8_t> bytes = writeSectionStamp(stamp);
+    const SectionStamp back = loadSectionStamp(bytes);
+    expect(back.version == 3, "written section is version 3");
+    expect(back.tileWidth == 3 && back.tileHeight == 2 && back.tileCount == 3, "written section size");
+    expect(back.indices == stamp.indices, "written section tile grid");
+    expect(back.tileImages == stamp.tileImages, "written section tile pictures");
+    expect(back.heights == stamp.heights, "written section heights");
+    expect(back.minimap.size() == 128u * 128u, "written section minimap size");
+    expect(back.minimap == buildSectionMinimap(stamp), "written section minimap matches");
+    // 96 x 64 pixels fit into 128 wide: the picture is 128 x 85 in the top-left corner.
+    expect(back.minimap[0] == stamp.tileImages[0], "minimap starts at the first tile");
+    expect(back.minimap[84 * 128 + 127] != 0 || back.minimap[84 * 128 + 126] != 0, "minimap fills its proportions");
+    expect(back.minimap[100 * 128] == 0, "minimap is padded below a wide section");
+
+    SectionStamp heightsOnly = stamp;
+    heightsOnly.heightsOnly = true;
+    bool refused = false;
+    try {
+        writeSectionStamp(heightsOnly);
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    expect(refused, "heights-only stamp cannot be written");
+
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "GE-Favorites-GalaxyTest.hpi";
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+    createFavoritesArchive(path);
+    TilesetArchive blank = openTilesetArchive(path);
+    expect(blank.sections.empty(), "new favorites archive holds no tiles");
+    bool overwrote = true;
+    try {
+        createFavoritesArchive(path);
+    } catch (const std::exception&) {
+        overwrote = false;
+    }
+    expect(!overwrote, "creating a favorites archive does not replace one");
+
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp) == "Rivers01", "first tile name");
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp) == "Rivers02", "second tile name");
+    expect(addFavoriteSection(path, "mine", "rivers", stamp) == "rivers03", "names match without regard to case");
+    expect(addFavoriteSection(path, "Mine", "Sm Lakes", stamp) == "Sm Lakes01", "other subcategory numbers from one");
+    expect(addFavoriteSection(path, "Other", "Rivers", stamp) == "Rivers01", "other category numbers from one");
+
+    TilesetLibrary library;
+    const std::size_t at = library.refreshArchive(path);
+    expect(at == 0 && library.archives().size() == 1, "refresh adds a new archive");
+    expect(library.sectionCount() == 5, "five favorites listed");
+    const auto counts = library.archives()[0].categoryCounts();
+    expect(counts.at("Mine").at("Rivers") == 2 && counts.at("mine").at("rivers") == 1, "favorites keep their folders");
+    expect(counts.at("Mine").at("Sm Lakes") == 1 && counts.at("Other").at("Rivers") == 1, "favorites categories");
+    const TilesetArchive& listed = library.archives()[0];
+    const HpiFile* file = listed.archive().find("sections/Mine/Sm Lakes/Sm Lakes01.sct");
+    expect(file != nullptr, "favorite is stored at sections/category/subcategory/name.sct");
+    if (file != nullptr) {
+        expect(loadSectionStamp(listed.archive().extract(*file)).indices == stamp.indices, "stored favorite reads back");
+    }
+
+    removeFavoriteSection(path, "sections/Mine/Rivers/Rivers01.sct");
+    expect(library.refreshArchive(path) == 0 && library.sectionCount() == 4, "refresh replaces the archive in place");
+    expect(library.archives()[0].archive().find("sections/Mine/Rivers/Rivers02.sct") != nullptr, "other tiles stay");
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp) == "Rivers01", "a freed name is reused");
+
+    bool missing = false;
+    try {
+        removeFavoriteSection(path, "sections/Mine/Rivers/Nothing.sct");
+    } catch (const std::exception&) {
+        missing = true;
+    }
+    expect(missing, "removing a tile that is not there is an error");
+
+    for (const char* name : {"Mine/Rivers/Rivers01", "Mine/Rivers/Rivers02", "Mine/Rivers/rivers03", "Mine/Sm Lakes/Sm Lakes01", "Other/Rivers/Rivers01"}) {
+        removeFavoriteSection(path, std::string("sections/") + name + ".sct");
+    }
+    expect(openTilesetArchive(path).sections.empty(), "an archive emptied of tiles still opens");
+
+    std::filesystem::remove(path, ignored);
+}
+
 int main() {
+    testFavorites();
     testBlankMap();
     testArchiveFooterAndStarts();
     testTileOpacity();
@@ -1756,6 +1982,8 @@ int main() {
     testGameFolder();
     testVersion();
     testAppearanceSettings();
+    testSeaSettings();
+    testOrbitCamera();
     testSyntheticSections();
     testHeightGrid();
 

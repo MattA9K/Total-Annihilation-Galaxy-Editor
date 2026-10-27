@@ -287,6 +287,14 @@ void drawHeightMap(const Canvas& c, const Palette& p) {
     c.ellipse(16.8f, 16.0f, 3.9f, 2.7f, -0.35f, p.orange, p.ink, 1.2f);
 }
 
+void drawView3D(const Canvas& c, const Palette& p) {
+    // A tilted ground plane with a hill on it, and a see-through sea in front.
+    c.polygon({ImVec2(2.5f, 19.0f), ImVec2(16.0f, 9.5f), ImVec2(29.5f, 19.0f), ImVec2(16.0f, 28.5f)}, p.green, p.ink, 1.5f);
+    c.polygon({ImVec2(9.0f, 20.0f), ImVec2(16.0f, 5.0f), ImVec2(23.0f, 20.0f), ImVec2(16.0f, 24.5f)}, p.sand, p.ink, 1.5f);
+    c.polygon({ImVec2(16.0f, 5.0f), ImVec2(13.4f, 11.8f), ImVec2(18.6f, 11.8f)}, p.paper, 0, 0.0f);
+    c.polygon({ImVec2(2.5f, 19.0f), ImVec2(16.0f, 28.5f), ImVec2(29.5f, 19.0f), ImVec2(29.5f, 23.0f), ImVec2(16.0f, 31.5f), ImVec2(2.5f, 23.0f)}, p.blueSoft, p.ink, 1.3f);
+}
+
 void drawUndo(const Canvas& c, const Palette& p) {
     c.arcArrow(16.5f, 17.5f, 8.8f, 0.30f * kPi, -0.92f * kPi, p.blue, 3.4f);
 }
@@ -323,6 +331,7 @@ void drawIcon(ToolIcon icon, const Canvas& canvas, const Canvas& flipped) {
     case ToolIcon::ModifyHeight: drawModifyHeight(canvas, p); break;
     case ToolIcon::Blend: drawBlend(canvas, p); break;
     case ToolIcon::HeightMap: drawHeightMap(canvas, p); break;
+    case ToolIcon::View3D: drawView3D(canvas, p); break;
     case ToolIcon::Undo: drawUndo(canvas, p); break;
     case ToolIcon::Redo: drawUndo(flipped, p); break;
     case ToolIcon::Opacity: drawOpacity(canvas, p); break;
@@ -376,6 +385,55 @@ bool toolbarItem(const char* id, ToolIcon icon, const char* label, bool on, cons
     draw->AddText(textPos, ImGui::GetColorU32(on ? pressedText : ImGui::GetStyleColorVec4(ImGuiCol_Text)), label);
     ImGui::PopFont();
     return pressed;
+}
+
+BadgeRect badgeRect(ImVec2 itemMin, ImVec2 itemMax) {
+    const float scale = ImGui::GetFontSize() / 13.0f;
+    const float size = std::floor(24.0f * scale);
+    const float inset = std::floor(4.0f * scale);
+    const ImVec2 min(itemMax.x - size - inset, itemMin.y + inset);
+    return BadgeRect{min, ImVec2(min.x + size, min.y + size)};
+}
+
+void drawBadge(const BadgeRect& rect, BadgeIcon icon, bool hot) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float size = rect.max.x - rect.min.x;
+    const ImVec2 center((rect.min.x + rect.max.x) * 0.5f, (rect.min.y + rect.max.y) * 0.5f);
+    // Dark translucent disc with a thin light rim reads on any tile picture.
+    const bool trash = icon == BadgeIcon::Trash;
+    ImU32 fill = Canvas::color(28, 30, 34, hot ? 235 : 180);
+    if (hot && trash) {
+        fill = Canvas::color(196, 48, 43, 240);
+    } else if (hot) {
+        fill = Canvas::color(54, 128, 236, 240);
+    }
+    draw->AddCircleFilled(center, size * 0.5f, fill, 32);
+    draw->AddCircle(center, size * 0.5f, Canvas::color(255, 255, 255, hot ? 200 : 120), 32, 1.0f);
+
+    const Canvas canvas(draw, rect.min, size / 32.0f);
+    const ImU32 glyph = Canvas::color(255, 255, 255, 245);
+    if (trash) {
+        canvas.line(8.5f, 10.5f, 23.5f, 10.5f, glyph, 2.0f);
+        canvas.polyline({ImVec2(13.0f, 10.5f), ImVec2(13.0f, 7.5f), ImVec2(19.0f, 7.5f), ImVec2(19.0f, 10.5f)}, glyph, 1.8f);
+        canvas.polyline({ImVec2(10.5f, 13.5f), ImVec2(11.6f, 25.0f), ImVec2(20.4f, 25.0f), ImVec2(21.5f, 13.5f)}, glyph, 1.8f);
+        for (const float x : {14.2f, 16.0f, 17.8f}) {
+            canvas.line(x, 16.0f, x, 22.0f, glyph, 1.4f);
+        }
+        return;
+    }
+    // A five-point star, filled as a core plus five tips so every piece is convex.
+    ImVec2 outer[5];
+    ImVec2 inner[5];
+    for (int i = 0; i < 5; ++i) {
+        const float tip = -kPi * 0.5f + static_cast<float>(i) * 2.0f * kPi / 5.0f;
+        const float notch = tip + kPi / 5.0f;
+        outer[i] = ImVec2(16.0f + 11.5f * std::cos(tip), 17.0f + 11.5f * std::sin(tip));
+        inner[i] = ImVec2(16.0f + 4.8f * std::cos(notch), 17.0f + 4.8f * std::sin(notch));
+    }
+    canvas.polygon({inner[0], inner[1], inner[2], inner[3], inner[4]}, glyph, 0, 0.0f);
+    for (int i = 0; i < 5; ++i) {
+        canvas.polygon({inner[(i + 4) % 5], outer[i], inner[i]}, glyph, 0, 0.0f);
+    }
 }
 
 }  // namespace galaxy::theme

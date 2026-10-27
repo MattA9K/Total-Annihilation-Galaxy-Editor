@@ -13,6 +13,9 @@ struct EditorSettings {
     int autosaveBackups = 5;
     // 0 follows the system, 1 is light, 2 is dark.
     int appearance = 0;
+    // The sea plane in the 3D view: opacity in percent, and color as 0xRRGGBB.
+    int seaOpacity = 45;
+    int seaColor = 0x2E7FDC;
     // Folder where Total Annihilation is installed. Empty means it is not set.
     std::filesystem::path gameFolder;
     // True once the startup prompt for the folder has been answered, including

@@ -68,6 +68,17 @@ struct TileDeduper {
 };
 
 SectionStamp loadSectionStamp(const std::vector<std::uint8_t>& bytes);
+
+// The 128 x 128 picture a section file carries for the sidebar. The section is
+// scaled to fit, keeps its proportions, and sits in the top-left corner.
+// Pixels outside it are palette index 0.
+std::vector<std::uint8_t> buildSectionMinimap(const SectionStamp& section);
+
+// Encodes a section as a version 3 .sct file that loadSectionStamp reads back.
+// The stamp needs its tile pictures, so a heights-only copy is refused. A tile
+// mask is not stored: every tile in the rectangle is written. The minimap is
+// made from the tiles when the stamp has none.
+std::vector<std::uint8_t> writeSectionStamp(const SectionStamp& section);
 std::vector<std::uint8_t> renderMinimapRgba(const SectionStamp& section);
 std::vector<std::uint8_t> renderSectionRgba(const SectionStamp& section, int maxEdge, int& width, int& height);
 

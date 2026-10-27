@@ -54,6 +54,7 @@ enum class ToolIcon {
     ModifyHeight,
     Blend,
     HeightMap,
+    View3D,
     Undo,
     Redo,
     Opacity,
@@ -64,6 +65,22 @@ enum class ToolIcon {
 // true the item shows the pressed look of a two-state control. widthLabel reserves
 // room for the longest label an item can show so the toolbar does not shift.
 bool toolbarItem(const char* id, ToolIcon icon, const char* label, bool on = false, const char* widthLabel = nullptr);
+
+// A small round button that sits over the top-right corner of a picture while the
+// pointer is over that picture. The caller finds out whether the pointer is over
+// the button and decides what a click means. Hovering it needs a tooltip.
+enum class BadgeIcon {
+    AddToFavorites,
+    Trash,
+};
+struct BadgeRect {
+    ImVec2 min;
+    ImVec2 max;
+};
+// The button's place for a picture that covers itemMin to itemMax.
+BadgeRect badgeRect(ImVec2 itemMin, ImVec2 itemMax);
+// hot is true while the pointer is over the button itself.
+void drawBadge(const BadgeRect& rect, BadgeIcon icon, bool hot);
 
 // Menu and button labels that open a dialog end with this.
 const char* ellipsis();

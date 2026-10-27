@@ -114,6 +114,91 @@ SectionStamp loadSectionStamp(const std::vector<std::uint8_t>& bytes) {
     return stamp;
 }
 
+std::vector<std::uint8_t> buildSectionMinimap(const SectionStamp& section) {
+    const std::size_t side = static_cast<std::size_t>(kSectionMinimap);
+    std::vector<std::uint8_t> minimap(side * side, 0);
+    if (section.tileWidth <= 0 || section.tileHeight <= 0) {
+        return minimap;
+    }
+    const std::size_t cells = static_cast<std::size_t>(section.tileWidth) * static_cast<std::size_t>(section.tileHeight);
+    if (section.indices.size() < cells) {
+        return minimap;
+    }
+    const std::int64_t pixelWidth = static_cast<std::int64_t>(section.tileWidth) * 32;
+    const std::int64_t pixelHeight = static_cast<std::int64_t>(section.tileHeight) * 32;
+    const std::int64_t longest = std::max(pixelWidth, pixelHeight);
+    const std::int64_t drawWidth = std::max<std::int64_t>(1, pixelWidth * kSectionMinimap / longest);
+    const std::int64_t drawHeight = std::max<std::int64_t>(1, pixelHeight * kSectionMinimap / longest);
+    for (std::int64_t y = 0; y < drawHeight; ++y) {
+        const std::int64_t sourceY = y * longest / kSectionMinimap;
+        for (std::int64_t x = 0; x < drawWidth; ++x) {
+            const std::int64_t sourceX = x * longest / kSectionMinimap;
+            const std::size_t cell = static_cast<std::size_t>(sourceY / 32) * static_cast<std::size_t>(section.tileWidth)
+                + static_cast<std::size_t>(sourceX / 32);
+            const std::size_t tile = section.indices[cell];
+            const std::size_t at = tile * 1024 + static_cast<std::size_t>((sourceY % 32) * 32 + sourceX % 32);
+            if (at < section.tileImages.size()) {
+                minimap[static_cast<std::size_t>(y) * side + static_cast<std::size_t>(x)] = section.tileImages[at];
+            }
+        }
+    }
+    return minimap;
+}
+
+std::vector<std::uint8_t> writeSectionStamp(const SectionStamp& section) {
+    require(!section.heightsOnly, "A section needs its tile pictures");
+    require(section.tileWidth > 0 && section.tileHeight > 0 && section.tileWidth <= 512 && section.tileHeight <= 512,
+        "A section is 1 to 512 tiles on each side");
+    require(section.tileCount > 0 && section.tileCount <= 65535, "A section holds 1 to 65535 tile pictures");
+    const std::size_t cells = static_cast<std::size_t>(section.tileWidth) * static_cast<std::size_t>(section.tileHeight);
+    const std::size_t heightCells = cells * 4;
+    const std::size_t tileBytes = static_cast<std::size_t>(section.tileCount) * 1024;
+    require(section.indices.size() == cells, "The section's tile grid does not match its size");
+    require(section.heights.size() == heightCells, "The section's height grid does not match its size");
+    require(section.tileImages.size() == tileBytes, "The section's tile pictures do not match its tile count");
+    for (const std::uint32_t index : section.indices) {
+        require(index < static_cast<std::uint32_t>(section.tileCount), "A section tile index is out of range");
+    }
+
+    const std::vector<std::uint8_t> minimap = section.minimap.size() == static_cast<std::size_t>(kSectionMinimap) * kSectionMinimap
+        ? section.minimap
+        : buildSectionMinimap(section);
+
+    // Same order as the game's own sections: header, tile grid, heights, tile pictures, minimap.
+    const std::size_t headerBytes = 28;
+    const std::size_t ptrData = headerBytes;
+    const std::size_t ptrTiles = ptrData + cells * 2 + heightCells * 4;
+    const std::size_t ptrMini = ptrTiles + tileBytes;
+    std::vector<std::uint8_t> out;
+    out.reserve(ptrMini + minimap.size());
+    const auto put32 = [&](std::uint32_t value) {
+        for (int shift = 0; shift < 32; shift += 8) {
+            out.push_back(static_cast<std::uint8_t>((value >> shift) & 0xFF));
+        }
+    };
+    put32(3);
+    put32(static_cast<std::uint32_t>(ptrMini));
+    put32(static_cast<std::uint32_t>(section.tileCount));
+    put32(static_cast<std::uint32_t>(ptrTiles));
+    put32(static_cast<std::uint32_t>(section.tileWidth));
+    put32(static_cast<std::uint32_t>(section.tileHeight));
+    put32(static_cast<std::uint32_t>(ptrData));
+    for (const std::uint32_t index : section.indices) {
+        out.push_back(static_cast<std::uint8_t>(index & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((index >> 8) & 0xFF));
+    }
+    for (const std::uint8_t height : section.heights) {
+        // Height, then 0xFFFF for "no feature", then a pad byte.
+        out.push_back(height);
+        out.push_back(0xFF);
+        out.push_back(0xFF);
+        out.push_back(0x00);
+    }
+    out.insert(out.end(), section.tileImages.begin(), section.tileImages.end());
+    out.insert(out.end(), minimap.begin(), minimap.end());
+    return out;
+}
+
 std::vector<std::uint8_t> renderMinimapRgba(const SectionStamp& section) {
     const std::size_t count = static_cast<std::size_t>(kSectionMinimap) * kSectionMinimap;
     std::vector<std::uint8_t> rgba(count * 4, 0);

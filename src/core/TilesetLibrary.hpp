@@ -43,6 +43,9 @@ struct TilesetArchive {
     std::map<std::string, std::map<std::string, int>> categoryCounts() const;
 };
 
+// Opens one archive and lists its sections and features. Throws when the file is not a readable archive.
+TilesetArchive openTilesetArchive(const std::filesystem::path& path);
+
 class TilesetLibrary {
 public:
     // Lists every game archive (.hpi, .ccx, .gp3, .gpf) directly inside a folder
@@ -59,6 +62,11 @@ public:
     // Forgets every loaded archive.
     void clear();
     void addArchive(const std::filesystem::path& path);
+    // Reads the archive again from disk. It takes the place of the loaded copy
+    // of the same file, so every other archive keeps its position, or goes on
+    // the end when the file is new. Returns the archive's position. When the
+    // file cannot be read the library is unchanged and this throws.
+    std::size_t refreshArchive(const std::filesystem::path& path);
     // Puts the archives in file name order. Call after the last addArchive.
     void sortArchives();
 
