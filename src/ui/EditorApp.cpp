@@ -495,7 +495,22 @@ void EditorApp::renderHeightOverlay(float canvasWidth, float canvasHeight) {
     heightDirty_ = false;
 }
 
+void EditorApp::toggleFeatureSelectMode() {
+    featureSelectMode_ = !featureSelectMode_;
+    featureMarquee_ = false;
+    if (featureSelectMode_) {
+        armedFeature_.clear();
+        featureDelete_ = false;
+        featurePasteArmed_ = false;
+        statusNote_ = "Drag a box around features to select them. Click one to pick it. Shift adds";
+    }
+}
+
 void EditorApp::toggleSelectMode() {
+    if (featuresTab_) {
+        toggleFeatureSelectMode();
+        return;
+    }
     selectionMode_ = !selectionMode_;
     selecting_ = false;
     pasteArmed_ = false;
@@ -505,6 +520,8 @@ void EditorApp::toggleDeleteMode() {
     featureDelete_ = !featureDelete_;
     if (featureDelete_) {
         armedFeature_.clear();
+        featureSelectMode_ = false;
+        featurePasteArmed_ = false;
     }
 }
 
@@ -515,48 +532,75 @@ void EditorApp::drawToolbar() {
     const auto next = [&]() { ImGui::SameLine(0.0f, gap); };
 
     // Select is a two-state control, so it carries a label for each state.
-    if (theme::toolbarItem("select", ToolIcon::Select, selectionMode_ ? "Selecting" : "Select", selectionMode_, "Selecting")) {
+    // The tools follow the sidebar tab: the Features tab selects, copies and
+    // pastes features only, every other tab works on terrain tiles only.
+    const bool selectActive = featuresTab_ ? featureSelectMode_ : selectionMode_;
+    if (theme::toolbarItem("select", ToolIcon::Select, selectActive ? "Selecting" : "Select", selectActive, "Selecting")) {
         toggleSelectMode();
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Select Tiles\nDrag a rectangle around tiles. Shift-drag adds to the selection. Shift+Ctrl-drag removes from it");
+        ImGui::SetTooltip(featuresTab_
+                ? "Select Features\nDrag a box around features, or click one. Shift adds to the selection. Hold Space and drag to pan"
+                : "Select Tiles\nDrag a rectangle around tiles. Shift-drag adds to the selection. Shift+Ctrl-drag removes from it");
     }
     theme::toolbarSeparator();
 
-    ImGui::BeginDisabled(!map_ || !hasSelection());
+    const bool canCopy = featuresTab_ ? !selectedFeatures_.empty() : hasSelection();
+    ImGui::BeginDisabled(!map_ || !canCopy);
     if (theme::toolbarItem("cut", ToolIcon::Cut, "Cut")) {
-        cutSelection();
+        if (featuresTab_) {
+            copyFeatures(true);
+        } else {
+            cutSelection();
+        }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Cut\nRemove the selected tiles and keep a copy to paste");
+        ImGui::SetTooltip(featuresTab_ ? "Cut\nRemove the selected features and keep a copy to paste"
+                                       : "Cut\nRemove the selected tiles and keep a copy to paste");
     }
     next();
     if (theme::toolbarItem("copy", ToolIcon::Copy, "Copy")) {
-        copySelection(false);
+        if (featuresTab_) {
+            copyFeatures(false);
+        } else {
+            copySelection(false);
+        }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Copy Terrain + Height Map\nCopy the selected tiles and their heights");
-    }
-    next();
-    if (theme::toolbarItem("copy-heights", ToolIcon::CopyHeights, "Copy Heights")) {
-        copySelection(true);
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Copy Height Map\nCopy only the heights in the selection. Paste leaves the tiles in place");
+        ImGui::SetTooltip(featuresTab_ ? "Copy Features\nCopy the selected features. Paste keeps their positions relative to each other"
+                                       : "Copy Terrain + Height Map\nCopy the selected tiles and their heights");
     }
     ImGui::EndDisabled();
+    if (!featuresTab_) {
+        next();
+        ImGui::BeginDisabled(!map_ || !hasSelection());
+        if (theme::toolbarItem("copy-heights", ToolIcon::CopyHeights, "Copy Heights")) {
+            copySelection(true);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Copy Height Map\nCopy only the heights in the selection. Paste leaves the tiles in place");
+        }
+        ImGui::EndDisabled();
+    }
     next();
-    ImGui::BeginDisabled(!map_ || !clipboard_);
-    if (theme::toolbarItem("paste", ToolIcon::Paste, pasteArmed_ ? "Pasting" : "Paste", pasteArmed_, "Pasting")) {
-        armPaste();
+    const bool canPaste = featuresTab_ ? !featureClipboard_.empty() : clipboard_.has_value();
+    const bool pasting = featuresTab_ ? featurePasteArmed_ : pasteArmed_;
+    ImGui::BeginDisabled(!map_ || !canPaste);
+    if (theme::toolbarItem("paste", ToolIcon::Paste, pasting ? "Pasting" : "Paste", pasting, "Pasting")) {
+        if (featuresTab_) {
+            armFeaturePaste();
+        } else {
+            armPaste();
+        }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Paste\nLeave select mode. Drag to pan, then click to place the copy");
+        ImGui::SetTooltip(featuresTab_ ? "Paste\nClick the map to place the copied features where you click"
+                                       : "Paste\nLeave select mode. Drag to pan, then click to place the copy");
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
 
-    ImGui::BeginDisabled(!map_ || !hasSelection());
+    ImGui::BeginDisabled(!map_ || !hasSelection() || featuresTab_);
     if (theme::toolbarItem("modify-height", ToolIcon::ModifyHeight, "Modify Height")) {
         showModifyHeight_ = true;
     }
@@ -972,6 +1016,133 @@ void EditorApp::rememberFeature(FeatureChange change) {
     markMapDirty();
 }
 
+void EditorApp::rememberFeatures(std::vector<FeatureChange> changes) {
+    if (changes.empty()) {
+        return;
+    }
+    EditorCommand command;
+    command.features = std::move(changes);
+    pushCommand(std::move(command), false);
+    markMapDirty();
+}
+
+std::vector<FeaturePlacement> EditorApp::selectedFeaturePlacements() {
+    std::vector<FeaturePlacement> found;
+    if (!map_ || selectedFeatures_.empty()) {
+        return found;
+    }
+    std::set<std::pair<int, int>> kept;
+    for (const FeaturePlacement& feature : map_->features) {
+        if (selectedFeatures_.count({feature.x, feature.y}) != 0 && kept.insert({feature.x, feature.y}).second) {
+            found.push_back(feature);
+        }
+    }
+    selectedFeatures_ = std::move(kept);
+    return found;
+}
+
+void EditorApp::copyFeatures(bool cut) {
+    const std::vector<FeaturePlacement> items = selectedFeaturePlacements();
+    if (items.empty()) {
+        return;
+    }
+    int left = items.front().x;
+    int top = items.front().y;
+    for (const FeaturePlacement& item : items) {
+        left = std::min(left, item.x);
+        top = std::min(top, item.y);
+    }
+    featureClipboard_.clear();
+    for (const FeaturePlacement& item : items) {
+        featureClipboard_.push_back(FeatureClip{item.name, item.x - left, item.y - top});
+    }
+    featureClipboardNewer_ = true;
+    const std::string count = std::to_string(items.size()) + (items.size() == 1 ? " feature" : " features");
+    if (cut) {
+        deleteSelectedFeatures();
+        statusNote_ = "Cut " + count;
+    } else {
+        statusNote_ = "Copied " + count + ". Paste keeps their positions relative to each other";
+    }
+    error_.clear();
+}
+
+void EditorApp::deleteSelectedFeatures() {
+    if (!map_) {
+        return;
+    }
+    const std::vector<FeaturePlacement> items = selectedFeaturePlacements();
+    std::vector<FeatureChange> changes;
+    for (const FeaturePlacement& item : items) {
+        FeatureChange change;
+        if (removeMapFeature(*map_, item.x, item.y, &change) == FeatureEdit::Removed) {
+            changes.push_back(change);
+        }
+    }
+    selectedFeatures_.clear();
+    if (!changes.empty()) {
+        statusNote_ = "Removed " + std::to_string(changes.size()) + (changes.size() == 1 ? " feature" : " features");
+        rememberFeatures(std::move(changes));
+    }
+}
+
+void EditorApp::armFeaturePaste() {
+    if (!map_ || featureClipboard_.empty()) {
+        return;
+    }
+    featurePasteArmed_ = true;
+    featureSelectMode_ = false;
+    featureDelete_ = false;
+    armedFeature_.clear();
+    statusNote_ = "Click the map to paste " + std::to_string(featureClipboard_.size())
+        + (featureClipboard_.size() == 1 ? " feature" : " features") + ". Esc cancels";
+    error_.clear();
+}
+
+void EditorApp::pasteFeaturesAt(int cellX, int cellY) {
+    if (!map_ || featureClipboard_.empty()) {
+        return;
+    }
+    std::vector<FeatureChange> changes;
+    std::set<std::pair<int, int>> pasted;
+    int skipped = 0;
+    for (const FeatureClip& item : featureClipboard_) {
+        const int x = cellX + item.dx;
+        const int y = cellY + item.dy;
+        FeatureChange change;
+        switch (placeMapFeature(*map_, x, y, item.name, &change)) {
+        case FeatureEdit::Placed:
+            changes.push_back(change);
+            pasted.insert({x, y});
+            break;
+        case FeatureEdit::Unchanged:
+            if (x >= 0 && y >= 0 && x < map_->heightWidth() && y < map_->heightHeight()) {
+                pasted.insert({x, y});
+            } else {
+                ++skipped;
+            }
+            break;
+        case FeatureEdit::OpenSpace:
+        case FeatureEdit::Removed:
+            ++skipped;
+            break;
+        case FeatureEdit::Full:
+            error_ = "This map already lists every feature name Total Annihilation can store.";
+            ++skipped;
+            break;
+        }
+    }
+    if (!changes.empty() || !pasted.empty()) {
+        selectedFeatures_ = std::move(pasted);
+    }
+    const std::size_t placed = changes.size();
+    rememberFeatures(std::move(changes));
+    statusNote_ = "Pasted " + std::to_string(placed) + (placed == 1 ? " feature" : " features");
+    if (skipped > 0) {
+        statusNote_ += ", skipped " + std::to_string(skipped) + " off the map or on open space";
+    }
+}
+
 void EditorApp::rememberSelection(const TileSelection& before, const TileSelection& after) {
     if (sameTileSelection(before, after)) {
         return;
@@ -1029,6 +1200,7 @@ void EditorApp::copySelection(bool heightsOnly) {
     }
     try {
         clipboard_ = copyTileSelection(*map_, selection_, heightsOnly);
+        featureClipboardNewer_ = false;
         destroyTexture(clipboardGhost_);
         clipboardGhostW_ = 0;
         clipboardGhostH_ = 0;
@@ -1046,6 +1218,7 @@ void EditorApp::cutSelection() {
     }
     try {
         clipboard_ = copyTileSelection(*map_, selection_);
+        featureClipboardNewer_ = false;
         destroyTexture(clipboardGhost_);
         clipboardGhostW_ = 0;
         clipboardGhostH_ = 0;
@@ -1142,6 +1315,16 @@ void EditorApp::undoPlacement() {
                 statusNote_ = "Undid feature edit";
             }
         }
+        if (!undo_.back().features.empty()) {
+            const auto& batch = undo_.back().features;
+            for (auto it = batch.rbegin(); it != batch.rend(); ++it) {
+                revertFeatureChange(*map_, *it);
+            }
+            markMapDirty();
+            if (!undo_.back().terrain) {
+                statusNote_ = "Undid feature edit";
+            }
+        }
         if (undo_.back().selection) {
             selection_ = undo_.back().selectionBefore;
             if (!undo_.back().terrain) {
@@ -1178,6 +1361,15 @@ void EditorApp::redoPlacement() {
                 statusNote_ = "Redid feature edit";
             }
         }
+        if (!redo_.back().features.empty()) {
+            for (const FeatureChange& change : redo_.back().features) {
+                reapplyFeatureChange(*map_, change);
+            }
+            markMapDirty();
+            if (!redo_.back().terrain) {
+                statusNote_ = "Redid feature edit";
+            }
+        }
         if (redo_.back().selection) {
             selection_ = redo_.back().selectionAfter;
             if (!redo_.back().terrain) {
@@ -1196,6 +1388,9 @@ void EditorApp::redoPlacement() {
 void EditorApp::clearHistory() {
     undo_.clear();
     redo_.clear();
+    selectedFeatures_.clear();
+    featurePasteArmed_ = false;
+    featureMarquee_ = false;
 }
 
 void EditorApp::drawStartLocations() {
@@ -1763,7 +1958,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
 
 
 void EditorApp::drawFeatures() {
-    theme::helpText("Click a feature, then click the map. Delete in the toolbar removes the feature you click. Right-click removes one too.");
+    theme::helpText("Click a feature, then click the map to place it. With none chosen, click a feature on the map to select it, or drag a box around several. Shift-click adds to the selection. Copy and Paste keep the features' positions. Delete removes the selection. Hold Space and drag to pan. Right-click removes one feature.");
     const std::string query = trimmed(featureSearch_);
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##feature-search", "Search features", featureSearch_, sizeof(featureSearch_));
@@ -1891,6 +2086,8 @@ void EditorApp::drawFeatures() {
                 if (choose || ImGui::Selectable(row.c_str(), armedFeature_ == feature->name && !featureDelete_, 0, ImVec2(0.0f, rowHeight))) {
                     armedFeature_ = feature->name;
                     featureDelete_ = false;
+                    featureSelectMode_ = false;
+                    featurePasteArmed_ = false;
                     pasteArmed_ = false;
                     armedStartPlayer_ = 0;
                     draggingStartPlayer_ = 0;
@@ -2171,11 +2368,21 @@ void EditorApp::drawMap() {
     };
     if (!featuresTab_) {
         featurePressed_ = false;
+        featureMarquee_ = false;
+        featurePasteArmed_ = false;
+        featureSelectMode_ = false;
     }
+    // In feature select mode the left button selects features: a click picks one
+    // and a drag draws a box around several. Holding Space pans instead.
+    const bool featureSelecting = featuresTab_ && featureSelectMode_ && armedFeature_.empty() && !featureDelete_ && !featurePasteArmed_
+        && !ImGui::IsKeyDown(ImGuiKey_Space);
     if (featuresTab_ && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         featurePressed_ = true;
         pressX_ = io.MousePos.x;
         pressY_ = io.MousePos.y;
+        featureMarqueeX0_ = zoom_ > 0.0f ? (io.MousePos.x - origin.x - panX_) / zoom_ : 0.0f;
+        featureMarqueeY0_ = zoom_ > 0.0f ? (io.MousePos.y - origin.y - panY_) / zoom_ : 0.0f;
+        featureMarquee_ = false;
     }
     if (startLocationsTab_ && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         const int hit = playerAtPin(io.MousePos);
@@ -2189,7 +2396,7 @@ void EditorApp::drawMap() {
             canvasPressed_ = true;
         }
     }
-    if (draggingStartPlayer_ == 0 && active && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 6.0f) && (!selectionMode_ || startLocationsTab_ || featuresTab_)) {
+    if (draggingStartPlayer_ == 0 && active && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 6.0f) && (!selectionMode_ || startLocationsTab_ || featuresTab_) && !featureSelecting) {
         panX_ += io.MouseDelta.x;
         panY_ += io.MouseDelta.y;
         fit_ = false;
@@ -2326,23 +2533,101 @@ void EditorApp::drawMap() {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         }
     } else if (featuresTab_) {
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        // The footprint of one feature on the ground, in map pixels.
+        auto footprintOf = [&](const FeaturePlacement& feature, float& left, float& top, float& right, float& bottom) {
+            const FeatureSprite* picture = featurePicture(feature.name);
+            const int footprintX = picture != nullptr ? std::max(1, picture->footprintX) : 1;
+            const int footprintZ = picture != nullptr ? std::max(1, picture->footprintZ) : 1;
+            left = static_cast<float>(feature.x * 16);
+            top = static_cast<float>(feature.y * 16);
+            right = static_cast<float>((feature.x + footprintX) * 16);
+            bottom = static_cast<float>((feature.y + footprintZ) * 16);
+        };
+        // The feature under the pointer: its footprint first, so an invisible
+        // metal zone can be picked, then its picture. The smallest wins.
+        auto featureToSelect = [&](std::pair<int, int>& cell) -> bool {
+            bool found = false;
+            float bestRank = 1.0e30f;
+            for (const FeaturePlacement& feature : map_->features) {
+                float left = 0.0f;
+                float top = 0.0f;
+                float right = 0.0f;
+                float bottom = 0.0f;
+                footprintOf(feature, left, top, right, bottom);
+                const bool onGround = mapX >= left && mapX < right && mapY >= top && mapY < bottom;
+                float pictureLeft = 0.0f;
+                float pictureTop = 0.0f;
+                float pictureRight = 0.0f;
+                float pictureBottom = 0.0f;
+                const bool onPicture = featurePictureBounds(feature.name, feature.x, feature.y, pictureLeft, pictureTop, pictureRight, pictureBottom)
+                    && mapX >= pictureLeft && mapX < pictureRight && mapY >= pictureTop && mapY < pictureBottom;
+                if (!onGround && !onPicture) {
+                    continue;
+                }
+                const float dx = mapX - (left + right) * 0.5f;
+                const float dy = mapY - (top + bottom) * 0.5f;
+                const float rank = (onGround ? 0.0f : 1.0e12f) + (right - left) * (bottom - top) * 1.0e3f + dx * dx + dy * dy;
+                if (rank < bestRank) {
+                    bestRank = rank;
+                    cell = {feature.x, feature.y};
+                    found = true;
+                }
+            }
+            return found;
+        };
+        const bool toggleKey = io.KeyShift || io.KeyCtrl || io.KeySuper;
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && featurePasteArmed_) {
+            featurePasteArmed_ = false;
+            statusNote_ = "Paste cancelled";
+        } else if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             std::string removed;
             int removeX = featureCellX;
             int removeY = featureCellY;
             FeatureChange change;
             if (featureAtPointer(removeX, removeY, removed) && removeMapFeature(*map_, removeX, removeY, &change) == FeatureEdit::Removed) {
                 rememberFeature(std::move(change));
+                selectedFeatures_.erase({removeX, removeY});
                 statusNote_ = "Removed " + removed;
             } else {
                 armedFeature_.clear();
             }
         }
+        if (featureSelecting && featurePressed_ && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            const float dx = io.MousePos.x - pressX_;
+            const float dy = io.MousePos.y - pressY_;
+            if (dx * dx + dy * dy > 36.0f) {
+                featureMarquee_ = true;
+            }
+            featureMarqueeX1_ = mapX;
+            featureMarqueeY1_ = mapY;
+        }
         if (featurePressed_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
             const float dx = io.MousePos.x - pressX_;
             const float dy = io.MousePos.y - pressY_;
             featurePressed_ = false;
-            if (dx * dx + dy * dy <= 36.0f) {
+            if (featureSelecting && featureMarquee_) {
+                const float boxLeft = std::min(featureMarqueeX0_, mapX);
+                const float boxRight = std::max(featureMarqueeX0_, mapX);
+                const float boxTop = std::min(featureMarqueeY0_, mapY);
+                const float boxBottom = std::max(featureMarqueeY0_, mapY);
+                std::set<std::pair<int, int>> inside;
+                for (const FeaturePlacement& feature : map_->features) {
+                    float left = 0.0f;
+                    float top = 0.0f;
+                    float right = 0.0f;
+                    float bottom = 0.0f;
+                    footprintOf(feature, left, top, right, bottom);
+                    if (right > boxLeft && left < boxRight && bottom > boxTop && top < boxBottom) {
+                        inside.insert({feature.x, feature.y});
+                    }
+                }
+                if (toggleKey) {
+                    selectedFeatures_.insert(inside.begin(), inside.end());
+                } else {
+                    selectedFeatures_ = std::move(inside);
+                }
+                statusNote_ = std::to_string(selectedFeatures_.size()) + (selectedFeatures_.size() == 1 ? " feature selected" : " features selected");
+            } else if (dx * dx + dy * dy <= 36.0f) {
                 if (featureDelete_) {
                     std::string removed;
                     int removeX = featureCellX;
@@ -2350,20 +2635,41 @@ void EditorApp::drawMap() {
                     FeatureChange change;
                     if (featureAtPointer(removeX, removeY, removed) && removeMapFeature(*map_, removeX, removeY, &change) == FeatureEdit::Removed) {
                         rememberFeature(std::move(change));
+                        selectedFeatures_.erase({removeX, removeY});
                         statusNote_ = "Removed " + removed;
+                    }
+                } else if (featurePasteArmed_) {
+                    if (overMap) {
+                        pasteFeaturesAt(featureCellX, featureCellY);
                     }
                 } else if (overMap && !armedFeature_.empty()) {
                     placeArmedFeature(featureCellX, featureCellY);
+                } else if (featureSelecting) {
+                    std::pair<int, int> cell;
+                    if (overMap && featureToSelect(cell)) {
+                        if (toggleKey) {
+                            if (selectedFeatures_.erase(cell) == 0) {
+                                selectedFeatures_.insert(cell);
+                            }
+                        } else {
+                            selectedFeatures_ = {cell};
+                        }
+                        statusNote_ = std::to_string(selectedFeatures_.size()) + (selectedFeatures_.size() == 1 ? " feature selected" : " features selected");
+                    } else if (!toggleKey) {
+                        selectedFeatures_.clear();
+                    }
                 }
             }
+            featureMarquee_ = false;
         } else if (featurePressed_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             featurePressed_ = false;
+            featureMarquee_ = false;
         }
         std::string underCursor;
         int underX = 0;
         int underY = 0;
         const bool featureUnderCursor = featureAtPointer(underX, underY, underCursor);
-        if (hovered && (featureDelete_ ? featureUnderCursor : (!armedFeature_.empty() || featureUnderCursor))) {
+        if (hovered && (featureDelete_ ? featureUnderCursor : (!armedFeature_.empty() || featureUnderCursor || featurePasteArmed_))) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         }
     } else if (selectionMode_) {
@@ -2621,6 +2927,81 @@ void EditorApp::drawMap() {
             }
         }
     }
+    if (showFeatureBorders_) {
+        // A feature covers footprintX x footprintZ cells of 16 pixels from its
+        // cell, whether or not it has a picture, so an invisible feature such
+        // as a metal zone still shows how much ground it takes.
+        const ImU32 borderColor = IM_COL32(60, 255, 90, 255);
+        const float thickness = zoom_ >= 0.5f ? 1.5f : 1.0f;
+        auto drawBorder = [&](const std::string& featureName, int cellX, int cellY, ImU32 color) {
+            const FeatureSprite* picture = featurePicture(featureName);
+            const int footprintX = picture != nullptr ? std::max(1, picture->footprintX) : 1;
+            const int footprintZ = picture != nullptr ? std::max(1, picture->footprintZ) : 1;
+            const ImVec2 minCorner = toScreen(static_cast<float>(cellX * 16), static_cast<float>(cellY * 16));
+            const ImVec2 maxCorner = toScreen(static_cast<float>((cellX + footprintX) * 16), static_cast<float>((cellY + footprintZ) * 16));
+            if (maxCorner.x < clipMin.x || minCorner.x > clipMax.x || maxCorner.y < clipMin.y || minCorner.y > clipMax.y) {
+                return;
+            }
+            draw->AddRect(minCorner, maxCorner, color, 0.0f, 0, thickness);
+        };
+        for (const FeaturePlacement& feature : map_->features) {
+            drawBorder(feature.name, feature.x, feature.y, borderColor);
+        }
+        if (featuresTab_ && !featureDelete_ && !armedFeature_.empty() && overMap) {
+            drawBorder(armedFeature_, featureCellX, featureCellY, IM_COL32(60, 255, 90, 170));
+        }
+    }
+    auto footprintCorners = [&](const std::string& featureName, int cellX, int cellY, ImVec2& minCorner, ImVec2& maxCorner) {
+        const FeatureSprite* picture = featurePicture(featureName);
+        const int footprintX = picture != nullptr ? std::max(1, picture->footprintX) : 1;
+        const int footprintZ = picture != nullptr ? std::max(1, picture->footprintZ) : 1;
+        minCorner = toScreen(static_cast<float>(cellX * 16), static_cast<float>(cellY * 16));
+        maxCorner = toScreen(static_cast<float>((cellX + footprintX) * 16), static_cast<float>((cellY + footprintZ) * 16));
+    };
+    if (!selectedFeatures_.empty()) {
+        for (const FeaturePlacement& feature : selectedFeaturePlacements()) {
+            ImVec2 minCorner;
+            ImVec2 maxCorner;
+            footprintCorners(feature.name, feature.x, feature.y, minCorner, maxCorner);
+            if (maxCorner.x < clipMin.x || minCorner.x > clipMax.x || maxCorner.y < clipMin.y || minCorner.y > clipMax.y) {
+                continue;
+            }
+            draw->AddRectFilled(minCorner, maxCorner, IM_COL32(255, 220, 60, 70));
+            draw->AddRect(minCorner, maxCorner, IM_COL32(255, 220, 60, 255), 0.0f, 0, 2.5f);
+            float left = 0.0f;
+            float top = 0.0f;
+            float right = 0.0f;
+            float bottom = 0.0f;
+            if (featurePictureBounds(feature.name, feature.x, feature.y, left, top, right, bottom)) {
+                draw->AddRect(toScreen(left, top), toScreen(right, bottom), IM_COL32(255, 220, 60, 160), 0.0f, 0, 1.0f);
+            }
+        }
+    }
+    if (featurePasteArmed_ && !featureClipboard_.empty() && featuresTab_ && overMap) {
+        for (const FeatureClip& item : featureClipboard_) {
+            const int cellX = featureCellX + item.dx;
+            const int cellY = featureCellY + item.dy;
+            float left = 0.0f;
+            float top = 0.0f;
+            float right = 0.0f;
+            float bottom = 0.0f;
+            const FeatureSprite* picture = featurePicture(item.name);
+            if (picture != nullptr && picture->texture != 0 && featurePictureBounds(item.name, cellX, cellY, left, top, right, bottom)) {
+                draw->AddImage(textureId(picture->texture), toScreen(left, top), toScreen(right, bottom), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32(255, 255, 255, 190));
+            }
+            ImVec2 minCorner;
+            ImVec2 maxCorner;
+            footprintCorners(item.name, cellX, cellY, minCorner, maxCorner);
+            draw->AddRectFilled(minCorner, maxCorner, IM_COL32(255, 220, 60, 50));
+            draw->AddRect(minCorner, maxCorner, IM_COL32(255, 220, 60, 220), 0.0f, 0, 1.5f);
+        }
+    }
+    if (featureMarquee_) {
+        const ImVec2 first = toScreen(featureMarqueeX0_, featureMarqueeY0_);
+        const ImVec2 second = toScreen(featureMarqueeX1_, featureMarqueeY1_);
+        draw->AddRectFilled(first, second, IM_COL32(90, 160, 255, 50));
+        draw->AddRect(first, second, IM_COL32(90, 160, 255, 230), 0.0f, 0, 1.5f);
+    }
     if (showStarts_) {
         for (const StartPosition& start : map_->starts) {
             const ImVec2 at = toScreen(static_cast<float>(start.x), static_cast<float>(start.y));
@@ -2802,8 +3183,10 @@ void EditorApp::drawMap() {
             ImGui::SetTooltip("Click a feature to remove it\nHeight %d", hoverHeight_);
         } else if (!armedFeature_.empty() && overMap) {
             ImGui::SetTooltip("%s\nClick to place at cell %d, %d\nRight-click a marker to remove it\nHeight %d", armedFeature_.c_str(), featureCellX, featureCellY, hoverHeight_);
+        } else if (featurePasteArmed_ && overMap) {
+            ImGui::SetTooltip("Click to paste %d features with their cell %d, %d as the top-left\nEsc cancels", static_cast<int>(featureClipboard_.size()), featureCellX, featureCellY);
         } else if (overMap) {
-            ImGui::SetTooltip("Choose a feature on the left\nRight-click a marker to remove it\nHeight %d", hoverHeight_);
+            ImGui::SetTooltip(featureSelectMode_ ? "Drag a box around features, or click one\nHeight %d" : "Choose a feature on the left to place it, or press Select to select features\nHeight %d", hoverHeight_);
         }
     } else if (hovered && pasteArmed_ && clipboard_) {
         if (clipboard_->heightsOnly) {
@@ -2932,8 +3315,22 @@ void EditorApp::drawStatus() {
     if (featuresTab_) {
         if (featureDelete_) {
             ImGui::Text("Delete. Click a feature to remove it.   %s   zoom %.0f%%", map_->displayName.c_str(), zoom_ * 100.0f);
+        } else if (featurePasteArmed_) {
+            ImGui::Text("Pasting %d features. Click the map to place them, Esc cancels.   %s   zoom %.0f%%",
+                static_cast<int>(featureClipboard_.size()),
+                map_->displayName.c_str(),
+                zoom_ * 100.0f);
         } else if (armedFeature_.empty()) {
-            ImGui::Text("Features. Choose one on the left, then click the map.   %s   zoom %.0f%%", map_->displayName.c_str(), zoom_ * 100.0f);
+            if (featureSelectMode_ && selectedFeatures_.empty()) {
+                ImGui::Text("Select. Drag a box around features, or click one. Shift adds.   %s   zoom %.0f%%", map_->displayName.c_str(), zoom_ * 100.0f);
+            } else if (selectedFeatures_.empty()) {
+                ImGui::Text("Features. Choose one on the left to place, or press Select to select features.   %s   zoom %.0f%%", map_->displayName.c_str(), zoom_ * 100.0f);
+            } else {
+                ImGui::Text("%d selected. Copy, Cut, Paste and Delete work on them.   %s   zoom %.0f%%",
+                    static_cast<int>(selectedFeatures_.size()),
+                    map_->displayName.c_str(),
+                    zoom_ * 100.0f);
+            }
         } else {
             ImGui::Text("%s. Click the map to place it. Right-click a marker to remove it.   %s   zoom %.0f%%",
                 armedFeature_.c_str(),
@@ -4508,13 +4905,32 @@ bool EditorApp::draw() {
         placementOffsetFor_ = placementId;
     }
     if (!ImGui::GetIO().WantTextInput && !hpiEditor_.focused()) {
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C)) {
+        // The Features tab copies, cuts and pastes features only, and every
+        // other tab does the same for terrain tiles only.
+        const bool featureKeys = featuresTab_ && map_.has_value();
+        const bool tileKeys = !featuresTab_;
+        if (featureKeys && !selectedFeatures_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+            copyFeatures(false);
+        } else if (featureKeys && !selectedFeatures_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
+            copyFeatures(true);
+        } else if (featureKeys && !featureClipboard_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+            armFeaturePaste();
+        } else if (featureKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A)) {
+            selectedFeatures_.clear();
+            for (const FeaturePlacement& feature : map_->features) {
+                selectedFeatures_.insert({feature.x, feature.y});
+            }
+            statusNote_ = std::to_string(selectedFeatures_.size()) + " features selected";
+        } else if (featureKeys && !selectedFeatures_.empty()
+            && (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
+            deleteSelectedFeatures();
+        } else if (tileKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C)) {
             copySelection(true);
-        } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+        } else if (tileKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
             copySelection(false);
-        } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
+        } else if (tileKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_X)) {
             cutSelection();
-        } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+        } else if (tileKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
             armPaste();
         } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N)) {
             showNew_ = true;
@@ -4562,8 +4978,13 @@ bool EditorApp::draw() {
         } else if (featureDelete_) {
             featureDelete_ = false;
             statusNote_ = "Delete cancelled";
+        } else if (featurePasteArmed_) {
+            featurePasteArmed_ = false;
+            statusNote_ = "Paste cancelled";
         } else if (featuresTab_ && !armedFeature_.empty()) {
             armedFeature_.clear();
+        } else if (featuresTab_ && !selectedFeatures_.empty()) {
+            selectedFeatures_.clear();
         } else if (armedStartPlayer_ != 0 || draggingStartPlayer_ != 0) {
             armedStartPlayer_ = 0;
             draggingStartPlayer_ = 0;
@@ -4633,26 +5054,46 @@ bool EditorApp::draw() {
                 redoPlacement();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Cut", theme::shortcut("X").c_str(), false, map_.has_value() && hasSelection())) {
-                cutSelection();
+            if (featuresTab_) {
+                const bool hasFeatures = map_.has_value() && !selectedFeatures_.empty();
+                if (ImGui::MenuItem("Cut Features", theme::shortcut("X").c_str(), false, hasFeatures)) {
+                    copyFeatures(true);
+                }
+                if (ImGui::MenuItem("Copy Features", theme::shortcut("C").c_str(), false, hasFeatures)) {
+                    copyFeatures(false);
+                }
+                if (ImGui::MenuItem("Paste Features", theme::shortcut("V").c_str(), false, map_.has_value() && !featureClipboard_.empty())) {
+                    armFeaturePaste();
+                }
+                if (ImGui::MenuItem("Delete Selected Features", nullptr, false, hasFeatures)) {
+                    deleteSelectedFeatures();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Select Features", nullptr, featureSelectMode_, map_.has_value())) {
+                    toggleFeatureSelectMode();
+                }
+            } else {
+                if (ImGui::MenuItem("Cut", theme::shortcut("X").c_str(), false, map_.has_value() && hasSelection())) {
+                    cutSelection();
+                }
+                if (ImGui::MenuItem("Copy Terrain + Height Map", theme::shortcut("C").c_str(), false, map_.has_value() && hasSelection())) {
+                    copySelection(false);
+                }
+                if (ImGui::MenuItem("Copy Height Map", theme::shortcut("Shift+C").c_str(), false, map_.has_value() && hasSelection())) {
+                    copySelection(true);
+                }
+                if (ImGui::MenuItem("Paste", theme::shortcut("V").c_str(), false, map_.has_value() && clipboard_.has_value())) {
+                    armPaste();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Select Tiles", nullptr, selectionMode_, map_.has_value())) {
+                    toggleSelectMode();
+                }
             }
-            if (ImGui::MenuItem("Copy Terrain + Height Map", theme::shortcut("C").c_str(), false, map_.has_value() && hasSelection())) {
-                copySelection(false);
-            }
-            if (ImGui::MenuItem("Copy Height Map", theme::shortcut("Shift+C").c_str(), false, map_.has_value() && hasSelection())) {
-                copySelection(true);
-            }
-            if (ImGui::MenuItem("Paste", theme::shortcut("V").c_str(), false, map_.has_value() && clipboard_.has_value())) {
-                armPaste();
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Select Tiles", nullptr, selectionMode_, map_.has_value())) {
-                toggleSelectMode();
-            }
-            if (ImGui::MenuItem(theme::withEllipsis("Modify Height").c_str(), nullptr, false, map_.has_value() && hasSelection())) {
+            if (ImGui::MenuItem(theme::withEllipsis("Modify Height").c_str(), nullptr, false, map_.has_value() && hasSelection() && !featuresTab_)) {
                 showModifyHeight_ = true;
             }
-            if (ImGui::MenuItem("Blend Textures", nullptr, false, map_.has_value() && hasSelection())) {
+            if (ImGui::MenuItem("Blend Textures", nullptr, false, map_.has_value() && hasSelection() && !featuresTab_)) {
                 blendSelection();
             }
             if (ImGui::MenuItem("Delete Features", nullptr, featureDelete_, map_.has_value() && featuresTab_)) {
@@ -4708,6 +5149,7 @@ bool EditorApp::draw() {
                 showHeightGrid_ = !showHeightGrid_;
             }
             ImGui::MenuItem("Feature Markers", nullptr, &showFeatures_);
+            ImGui::MenuItem("Show Feature Borders", nullptr, &showFeatureBorders_);
             ImGui::MenuItem("Start Positions", nullptr, &showStarts_);
             ImGui::MenuItem("Minimap", nullptr, &showMinimap_);
             ImGui::MenuItem("Frosted Glass", nullptr, &frostedGlass_);

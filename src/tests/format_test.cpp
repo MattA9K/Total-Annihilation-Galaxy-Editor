@@ -1319,6 +1319,41 @@ void testFeaturePlacement() {
     std::filesystem::remove(archivePath, removeError);
 }
 
+void testFeatureBatchPaste() {
+    // Pasting several features is one undo step: the cells go back in reverse
+    // order, so the names the paste added leave the table from its end.
+    auto map = galaxy::createBlankMap(4, 4);
+    const std::vector<std::pair<std::pair<int, int>, std::string>> clip = {
+        {{0, 0}, "MetalZone"}, {{3, 1}, "TreeA"}, {{5, 2}, "MetalZone"}, {{1, 4}, "TreeB"}};
+    std::vector<galaxy::FeatureChange> changes;
+    for (const auto& item : clip) {
+        galaxy::FeatureChange change;
+        expect(galaxy::placeMapFeature(map, 2 + item.first.first, 1 + item.first.second, item.second, &change) == galaxy::FeatureEdit::Placed,
+            "batch paste places each feature");
+        changes.push_back(change);
+    }
+    expect(map.features.size() == 4, "batch paste keeps every position");
+    int kept = 0;
+    for (const auto& item : clip) {
+        for (const auto& feature : map.features) {
+            if (feature.x == 2 + item.first.first && feature.y == 1 + item.first.second && feature.name == item.second) {
+                ++kept;
+            }
+        }
+    }
+    expect(kept == 4, "batch paste keeps the offsets between features");
+    const auto afterPaste = map.featureIndices;
+    const auto namesAfterPaste = map.featureNames;
+    for (auto it = changes.rbegin(); it != changes.rend(); ++it) {
+        galaxy::revertFeatureChange(map, *it);
+    }
+    expect(map.features.empty() && map.featureNames.empty(), "batch undo removes the features and their new names");
+    for (const auto& change : changes) {
+        galaxy::reapplyFeatureChange(map, change);
+    }
+    expect(map.featureIndices == afterPaste && map.featureNames == namesAfterPaste, "batch redo restores the paste");
+}
+
 void testFeatureUndo() {
     galaxy::LoadedMap map = galaxy::createBlankMap(2, 2);
     const auto heights = map.heights;
@@ -2206,6 +2241,7 @@ int main() {
     testBlendSelectionTextures();
     testFeaturePlacement();
     testFeatureUndo();
+    testFeatureBatchPaste();
     testGafImages();
     testMapSettings();
     testEditorSettings();

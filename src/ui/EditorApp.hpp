@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <future>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -192,6 +193,7 @@ private:
     struct EditorCommand {
         std::optional<PlacementChange> terrain;
         std::optional<FeatureChange> feature;
+        std::vector<FeatureChange> features;
         bool selection = false;
         TileSelection selectionBefore;
         TileSelection selectionAfter;
@@ -199,6 +201,14 @@ private:
 
     void rememberPlacement(PlacementChange change);
     void rememberFeature(FeatureChange change);
+    void rememberFeatures(std::vector<FeatureChange> changes);
+    // The selected features that are still on the map, in map order.
+    std::vector<FeaturePlacement> selectedFeaturePlacements();
+    void copyFeatures(bool cut);
+    void deleteSelectedFeatures();
+    void armFeaturePaste();
+    void toggleFeatureSelectMode();
+    void pasteFeaturesAt(int cellX, int cellY);
     void rememberSelection(const TileSelection& before, const TileSelection& after);
     void pushCommand(EditorCommand command, bool editsMap);
     void copySelection(bool heightsOnly = false);
@@ -261,6 +271,7 @@ private:
     float panX_ = 0.0f;
     float panY_ = 0.0f;
     bool showFeatures_ = true;
+    bool showFeatureBorders_ = true;
     bool showStarts_ = true;
     int sidebarTab_ = 0;
     bool startLocationsTab_ = false;
@@ -268,6 +279,23 @@ private:
     std::string armedFeature_;
     bool featurePressed_ = false;
     bool featureDelete_ = false;
+    // Selected features, by the cell each one sits in.
+    std::set<std::pair<int, int>> selectedFeatures_;
+    // Copied features. Each keeps its offset from the top-left cell of the copy.
+    struct FeatureClip {
+        std::string name;
+        int dx = 0;
+        int dy = 0;
+    };
+    std::vector<FeatureClip> featureClipboard_;
+    bool featureClipboardNewer_ = false;
+    bool featurePasteArmed_ = false;
+    bool featureSelectMode_ = false;
+    bool featureMarquee_ = false;
+    float featureMarqueeX0_ = 0.0f;
+    float featureMarqueeY0_ = 0.0f;
+    float featureMarqueeX1_ = 0.0f;
+    float featureMarqueeY1_ = 0.0f;
     int armedStartPlayer_ = 0;
     int draggingStartPlayer_ = 0;
     bool showHeightGrid_ = false;
