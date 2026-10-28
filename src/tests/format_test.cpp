@@ -1,3 +1,4 @@
+#include "core/ArchiveDocument.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
@@ -395,6 +396,31 @@ void testSaveRoundTrip(const galaxy::LoadedMap& map, const std::filesystem::path
                 expect(minimap + 8 <= tnt.size(), label + " minimap pointer");
                 if (minimap + 8 <= tnt.size()) {
                     expect(readU32(tnt.data() + minimap) == 252 && readU32(tnt.data() + minimap + 4) == 252, label + " minimap size");
+                    if (minimap + 8u + 252u * 252u <= tnt.size()) {
+                        // The game reads the picture from its top-left corner:
+                        // the playable area fills it from there and only the
+                        // right and the bottom are padding.
+                        const int playWidth = std::max(1, map.pixelWidth() - 32);
+                        const int playHeight = std::max(1, map.pixelHeight() - 128);
+                        int shownWidth = 252;
+                        int shownHeight = 252;
+                        if (playWidth >= playHeight) {
+                            shownHeight = std::max(1, playHeight * 252 / playWidth);
+                        } else {
+                            shownWidth = std::max(1, playWidth * 252 / playHeight);
+                        }
+                        const std::uint8_t* pixels = tnt.data() + minimap + 8;
+                        bool anchored = true;
+                        for (int y = 0; y < 252; ++y) {
+                            for (int x = 0; x < 252; ++x) {
+                                const bool outside = x >= shownWidth || y >= shownHeight;
+                                if (outside && pixels[y * 252 + x] != 0x64) {
+                                    anchored = false;
+                                }
+                            }
+                        }
+                        expect(anchored, label + " minimap is anchored top-left with padding right and below");
+                    }
                 }
             }
         }
@@ -777,6 +803,30 @@ void testBlankMap() {
     expect(map.featureIndices.size() == map.heights.size() && map.featureIndices.front() == 0xFFFF, "blank map has no features");
     expect(map.features.empty() && map.starts.empty(), "blank map has no placements");
     testSaveRoundTrip(map, std::filesystem::temp_directory_path() / "galaxy-blank-map-test.ufo", "blank map");
+
+    // A tall map: the minimap fills the left part of the picture from the
+    // top-left corner and the right part is padding, as in the game's maps.
+    auto tall = galaxy::createBlankMap(32, 48);
+    tall.tileImages.assign(1024, 5);
+    const auto tallPath = std::filesystem::temp_directory_path() / "galaxy-minimap-layout.ufo";
+    galaxy::saveMapFile(tall, tallPath);
+    {
+        const galaxy::HpiArchive archive = galaxy::HpiArchive::open(tallPath);
+        const galaxy::HpiFile* tntFile = archive.find("maps/galaxy-minimap-layout.tnt");
+        expect(tntFile != nullptr, "minimap layout map has a TNT");
+        if (tntFile != nullptr) {
+            const auto tnt = archive.extract(*tntFile);
+            const std::uint32_t minimap = readU32(tnt.data() + 40);
+            const std::uint8_t* pixels = tnt.data() + minimap + 8;
+            // 992 x 1408 playable pixels give a picture 177 pixels wide.
+            expect(pixels[0] == 5, "minimap top-left is the map");
+            expect(pixels[251 * 252 + 0] == 5, "minimap bottom-left is the map");
+            expect(pixels[176] == 5 && pixels[177] == 0x64, "minimap pads to the right of the map");
+            expect(pixels[251 * 252 + 251] == 0x64, "minimap bottom-right is padding");
+        }
+    }
+    std::error_code removeError;
+    std::filesystem::remove(tallPath, removeError);
 }
 
 void testPlacementHistory() {
@@ -1960,8 +2010,188 @@ void testFavorites() {
     std::filesystem::remove(path, ignored);
 }
 
+void testArchiveDocument() {
+    using namespace galaxy;
+    namespace fs = std::filesystem;
+    std::error_code ignored;
+    const fs::path work = fs::temp_directory_path() / "ge-archive-document-test";
+    fs::remove_all(work, ignored);
+    fs::create_directories(work / "in" / "Pack" / "Deep", ignored);
+    auto writeText = [](const fs::path& path, const std::string& text) {
+        std::ofstream out(path, std::ios::binary);
+        out << text;
+    };
+    auto bytesOfText = [](const std::string& text) { return std::vector<std::uint8_t>(text.begin(), text.end()); };
+
+    expect(normalizeArchivePath("\\a\\\\b//c/") == "a/b/c", "archive path is normalized");
+    expect(archiveParentPath("a/b/c") == "a/b" && archiveParentPath("a").empty(), "archive parent path");
+    expect(archiveLeafName("a/b/c") == "c" && archiveLeafName("a") == "a", "archive leaf name");
+    expect(archivePathIsInside("Maps/x.tnt", "maps") && !archivePathIsInside("Mapsx/x", "maps") && archivePathIsInside("a", ""), "archive path containment");
+    expect(archiveNameProblem("ok.txt").empty() && !archiveNameProblem("").empty() && !archiveNameProblem("a/b").empty() && !archiveNameProblem("..").empty(), "archive names are checked");
+
+    // Build a small archive on disk and open it.
+    const fs::path first = work / "first.hpi";
+    writeHpiArchive(first, {{"maps/One.tnt", bytesOfText("one")},
+                            {"maps/Two.ota", bytesOfText("two")},
+                            {"units/arm/Peewee.fbi", bytesOfText("peewee")},
+                            {"Readme.txt", bytesOfText("readme")}});
+    ArchiveDocument doc = ArchiveDocument::open(first);
+    expect(!doc.dirty() && !doc.canUndo() && doc.fileCount() == 4, "opened archive is clean");
+    expect(doc.displayName() == "first.hpi", "archive display name");
+    std::vector<ArchiveItem> top = doc.children("");
+    expect(top.size() == 3 && top[0].directory && top[0].name == "maps" && top[1].name == "units" && top[2].name == "Readme.txt", "top level lists folders first");
+    expect(top[0].fileCount == 2 && top[0].childCount == 2 && top[1].fileCount == 1 && top[1].childCount == 1, "folder counts");
+    expect(top[0].size == 6, "folder size is the total of its files");
+    expect(doc.isFolder("MAPS") && doc.isFile("MAPS/one.TNT") && !doc.isFile("maps"), "lookups ignore case");
+    expect(doc.canonicalPath("MAPS/new/x") == "maps/new/x" && doc.canonicalPath("units/ARM") == "units/arm", "canonical path uses archive case");
+    expect(doc.read("maps/two.ota") == bytesOfText("two"), "file contents read back");
+    expect(doc.search("", "pee").size() == 1 && doc.search("maps", "pee").empty() && doc.search("", "arm").size() == 1, "search");
+
+    // Import a folder and a file, then see conflicts.
+    writeText(work / "in" / "Pack" / "a.txt", "A");
+    writeText(work / "in" / "Pack" / "Deep" / "b.txt", "B");
+    writeText(work / "in" / "Pack" / ".DS_Store", "junk");
+    writeText(work / "in" / "readme.TXT", "newer readme");
+    ImportPlan plan = doc.planImport("maps", {work / "in" / "Pack", work / "in" / "readme.TXT"});
+    expect(plan.files.size() == 3 && plan.skipped == 0 && plan.conflicts.empty(), "import plan covers the folder and the file");
+    expect(doc.applyImport(plan, false) == 3 && doc.dirty() && doc.canUndo(), "import adds files");
+    expect(doc.isFile("maps/Pack/Deep/b.txt") && doc.isFile("maps/readme.TXT") && !doc.isFile("maps/Pack/.DS_Store"), "imported files are in place");
+    expect(doc.read("maps/Pack/a.txt") == bytesOfText("A"), "imported contents");
+    plan = doc.planImport("MAPS", {work / "in" / "Pack"});
+    expect(plan.conflicts.size() == 2, "re-import finds conflicts");
+    bool refused = false;
+    try {
+        doc.applyImport(plan, false);
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    expect(refused, "import refuses conflicts unless told to replace");
+    writeText(work / "in" / "Pack" / "a.txt", "A2");
+    plan = doc.planImport("maps", {work / "in" / "Pack"});
+    expect(doc.applyImport(plan, true) == 2 && doc.read("maps/Pack/a.txt") == bytesOfText("A2") && doc.fileCount() == 7, "import replaces on request");
+    doc.undo();
+    expect(doc.read("maps/Pack/a.txt") == bytesOfText("A") && doc.fileCount() == 7, "undo restores replaced file");
+    doc.undo();
+    expect(!doc.dirty() && doc.fileCount() == 4 && !doc.canUndo() && doc.canRedo(), "undo back to the opened state is clean");
+    doc.redo();
+    doc.redo();
+    expect(doc.dirty() && doc.fileCount() == 7, "redo repeats the changes");
+
+    // A folder cannot be imported over a file, nor a file over a folder.
+    writeText(work / "in" / "Pack.txt", "x");
+    expect(doc.planImport("", {work / "in" / "Pack.txt"}).files.size() == 1, "file next to folder of another name is fine");
+    fs::create_directories(work / "in2" / "maps", ignored);
+    writeText(work / "in2" / "maps" / "z.txt", "z");
+    fs::create_directories(work / "in3", ignored);
+    writeText(work / "in3" / "units", "file where a folder is");
+    plan = doc.planImport("", {work / "in3" / "units"});
+    expect(plan.files.empty() && plan.skipped == 1, "a file cannot take a folder's place");
+
+    // Move.
+    MovePlan move = doc.planMove({"maps/Pack"}, "units");
+    expect(move.problem.empty() && move.moves.size() == 1 && move.moves[0].second == "units/Pack" && move.conflicts.empty(), "move plan");
+    expect(doc.applyMove(move, false) == 1 && doc.isFile("units/Pack/Deep/b.txt") && !doc.isFolder("maps/Pack"), "folder moved with its contents");
+    expect(!doc.planMove({"units"}, "units/Pack/Deep").problem.empty(), "a folder cannot move into itself");
+    expect(!doc.planMove({"units"}, "units").problem.empty(), "a folder cannot move into itself directly");
+    expect(doc.planMove({"units/Pack"}, "units").moves.empty(), "moving an item to where it is does nothing");
+    expect(doc.planMove({"units", "units/Pack/a.txt"}, "maps").moves.size() == 1, "a selected item inside a selected folder travels with it");
+    move = doc.planMove({"maps/readme.TXT"}, "");
+    expect(move.conflicts.size() == 1 && move.conflicts[0] == "Readme.txt", "move onto another file is a conflict");
+    expect(doc.applyMove(move, true) == 1 && doc.read("Readme.txt") == bytesOfText("newer readme") && !doc.isFile("maps/readme.TXT"), "move can replace");
+    move = doc.planMove({"Readme.txt"}, "maps/One.tnt");
+    expect(!move.problem.empty(), "a file cannot move into a file");
+    doc.undo();
+    expect(doc.read("Readme.txt") == bytesOfText("readme") && doc.isFile("maps/readme.TXT"), "undo of a replacing move");
+
+    // Rename and folders.
+    doc.rename("maps/One.tnt", "Uno.tnt");
+    expect(doc.isFile("maps/Uno.tnt") && !doc.isFile("maps/One.tnt") && doc.read("maps/Uno.tnt") == bytesOfText("one"), "rename a file");
+    doc.rename("maps/Uno.tnt", "UNO.tnt");
+    expect(doc.find("maps/uno.tnt")->name == "UNO.tnt", "rename may change only the case");
+    bool clash = false;
+    try {
+        doc.rename("maps/UNO.tnt", "two.OTA");
+    } catch (const std::exception&) {
+        clash = true;
+    }
+    expect(clash, "rename onto another name is refused");
+    doc.rename("units", "Units2");
+    expect(doc.isFile("Units2/arm/Peewee.fbi") && !doc.isFolder("units"), "rename a folder");
+    const std::string made = doc.createFolder("Units2", "Empty");
+    expect(made == "Units2/Empty" && doc.isFolder("units2/empty") && doc.emptyFolderCount() == 1, "new folder");
+    bool duplicateFolder = false;
+    try {
+        doc.createFolder("Units2", "empty");
+    } catch (const std::exception&) {
+        duplicateFolder = true;
+    }
+    expect(duplicateFolder, "duplicate folder is refused");
+
+    // Remove.
+    expect(doc.remove({"Units2/arm"}) == 1 && !doc.isFile("Units2/arm/Peewee.fbi"), "remove a folder");
+    expect(doc.isFolder("Units2"), "the folder that held the removed item stays");
+    doc.undo();
+    expect(doc.isFile("Units2/arm/Peewee.fbi"), "undo remove");
+
+    // Export.
+    const fs::path out = work / "out";
+    ExportResult exported = doc.exportTo({"maps"}, out, false);
+    expect(exported.files == 3 && exported.skipped == 0, "export a folder");
+    expect(fs::exists(out / "maps" / "UNO.tnt") && fs::exists(out / "maps" / "Two.ota"), "exported folder keeps its name");
+    expect(!doc.exportConflicts({"maps"}, out).empty(), "export finds files already on disk");
+    exported = doc.exportTo({"maps"}, out, false);
+    expect(exported.files == 0 && exported.skipped == 3, "export leaves existing files alone");
+    exported = doc.exportTo({"maps/Two.ota", "Readme.txt"}, out, false);
+    expect(exported.files == 2 && fs::exists(out / "Readme.txt"), "export a single file");
+    const fs::path everything = work / "everything";
+    exported = doc.exportTo({""}, everything, false);
+    expect(exported.files == doc.fileCount() && fs::exists(everything / "Readme.txt"), "export everything writes straight into the folder");
+    {
+        std::ifstream in(out / "Readme.txt", std::ios::binary);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        expect(text == "readme", "exported contents");
+    }
+
+    // A hostile name never leaves the export folder.
+    const fs::path hostile = work / "hostile.hpi";
+    writeHpiArchive(hostile, {{"../escape.txt", bytesOfText("bad")}, {"ok/fine.txt", bytesOfText("good")}, {"bad:name?.txt", bytesOfText("odd")}});
+    ArchiveDocument odd = ArchiveDocument::open(hostile);
+    const fs::path safeOut = work / "safe" / "inside";
+    exported = odd.exportTo({""}, safeOut, false);
+    expect(!fs::exists(work / "safe" / "escape.txt") && !fs::exists(work / "escape.txt"), "export never writes outside the folder");
+    expect(exported.skipped >= 1 && fs::exists(safeOut / "ok" / "fine.txt") && fs::exists(safeOut / "bad_name_.txt"), "unsafe names are skipped and odd ones renamed");
+
+    // Save, reopen.
+    const fs::path saved = work / "saved.hpi";
+    doc.saveAs(saved);
+    expect(!doc.dirty() && !doc.canUndo() && doc.path() == saved, "saving makes the document clean");
+    ArchiveDocument reopened = ArchiveDocument::open(saved);
+    expect(reopened.fileCount() == doc.fileCount(), "saved archive has the same files");
+    expect(reopened.isFile("Units2/Pack/Deep/b.txt") && reopened.read("Units2/Pack/a.txt") == bytesOfText("A2"), "saved archive keeps imported folders");
+    expect(reopened.isFile("Units2/arm/Peewee.fbi") && reopened.read("Units2/arm/Peewee.fbi") == bytesOfText("peewee"), "saved archive keeps moved files");
+    expect(reopened.isFile("maps/UNO.tnt"), "saved archive keeps renames");
+
+    // A new archive and the empty case.
+    ArchiveDocument blank;
+    expect(blank.fileCount() == 0 && !blank.dirty() && blank.children("").empty() && blank.displayName() == "Untitled.hpi", "blank archive");
+    bool emptySave = false;
+    try {
+        blank.saveAs(work / "empty.hpi");
+    } catch (const std::exception&) {
+        emptySave = true;
+    }
+    expect(emptySave, "an archive with no files cannot be saved");
+    plan = blank.planImport("", {work / "in" / "readme.TXT"});
+    blank.applyImport(plan, false);
+    blank.saveAs(work / "fresh.hpi");
+    expect(ArchiveDocument::open(work / "fresh.hpi").isFile("readme.TXT"), "a blank archive saves after an import");
+
+    fs::remove_all(work, ignored);
+}
+
 int main() {
     testFavorites();
+    testArchiveDocument();
     testBlankMap();
     testArchiveFooterAndStarts();
     testTileOpacity();

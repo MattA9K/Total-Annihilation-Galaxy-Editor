@@ -27,6 +27,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -196,6 +197,11 @@ void becomeEditorWindow(GLFWwindow* window) {
 
 }  // namespace
 
+namespace {
+// The editor that receives files dropped on the window.
+galaxy::EditorApp* gDropTarget = nullptr;
+}  // namespace
+
 int main(int argc, char** argv) {
     glfwSetErrorCallback(glfwError);
     if (!glfwInit()) {
@@ -271,6 +277,17 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Init("#version 150");
 
     galaxy::EditorApp editor;
+    gDropTarget = &editor;
+    glfwSetDropCallback(window, [](GLFWwindow*, int count, const char** paths) {
+        if (gDropTarget == nullptr) {
+            return;
+        }
+        std::vector<std::filesystem::path> dropped;
+        for (int i = 0; i < count; ++i) {
+            dropped.push_back(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(paths[i]))));
+        }
+        gDropTarget->handleDroppedPaths(dropped);
+    });
     bool running = true;
     if (useSplash) {
         running = runSplash(window, *splash, editor);

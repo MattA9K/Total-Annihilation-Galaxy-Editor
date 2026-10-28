@@ -5,6 +5,7 @@
 #include "format/MapFile.hpp"
 #include "format/SctSection.hpp"
 #include "ui/GlassBlur.hpp"
+#include "ui/HpiEditor.hpp"
 #include "ui/Terrain3D.hpp"
 
 #include <chrono>
@@ -40,6 +41,8 @@ public:
     void openMap(const std::filesystem::path& path);
     bool draw();
     void requestClose();
+    // Files dropped on the window from the system.
+    void handleDroppedPaths(const std::vector<std::filesystem::path>& paths);
     bool selectionMode() const { return selectionMode_ && !featuresTab_ && !view3d_; }
     bool hasSelection() const { return !selection_.empty(); }
 
@@ -274,6 +277,8 @@ private:
     bool miniDirty_ = true;
     bool heightDirty_ = true;
     bool quit_ = false;
+    HpiEditor hpiEditor_;
+    bool hpiQuitApproved_ = false;
     bool mapDirty_ = false;
     int autosaveMinutes_ = 10;
     int autosaveBackups_ = 5;

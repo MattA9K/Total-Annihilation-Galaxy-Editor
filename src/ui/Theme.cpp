@@ -623,6 +623,69 @@ bool segmented(const char* id, const char* const* labels, int count, int& curren
     return changed;
 }
 
+int iconSegmented(const char* id, const GlyphPainter* glyphs, int count, int selected, const bool* enabled, const char* const* tips) {
+    ImGui::PushID(id);
+    const float u = unit();
+    const float height = ImGui::GetFrameHeight();
+    const float width = std::floor(34.0f * u);
+    const float rounding = ImGui::GetStyle().FrameRounding;
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    int clicked = -1;
+    for (int i = 0; i < count; ++i) {
+        const bool on = enabled == nullptr || enabled[i];
+        const float x = origin.x + width * static_cast<float>(i);
+        ImGui::PushID(i);
+        ImGui::SetCursorScreenPos(ImVec2(x, origin.y));
+        ImGui::BeginDisabled(!on);
+        if (ImGui::InvisibleButton("segment", ImVec2(width, height))) {
+            clicked = i;
+        }
+        ImGui::EndDisabled();
+        const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && on;
+        const bool held = ImGui::IsItemActive() && on;
+        const bool pressed = selected == i;
+        ImU32 fillColor = colors().segmentFill;
+        if (pressed) {
+            fillColor = held ? rgb32(36, 106, 212) : accentColor();
+        } else if (held) {
+            fillColor = colors().segmentHeld;
+        } else if (hovered) {
+            fillColor = colors().segmentHover;
+        }
+        ImDrawFlags corners = ImDrawFlags_RoundCornersNone;
+        if (count == 1) {
+            corners = ImDrawFlags_RoundCornersAll;
+        } else if (i == 0) {
+            corners = ImDrawFlags_RoundCornersLeft;
+        } else if (i == count - 1) {
+            corners = ImDrawFlags_RoundCornersRight;
+        }
+        const ImVec2 min(x, origin.y);
+        const ImVec2 max(x + width, origin.y + height);
+        draw->AddRectFilled(min, max, fillColor, rounding, corners);
+        if (i > 0 && !pressed && selected != i - 1) {
+            draw->AddLine(ImVec2(x, origin.y + 1.0f), ImVec2(x, origin.y + height - 1.0f), ImGui::GetColorU32(ImGuiCol_Border));
+        }
+        ImU32 ink = pressed ? rgb32(255, 255, 255) : ImGui::GetColorU32(ImGuiCol_Text);
+        if (!on) {
+            ink = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+        }
+        if (glyphs[i] != nullptr) {
+            glyphs[i](draw, ImVec2(std::floor(x + width * 0.5f) + 0.5f, std::floor(origin.y + height * 0.5f) + 0.5f), std::floor(height * 0.5f), ink);
+        }
+        if (tips != nullptr && tips[i] != nullptr && hovered) {
+            ImGui::SetTooltip("%s", tips[i]);
+        }
+        ImGui::PopID();
+    }
+    draw->AddRect(origin, ImVec2(origin.x + width * static_cast<float>(count), origin.y + height), ImGui::GetColorU32(ImGuiCol_Border), rounding);
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::Dummy(ImVec2(width * static_cast<float>(count), height));
+    ImGui::PopID();
+    return clicked;
+}
+
 void toolbarBackground() {
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImVec2 min = ImGui::GetWindowPos();

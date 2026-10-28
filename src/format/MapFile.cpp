@@ -556,10 +556,16 @@ std::vector<std::uint8_t> buildTnt(const LoadedMap& map) {
         out.insert(out.end(), name, name + 128);
     }
 
+    // The game draws the minimap from its top-left corner and ignores the
+    // 32 pixels at the right and the 128 at the bottom of the map, so the
+    // picture is the playable area scaled to fit 252 pixels on its longer
+    // side, anchored at the top-left, with the palette's padding colour right
+    // and below it. The original maps are laid out this way. It is rebuilt
+    // from the tiles on every save.
     appendU32(out, 252);
     appendU32(out, 252);
-    const int mapWidth = map.pixelWidth();
-    const int mapHeight = map.pixelHeight();
+    const int mapWidth = std::max(1, map.pixelWidth() - 32);
+    const int mapHeight = std::max(1, map.pixelHeight() - 128);
     int previewWidth = 252;
     int previewHeight = 252;
     if (mapWidth >= mapHeight) {
@@ -567,18 +573,14 @@ std::vector<std::uint8_t> buildTnt(const LoadedMap& map) {
     } else {
         previewWidth = std::max(1, mapWidth * 252 / mapHeight);
     }
-    const int originX = (252 - previewWidth) / 2;
-    const int originY = (252 - previewHeight) / 2;
     for (int y = 0; y < 252; ++y) {
         for (int x = 0; x < 252; ++x) {
-            if (x < originX || y < originY || x >= originX + previewWidth || y >= originY + previewHeight) {
+            if (x >= previewWidth || y >= previewHeight) {
                 out.push_back(0x64);
                 continue;
             }
-            const int localX = x - originX;
-            const int localY = y - originY;
-            const int mapX = std::min(mapWidth - 1, localX * mapWidth / previewWidth);
-            const int mapY = std::min(mapHeight - 1, localY * mapHeight / previewHeight);
+            const int mapX = std::min(mapWidth - 1, x * mapWidth / previewWidth);
+            const int mapY = std::min(mapHeight - 1, y * mapHeight / previewHeight);
             const int tileX = mapX >> 5;
             const int tileY = mapY >> 5;
             const std::uint32_t index = map.indices[static_cast<std::size_t>(tileY * map.tileWidth + tileX)];

@@ -615,6 +615,7 @@ void EditorApp::drawToolbar() {
     }
     const ImVec2 opacityMin = ImGui::GetItemRectMin();
     const ImVec2 opacityMax = ImGui::GetItemRectMax();
+    float usedRight = opacityMax.x;
     if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("opacity-menu")) {
         ImGui::SetTooltip("Mix the placed tile into the tile already on the map. 100%% replaces it.");
     }
@@ -636,8 +637,26 @@ void EditorApp::drawToolbar() {
             toggleDeleteMode();
         }
         ImGui::EndDisabled();
+        usedRight = ImGui::GetItemRectMax().x;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
             ImGui::SetTooltip("Click a tree, rock, metal patch, or other feature to remove it");
+        }
+    }
+
+    // The HPI editor sits at the right edge, apart from the map tools.
+    {
+        ImGui::PushFont(theme::toolbarLabelFont());
+        const float labelWidth = ImGui::CalcTextSize("HPI Editor").x;
+        ImGui::PopFont();
+        const float itemWidth = std::floor(std::max(50.0f * theme::unit(), labelWidth + 16.0f * theme::unit()));
+        const float rightEdge = ImGui::GetWindowContentRegionMax().x - itemWidth;
+        const float fixedEnd = usedRight - ImGui::GetWindowPos().x + gap;
+        ImGui::SameLine(std::max(rightEdge, fixedEnd));
+        if (theme::toolbarItem("hpi-editor", ToolIcon::HpiEditor, "HPI Editor", hpiEditor_.visible())) {
+            hpiEditor_.show();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("HPI Editor\nBrowse an HPI or UFO file, import and export files, and move them between folders");
         }
     }
 }
@@ -3046,7 +3065,17 @@ bool EditorApp::saveMapTo(const std::filesystem::path& path) {
     }
 }
 
+void EditorApp::handleDroppedPaths(const std::vector<std::filesystem::path>& paths) {
+    hpiEditor_.importPaths(paths);
+}
+
 void EditorApp::requestClose() {
+    if (hpiEditor_.dirty() && !hpiQuitApproved_) {
+        // The HPI editor asks about its own changes first, then calls back through takeQuitApproval.
+        hpiEditor_.requestQuit();
+        quit_ = false;
+        return;
+    }
     if (map_ && mapDirty_) {
         showClosePrompt_ = true;
         quit_ = false;
@@ -4457,6 +4486,17 @@ void EditorApp::autosaveIfDue() {
 
 bool EditorApp::draw() {
     updateAppearance();
+    if (const std::string hpiError = hpiEditor_.takeError(); !hpiError.empty()) {
+        error_ = hpiError;
+    }
+    if (const std::string hpiStatus = hpiEditor_.takeStatus(); !hpiStatus.empty()) {
+        statusNote_ = hpiStatus;
+    }
+    if (hpiEditor_.takeQuitApproval()) {
+        hpiQuitApproved_ = true;
+        requestClose();
+    }
+    hpiEditor_.setCurrentMapPath(map_ ? map_->source : std::filesystem::path());
     if (loadingTilesets()) {
         continueLoadingTilesets(std::chrono::milliseconds(16));
     }
@@ -4467,7 +4507,7 @@ bool EditorApp::draw() {
         placeOffsetY_ = 0;
         placementOffsetFor_ = placementId;
     }
-    if (!ImGui::GetIO().WantTextInput) {
+    if (!ImGui::GetIO().WantTextInput && !hpiEditor_.focused()) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C)) {
             copySelection(true);
         } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
@@ -4512,7 +4552,7 @@ bool EditorApp::draw() {
             }
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen("Error") && !ImGui::IsPopupOpen("Tile Limit") && !ImGui::IsPopupOpen("Generate Map") && !ImGui::IsPopupOpen("New Map") && !ImGui::IsPopupOpen("Modify Height") && !ImGui::IsPopupOpen("Unsaved Changes")
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen("Error") && !ImGui::IsPopupOpen("Tile Limit") && !ImGui::IsPopupOpen("Generate Map") && !ImGui::IsPopupOpen("New Map") && !ImGui::IsPopupOpen("Modify Height") && !ImGui::IsPopupOpen("Unsaved Changes") && !hpiEditor_.focused()
         && !showAddFavorite_ && !showCreateFavorites_ && !showDeleteFavorite_ && !selectionMenuOpen_) {
         if (showMapSettings_ && !ImGui::GetIO().WantTextInput) {
             showMapSettings_ = false;
@@ -4574,6 +4614,10 @@ bool EditorApp::draw() {
                 std::uniform_int_distribution<int> seedPick(1, 999983);
                 genSeed_ = seedPick(seedRng);
                 showGenerate_ = true;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("HPI Editor")) {
+                hpiEditor_.show();
             }
             ImGui::Separator();
             if (ImGui::MenuItem(theme::quitLabel(), theme::shortcut("Q").c_str())) {
@@ -4766,6 +4810,7 @@ bool EditorApp::draw() {
     drawOptions();
     drawMapSettings();
     drawMinimap();
+    hpiEditor_.draw();
     if (featureDelete_ && featuresTab_) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
         ImDrawList* overlay = ImGui::GetForegroundDrawList();

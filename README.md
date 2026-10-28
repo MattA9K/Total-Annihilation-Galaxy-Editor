@@ -96,6 +96,19 @@ Add to Favorites asks for three things: a favorites archive, a category, and a s
 
 Only archives named `GE-Favorites-<name>.hpi` appear on the Favorites tab, and they are kept off the Tilesets tab. Inside, a tile is `sections/<category>/<subcategory>/<tile>.sct`, so the archive is an ordinary tileset that you can share by copying the file into someone else's folder. A saved tile is a full rectangle. When the selection has gaps, the tiles between the selected ones are saved too, because a section file has no room for holes. A tile can be at most 512 tiles on each side.
 
+## HPI Editor
+
+The HPI Editor button at the right end of the toolbar (File menu, HPI Editor) opens a file browser for archives: `.hpi`, `.ufo`, `.ccx`, `.gp3`, and `.gpf`. Open one with the Open button, or start an empty archive with New. When a map you have open is itself an archive, the empty window offers it in one click.
+
+The window follows the layout of a Finder window. A folder tree runs down the left, the contents fill the middle as a list or as icons (the two buttons at the top right), and a path bar and an item count run along the bottom. Click a folder in the tree or a segment of the path bar to go there, double-click a folder to open it, and use Back and Forward to retrace your steps. Select with a click, Command-click or Ctrl-click to add one, Shift-click for a range, or Ctrl+A. The Search box finds files and folders by name below the folder you are viewing, and double-clicking a result shows where it lives.
+
+- **Export** copies the selected files and folders to a folder you choose. A folder keeps its name and everything inside it. With nothing selected, Export takes the folder you are viewing, and at the top of the archive it makes a folder named after the archive so its contents are not scattered. If a file is already there, you are asked before it is replaced. Names that could reach outside the folder you chose are skipped, and characters a computer does not allow in file names are replaced with an underscore.
+- **Import** adds files, or whole folders with everything inside them, to the folder you are viewing. You can also drop files and folders from the desktop onto the window. Import asks before it replaces a file of the same name. File names in an archive match without regard to case, as they do in the game.
+- **Move** by dragging items from one folder to another: onto a folder in the list or icon view, a folder in the tree, or a segment of the path bar. Dragging a folder into itself is refused, and a folder that already exists at the destination is merged into.
+- **Rename** with F2 or the right-click menu, **New Folder** with the toolbar button or Ctrl+Shift+N, and **Delete** with the Delete key. Every change can be undone and redone.
+
+Nothing touches the archive on disk until you press Save. Save and Save As write a new archive and replace the old file in one step, so a failure leaves the original alone. An archive cannot store an empty folder or have no files at all, so empty folders do not survive a save and the editor will not save an archive with nothing in it. Closing the window, opening another archive, or quitting asks about unsaved changes first.
+
 ## Shortcuts
 
 On macOS, Command takes the place of Ctrl.
@@ -115,6 +128,8 @@ On macOS, Command takes the place of Ctrl.
 | Paste | Ctrl+V |
 | Editor Options | Ctrl+, |
 | 3D View on or off | Ctrl+3 |
+
+In the HPI Editor window, these work when it has the keyboard instead of the map shortcuts: Ctrl+O opens an archive, Ctrl+N starts a new one, Ctrl+S and Ctrl+Shift+S save, Ctrl+Z and Ctrl+Shift+Z undo and redo, Ctrl+A selects everything, Ctrl+I imports, Ctrl+Shift+N makes a folder, Ctrl+[ and Ctrl+] go back and forward, Ctrl+Up goes to the enclosing folder, Ctrl+Down or Return opens a folder, F2 renames, Delete or Ctrl+Backspace removes the selection, and Backspace alone goes up a folder.
 
 The arrow keys slide a stamp or a paste off the tile under the cursor. Esc cancels a paste, leaves Delete mode, or clears the selection.
 

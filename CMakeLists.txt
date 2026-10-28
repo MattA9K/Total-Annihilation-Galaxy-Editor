@@ -96,6 +96,7 @@ add_library(galaxy_format STATIC
     src/format/SctSection.cpp
     src/format/GafImage.cpp
     src/core/TilesetLibrary.cpp
+    src/core/ArchiveDocument.cpp
     src/core/FavoritesArchive.cpp
     src/core/MapGenerator.cpp
     src/core/EditorSettings.cpp
@@ -149,6 +150,7 @@ set_source_files_properties(src/ui/StbImage.cpp "${EMBED_CPP}" PROPERTIES COMPIL
 add_executable(GalaxyEditor
     src/main.cpp
     src/ui/EditorApp.cpp
+    src/ui/HpiEditor.cpp
     src/ui/Theme.cpp
     src/ui/ToolbarIcons.cpp
     src/ui/GlassBlur.cpp

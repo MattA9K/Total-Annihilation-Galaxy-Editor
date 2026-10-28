@@ -9,6 +9,7 @@
 #include <shobjidl.h>
 
 #include <string>
+#include <vector>
 
 #if defined(_MSC_VER)
 // Task dialogs need version 6 of the common controls.
@@ -123,6 +124,104 @@ std::wstring wideFromUtf8(const std::string& text) {
 }
 
 }  // namespace
+
+std::optional<std::filesystem::path> openArchiveDialog(const std::filesystem::path& initialDirectory) {
+    wchar_t buffer[MAX_PATH] = {};
+    OPENFILENAMEW dialog = {};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.lpstrFilter = L"Archives\0*.hpi;*.ufo;*.ccx;*.gp3;*.gpf\0All files\0*.*\0";
+    dialog.lpstrFile = buffer;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    dialog.lpstrTitle = L"Open archive";
+
+    std::wstring initial = initialDirectory.wstring();
+    if (!initial.empty()) {
+        dialog.lpstrInitialDir = initial.c_str();
+    }
+    if (!GetOpenFileNameW(&dialog)) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(buffer);
+}
+
+std::optional<std::filesystem::path> saveArchiveDialog(
+    const std::filesystem::path& initialDirectory,
+    const std::filesystem::path& suggestedName) {
+    wchar_t buffer[MAX_PATH] = {};
+    const std::wstring suggested = suggestedName.filename().wstring();
+    if (!suggested.empty()) {
+        wcsncpy_s(buffer, suggested.c_str(), _TRUNCATE);
+    }
+
+    OPENFILENAMEW dialog = {};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.lpstrFilter = L"HPI archive (*.hpi)\0*.hpi\0UFO archive (*.ufo)\0*.ufo\0CCX archive (*.ccx)\0*.ccx\0";
+    dialog.lpstrFile = buffer;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    dialog.lpstrTitle = L"Save archive";
+    dialog.lpstrDefExt = L"hpi";
+
+    std::wstring initial = initialDirectory.wstring();
+    if (!initial.empty()) {
+        dialog.lpstrInitialDir = initial.c_str();
+    }
+    if (!GetSaveFileNameW(&dialog)) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(buffer);
+}
+
+std::vector<std::filesystem::path> chooseFilesDialog(
+    const std::string& title,
+    const std::filesystem::path& initialDirectory) {
+    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    std::vector<std::filesystem::path> result;
+
+    IFileOpenDialog* dialog = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
+        DWORD options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST);
+        const std::wstring wideTitle = wideFromUtf8(title);
+        if (!wideTitle.empty()) {
+            dialog->SetTitle(wideTitle.c_str());
+        }
+        if (!initialDirectory.empty()) {
+            IShellItem* folder = nullptr;
+            if (SUCCEEDED(SHCreateItemFromParsingName(initialDirectory.c_str(), nullptr, IID_PPV_ARGS(&folder)))) {
+                dialog->SetFolder(folder);
+                folder->Release();
+            }
+        }
+        if (SUCCEEDED(dialog->Show(nullptr))) {
+            IShellItemArray* items = nullptr;
+            if (SUCCEEDED(dialog->GetResults(&items))) {
+                DWORD count = 0;
+                items->GetCount(&count);
+                for (DWORD i = 0; i < count; ++i) {
+                    IShellItem* item = nullptr;
+                    if (FAILED(items->GetItemAt(i, &item))) {
+                        continue;
+                    }
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path != nullptr) {
+                        result.emplace_back(path);
+                        CoTaskMemFree(path);
+                    }
+                    item->Release();
+                }
+                items->Release();
+            }
+        }
+        dialog->Release();
+    }
+    if (SUCCEEDED(initialized)) {
+        CoUninitialize();
+    }
+    return result;
+}
 
 bool alertDialog(
     const std::string& message,

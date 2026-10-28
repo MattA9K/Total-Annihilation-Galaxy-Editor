@@ -320,6 +320,91 @@ void drawDelete(const Canvas& c, const Palette& p) {
     }
 }
 
+// A cardboard archive box: lid, body and a label plate.
+void drawArchiveBox(const Canvas& c, const Palette& p, float dx = 0.0f, float dy = 0.0f) {
+    const ImU32 cardboard = Canvas::color(222, 176, 108);
+    c.rect(5.5f + dx, 12.0f + dy, 26.5f + dx, 29.0f + dy, cardboard, p.ink, 2.0f, 1.5f);
+    c.rect(3.5f + dx, 5.0f + dy, 28.5f + dx, 13.0f + dy, Canvas::color(238, 196, 128), p.ink, 2.0f, 1.5f);
+    c.rect(11.5f + dx, 17.0f + dy, 20.5f + dx, 21.5f + dy, p.paper, p.paperEdge, 1.2f, 1.2f);
+    c.line(13.2f + dx, 19.2f + dy, 18.8f + dx, 19.2f + dy, p.paperEdge, 1.1f);
+}
+
+void drawHpiEditor(const Canvas& c, const Palette& p) {
+    drawArchiveBox(c, p, 0.0f, -0.5f);
+    c.line(5.5f, 24.5f, 26.5f, 24.5f, p.inkFaint, 1.0f);
+}
+
+void drawPlusBadge(const Canvas& c, const Palette& p, float cx, float cy) {
+    c.circle(cx, cy, 5.6f, p.green, p.halo, 1.6f);
+    c.line(cx - 2.6f, cy, cx + 2.6f, cy, p.paper, 2.0f);
+    c.line(cx, cy - 2.6f, cx, cy + 2.6f, p.paper, 2.0f);
+}
+
+void drawNewArchive(const Canvas& c, const Palette& p) {
+    drawArchiveBox(c, p, -1.0f, 0.0f);
+    drawPlusBadge(c, p, 25.0f, 24.5f);
+}
+
+void drawFolderShape(const Canvas& c, const Palette& p, float dx = 0.0f, float dy = 0.0f) {
+    const ImU32 back = Canvas::color(92, 160, 232);
+    const ImU32 front = Canvas::color(132, 190, 250);
+    c.polygon({ImVec2(3.5f + dx, 8.0f + dy), ImVec2(12.0f + dx, 8.0f + dy), ImVec2(14.5f + dx, 11.0f + dy), ImVec2(28.5f + dx, 11.0f + dy),
+               ImVec2(28.5f + dx, 27.0f + dy), ImVec2(3.5f + dx, 27.0f + dy)},
+              back, p.ink, 1.5f);
+    c.rect(3.5f + dx, 13.5f + dy, 28.5f + dx, 27.0f + dy, front, p.ink, 2.0f, 1.5f);
+}
+
+void drawOpenArchive(const Canvas& c, const Palette& p) {
+    drawFolderShape(c, p);
+    c.polyline({ImVec2(11.0f, 21.5f), ImVec2(16.0f, 16.5f), ImVec2(21.0f, 21.5f)}, p.paper, 2.4f);
+}
+
+void drawFloppy(const Canvas& c, const Palette& p, float scale = 1.0f, float dx = 0.0f, float dy = 0.0f) {
+    auto X = [&](float v) { return 16.0f + dx + (v - 16.0f) * scale; };
+    auto Y = [&](float v) { return 16.0f + dy + (v - 16.0f) * scale; };
+    c.polygon({ImVec2(X(4.5f), Y(4.5f)), ImVec2(X(24.0f), Y(4.5f)), ImVec2(X(28.0f), Y(8.5f)), ImVec2(X(28.0f), Y(28.0f)), ImVec2(X(4.5f), Y(28.0f))},
+              p.blue, p.ink, 1.5f);
+    c.rect(X(9.0f), Y(4.5f), X(22.0f), Y(12.5f), p.steel, p.ink, 1.0f, 1.2f);
+    c.rect(X(17.5f), Y(6.0f), X(20.0f), Y(11.0f), p.ink, 0, 0.5f);
+    c.rect(X(8.0f), Y(17.0f), X(24.5f), Y(28.0f), p.paper, p.ink, 1.0f, 1.2f);
+    c.line(X(10.5f), Y(21.0f), X(22.0f), Y(21.0f), p.paperEdge, 1.1f);
+    c.line(X(10.5f), Y(24.0f), X(22.0f), Y(24.0f), p.paperEdge, 1.1f);
+}
+
+void drawSaveArchive(const Canvas& c, const Palette& p) {
+    drawFloppy(c, p);
+}
+
+void drawSaveArchiveAs(const Canvas& c, const Palette& p) {
+    drawFloppy(c, p, 0.86f, -2.0f, -2.0f);
+    // A pencil in the corner.
+    c.polygon({ImVec2(15.5f, 28.5f), ImVec2(16.5f, 24.0f), ImVec2(27.5f, 13.0f), ImVec2(30.0f, 15.5f), ImVec2(19.0f, 26.5f)}, p.orange, p.ink, 1.3f);
+    c.polygon({ImVec2(15.5f, 28.5f), ImVec2(16.5f, 24.0f), ImVec2(19.0f, 26.5f)}, p.sand, p.ink, 1.1f);
+    c.line(26.0f, 14.6f, 28.8f, 17.4f, p.paper, 1.2f);
+}
+
+void drawTray(const Canvas& c, const Palette& p) {
+    c.polyline({ImVec2(4.5f, 19.0f), ImVec2(4.5f, 28.0f), ImVec2(27.5f, 28.0f), ImVec2(27.5f, 19.0f)}, p.ink, 1.8f);
+    c.rect(5.5f, 24.0f, 26.5f, 27.0f, p.steel, 0, 0.5f);
+}
+
+void drawImport(const Canvas& c, const Palette& p) {
+    drawTray(c, p);
+    c.line(16.0f, 3.5f, 16.0f, 15.0f, p.blue, 4.0f);
+    c.polygon({ImVec2(16.0f, 22.5f), ImVec2(8.2f, 13.2f), ImVec2(23.8f, 13.2f)}, p.blue, 0, 0.0f);
+}
+
+void drawExport(const Canvas& c, const Palette& p) {
+    drawTray(c, p);
+    c.line(16.0f, 12.0f, 16.0f, 23.0f, p.green, 4.0f);
+    c.polygon({ImVec2(16.0f, 3.5f), ImVec2(8.2f, 12.8f), ImVec2(23.8f, 12.8f)}, p.green, 0, 0.0f);
+}
+
+void drawNewFolder(const Canvas& c, const Palette& p) {
+    drawFolderShape(c, p, -1.0f, 0.0f);
+    drawPlusBadge(c, p, 25.0f, 24.0f);
+}
+
 void drawIcon(ToolIcon icon, const Canvas& canvas, const Canvas& flipped) {
     const Palette p = makePalette();
     switch (icon) {
@@ -336,6 +421,14 @@ void drawIcon(ToolIcon icon, const Canvas& canvas, const Canvas& flipped) {
     case ToolIcon::Redo: drawUndo(flipped, p); break;
     case ToolIcon::Opacity: drawOpacity(canvas, p); break;
     case ToolIcon::Delete: drawDelete(canvas, p); break;
+    case ToolIcon::HpiEditor: drawHpiEditor(canvas, p); break;
+    case ToolIcon::NewArchive: drawNewArchive(canvas, p); break;
+    case ToolIcon::OpenArchive: drawOpenArchive(canvas, p); break;
+    case ToolIcon::SaveArchive: drawSaveArchive(canvas, p); break;
+    case ToolIcon::SaveArchiveAs: drawSaveArchiveAs(canvas, p); break;
+    case ToolIcon::Import: drawImport(canvas, p); break;
+    case ToolIcon::Export: drawExport(canvas, p); break;
+    case ToolIcon::NewFolder: drawNewFolder(canvas, p); break;
     }
 }
 

@@ -59,6 +59,14 @@ enum class ToolIcon {
     Redo,
     Opacity,
     Delete,
+    HpiEditor,
+    NewArchive,
+    OpenArchive,
+    SaveArchive,
+    SaveArchiveAs,
+    Import,
+    Export,
+    NewFolder,
 };
 
 // A freestanding toolbar item: a 32 pt icon with its label underneath. When on is
@@ -102,6 +110,13 @@ void alignRight(float width);
 
 // Segmented control used in place of tab bars. Returns true when the selection changed.
 bool segmented(const char* id, const char* const* labels, int count, int& current, bool fill = false);
+
+// Draws a picture centered on center, roughly size points across, in color.
+using GlyphPainter = void (*)(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
+// A segmented control whose segments hold pictures. selected is the segment that looks pressed,
+// or -1 for a control with no state, like Back and Forward. enabled may be null. tips may be null.
+// Returns the segment that was clicked, or -1.
+int iconSegmented(const char* id, const GlyphPainter* glyphs, int count, int selected, const bool* enabled, const char* const* tips);
 
 void toolbarBackground();
 void toolbarSeparator();

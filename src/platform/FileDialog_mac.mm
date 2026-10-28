@@ -188,6 +188,100 @@ std::optional<std::filesystem::path> chooseFolderDialog(
     }
 }
 
+std::optional<std::filesystem::path> openArchiveDialog(const std::filesystem::path& initialDirectory) {
+    @autoreleasepool {
+        [NSApp activateIgnoringOtherApps:YES];
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.canChooseFiles = YES;
+        panel.canChooseDirectories = NO;
+        panel.allowsMultipleSelection = NO;
+        panel.title = @"Open archive";
+        panel.prompt = @"Open";
+
+        NSMutableArray<UTType*>* types = [NSMutableArray array];
+        for (NSString* extension in @[ @"hpi", @"ufo", @"ccx", @"gp3", @"gpf" ]) {
+            UTType* type = [UTType typeWithFilenameExtension:extension];
+            if (type != nil) {
+                [types addObject:type];
+            }
+        }
+        panel.allowedContentTypes = types;
+
+        if (!initialDirectory.empty()) {
+            NSString* directory = [NSString stringWithUTF8String:initialDirectory.string().c_str()];
+            if (directory != nil) {
+                panel.directoryURL = [NSURL fileURLWithPath:directory];
+            }
+        }
+        if ([panel runModal] != NSModalResponseOK || panel.URL.path == nil) {
+            return std::nullopt;
+        }
+        return std::filesystem::path(panel.URL.path.UTF8String);
+    }
+}
+
+std::optional<std::filesystem::path> saveArchiveDialog(
+    const std::filesystem::path& initialDirectory,
+    const std::filesystem::path& suggestedName) {
+    @autoreleasepool {
+        [NSApp activateIgnoringOtherApps:YES];
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        panel.canCreateDirectories = YES;
+        panel.title = @"Save archive";
+        panel.prompt = @"Save";
+        panel.allowsOtherFileTypes = YES;
+        if (!suggestedName.empty()) {
+            NSString* name = [NSString stringWithUTF8String:suggestedName.filename().string().c_str()];
+            if (name != nil) {
+                panel.nameFieldStringValue = name;
+            }
+        }
+        if (!initialDirectory.empty()) {
+            NSString* directory = [NSString stringWithUTF8String:initialDirectory.string().c_str()];
+            if (directory != nil) {
+                panel.directoryURL = [NSURL fileURLWithPath:directory];
+            }
+        }
+        if ([panel runModal] != NSModalResponseOK || panel.URL.path == nil) {
+            return std::nullopt;
+        }
+        return std::filesystem::path(panel.URL.path.UTF8String);
+    }
+}
+
+std::vector<std::filesystem::path> chooseFilesDialog(
+    const std::string& title,
+    const std::filesystem::path& initialDirectory) {
+    @autoreleasepool {
+        [NSApp activateIgnoringOtherApps:YES];
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.canChooseFiles = YES;
+        panel.canChooseDirectories = YES;
+        panel.allowsMultipleSelection = YES;
+        panel.prompt = @"Import";
+        if (NSString* text = [NSString stringWithUTF8String:title.c_str()]) {
+            panel.title = text;
+            panel.message = text;
+        }
+        if (!initialDirectory.empty()) {
+            NSString* directory = [NSString stringWithUTF8String:initialDirectory.string().c_str()];
+            if (directory != nil) {
+                panel.directoryURL = [NSURL fileURLWithPath:directory];
+            }
+        }
+        std::vector<std::filesystem::path> result;
+        if ([panel runModal] != NSModalResponseOK) {
+            return result;
+        }
+        for (NSURL* url in panel.URLs) {
+            if (url.path != nil) {
+                result.emplace_back(url.path.UTF8String);
+            }
+        }
+        return result;
+    }
+}
+
 bool alertDialog(
     const std::string& message,
     const std::string& detail,
