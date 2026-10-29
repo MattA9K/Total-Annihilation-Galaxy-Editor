@@ -167,6 +167,8 @@ private:
     void saveEditorOptions() const;
     void drawGenerate();
     void drawNewMap();
+    void drawResizeMap();
+    void applyResize();
     void drawModifyHeight();
     void drawSelectionMenu();
     // Favorites: tiles the user keeps in GE-Favorites-<name>.hpi archives.
@@ -375,6 +377,11 @@ private:
     bool mapSettingsFresh_ = false;
     bool showGenerate_ = false;
     bool showNew_ = false;
+    bool showResize_ = false;
+    int resizeLeft_ = 0;
+    int resizeRight_ = 0;
+    int resizeTop_ = 0;
+    int resizeBottom_ = 0;
     bool showModifyHeight_ = false;
     bool showClosePrompt_ = false;
     int modifyHeightMode_ = static_cast<int>(HeightAdjust::Set);

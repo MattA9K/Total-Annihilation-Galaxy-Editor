@@ -99,6 +99,14 @@ LoadedMap loadMapFile(const std::filesystem::path& path);
 LoadedMap createBlankMap(int tileWidth, int tileHeight);
 void saveMapFile(const LoadedMap& map, const std::filesystem::path& path);
 
+// Grows or shrinks the map by whole tiles on each edge. A positive count adds
+// that many tiles; a negative count removes them. New tiles and heights
+// continue the adjacent edge, and the new cells have no features. Features and
+// start positions move with the ground. A start that would fall off the map is
+// removed. Returns false, and leaves the map as it was, when the result would
+// be smaller than 1 tile or larger than 2048 on either side.
+bool resizeMap(LoadedMap& map, int left, int right, int top, int bottom);
+
 // A map with no OTA yet uses the same defaults a new map is saved with.
 // Applying settings rewrites those keys and leaves starts, units, and unknown keys in place.
 MapSettings readMapSettings(const LoadedMap& map);

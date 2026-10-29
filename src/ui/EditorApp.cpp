@@ -4108,6 +4108,206 @@ void EditorApp::drawNewMap() {
     ImGui::EndPopup();
 }
 
+void EditorApp::applyResize() {
+    if (!map_) {
+        return;
+    }
+    const int left = resizeLeft_;
+    const int top = resizeTop_;
+    if (!resizeMap(*map_, left, resizeRight_, top, resizeBottom_)) {
+        error_ = "That size is outside the 1 to 2048 tile limit.";
+        showResize_ = false;
+        return;
+    }
+    panX_ -= static_cast<float>(left) * 32.0f * zoom_;
+    panY_ -= static_cast<float>(top) * 32.0f * zoom_;
+    camera3d_.targetX += static_cast<float>(left) * 32.0f;
+    camera3d_.targetZ += static_cast<float>(top) * 32.0f;
+    camera3d_.keepOver(static_cast<float>(map_->pixelWidth()), static_cast<float>(map_->pixelHeight()));
+    clearHistory();
+    clearMapSelection();
+    selectedFeatures_.clear();
+    featureSelectMode_ = false;
+    featureMarquee_ = false;
+    featurePasteArmed_ = false;
+    featureDelete_ = false;
+    pasteArmed_ = false;
+    selecting_ = false;
+    armedFeature_.clear();
+    draggingStartPlayer_ = 0;
+    armedStartPlayer_ = 0;
+    invalidateView();
+    markMapDirty();
+    statusNote_ = "Resized to " + std::to_string(map_->tileWidth) + " x " + std::to_string(map_->tileHeight) + " tiles";
+    showResize_ = false;
+}
+
+void EditorApp::drawResizeMap() {
+    if (!showResize_) {
+        return;
+    }
+    if (!map_) {
+        showResize_ = false;
+        return;
+    }
+    ImGui::OpenPopup("Resize Map");
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+        ImGuiCond_Appearing,
+        ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Resize Map", &showResize_, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    theme::helpText(
+        "The outward arrow adds one tile on that edge. The inward arrow removes one. Hold an arrow to keep going. New ground continues the tiles and heights already on that edge. Features and start positions on a removed edge are deleted.");
+    ImGui::Spacing();
+
+    const int newWidth = map_->tileWidth + resizeLeft_ + resizeRight_;
+    const int newHeight = map_->tileHeight + resizeTop_ + resizeBottom_;
+    const bool canGrowWidth = newWidth < kMaxMapTiles;
+    const bool canShrinkWidth = newWidth > kMinMapTiles;
+    const bool canGrowHeight = newHeight < kMaxMapTiles;
+    const bool canShrinkHeight = newHeight > kMinMapTiles;
+    const bool changed = resizeLeft_ != 0 || resizeRight_ != 0 || resizeTop_ != 0 || resizeBottom_ != 0;
+
+    ensureMinimap();
+    constexpr float kPreview = 280.0f;
+    const float tilesWide = static_cast<float>(std::max(newWidth, 1));
+    const float tilesHigh = static_cast<float>(std::max(newHeight, 1));
+    float previewW = kPreview;
+    float previewH = kPreview;
+    if (tilesWide >= tilesHigh) {
+        previewH = std::max(24.0f, kPreview * tilesHigh / tilesWide);
+    } else {
+        previewW = std::max(24.0f, kPreview * tilesWide / tilesHigh);
+    }
+    const float arrow = ImGui::GetFrameHeight();
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float side = arrow * 2.0f + gap;
+    const float blockW = side + gap + previewW + gap + side;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float originX = ImGui::GetCursorPosX() + std::max(0.0f, (avail - blockW) * 0.5f);
+
+    ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+    const auto edgeArrow = [&](const char* id, ImGuiDir direction, bool enabled, int& delta, int step, const char* tip) {
+        ImGui::BeginDisabled(!enabled);
+        if (ImGui::ArrowButton(id, direction)) {
+            delta += step;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("%s", tip);
+        }
+    };
+
+    ImGui::SetCursorPosX(originX + side + gap + (previewW - side) * 0.5f);
+    edgeArrow("resize-top-add", ImGuiDir_Up, canGrowHeight, resizeTop_, 1, "Add one tile to the top");
+    ImGui::SameLine();
+    edgeArrow("resize-top-sub", ImGuiDir_Down, canShrinkHeight, resizeTop_, -1, "Remove one tile from the top");
+    ImGui::NewLine();
+
+    ImGui::SetCursorPosX(originX);
+    ImGui::BeginGroup();
+    ImGui::Dummy(ImVec2(side, std::max(0.0f, (previewH - arrow) * 0.5f)));
+    edgeArrow("resize-left-add", ImGuiDir_Left, canGrowWidth, resizeLeft_, 1, "Add one tile to the left");
+    ImGui::SameLine();
+    edgeArrow("resize-left-sub", ImGuiDir_Right, canShrinkWidth, resizeLeft_, -1, "Remove one tile from the left");
+    ImGui::EndGroup();
+    ImGui::SameLine(0.0f, gap);
+
+    ImGui::InvisibleButton("resize-preview", ImVec2(previewW, previewH));
+    const ImVec2 previewMin = ImGui::GetItemRectMin();
+    const ImVec2 previewMax = ImGui::GetItemRectMax();
+    ImGui::SameLine(0.0f, gap);
+
+    ImGui::BeginGroup();
+    ImGui::Dummy(ImVec2(side, std::max(0.0f, (previewH - arrow) * 0.5f)));
+    edgeArrow("resize-right-sub", ImGuiDir_Left, canShrinkWidth, resizeRight_, -1, "Remove one tile from the right");
+    ImGui::SameLine();
+    edgeArrow("resize-right-add", ImGuiDir_Right, canGrowWidth, resizeRight_, 1, "Add one tile to the right");
+    ImGui::EndGroup();
+    ImGui::NewLine();
+
+    ImGui::SetCursorPosX(originX + side + gap + (previewW - side) * 0.5f);
+    edgeArrow("resize-bottom-sub", ImGuiDir_Up, canShrinkHeight, resizeBottom_, -1, "Remove one tile from the bottom");
+    ImGui::SameLine();
+    edgeArrow("resize-bottom-add", ImGuiDir_Down, canGrowHeight, resizeBottom_, 1, "Add one tile to the bottom");
+    ImGui::PopItemFlag();
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(previewMin, previewMax, theme::canvasColor());
+    if (miniTexture_ != 0 && map_->tileWidth > 0 && map_->tileHeight > 0) {
+        const float cellW = (previewMax.x - previewMin.x) / tilesWide;
+        const float cellH = (previewMax.y - previewMin.y) / tilesHigh;
+        float x0 = previewMin.x + static_cast<float>(resizeLeft_) * cellW;
+        float y0 = previewMin.y + static_cast<float>(resizeTop_) * cellH;
+        float x1 = x0 + static_cast<float>(map_->tileWidth) * cellW;
+        float y1 = y0 + static_cast<float>(map_->tileHeight) * cellH;
+        const float fullW = x1 - x0;
+        const float fullH = y1 - y0;
+        float u0 = 0.0f;
+        float v0 = 0.0f;
+        float u1 = 1.0f;
+        float v1 = 1.0f;
+        if (x0 < previewMin.x && fullW > 0.0f) {
+            u0 = (previewMin.x - x0) / fullW;
+            x0 = previewMin.x;
+        }
+        if (y0 < previewMin.y && fullH > 0.0f) {
+            v0 = (previewMin.y - y0) / fullH;
+            y0 = previewMin.y;
+        }
+        if (x1 > previewMax.x && fullW > 0.0f) {
+            u1 = 1.0f - (x1 - previewMax.x) / fullW;
+            x1 = previewMax.x;
+        }
+        if (y1 > previewMax.y && fullH > 0.0f) {
+            v1 = 1.0f - (y1 - previewMax.y) / fullH;
+            y1 = previewMax.y;
+        }
+        if (x1 > x0 && y1 > y0 && u1 > u0 && v1 > v0) {
+            draw->PushClipRect(previewMin, previewMax, true);
+            draw->AddImage(textureId(miniTexture_), ImVec2(x0, y0), ImVec2(x1, y1), ImVec2(u0, v0), ImVec2(u1, v1));
+            draw->PopClipRect();
+        }
+    }
+    draw->AddRect(previewMin, previewMax, IM_COL32(20, 22, 26, 255));
+
+    ImGui::Spacing();
+    if (changed) {
+        ImGui::Text(
+            "%d x %d tiles  will become  %d x %d",
+            map_->tileWidth,
+            map_->tileHeight,
+            newWidth,
+            newHeight);
+    } else {
+        ImGui::Text("%d x %d tiles", map_->tileWidth, map_->tileHeight);
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+    ImGui::Text("%d x %d pixels", newWidth * 32, newHeight * 32);
+    ImGui::PopStyleColor();
+
+    ImGui::Dummy(ImVec2(0.0f, 8.0f));
+    const float applyWidth = theme::pushButtonWidth("Apply Resize");
+    const float cancelWidth = theme::pushButtonWidth("Cancel");
+    theme::alignRight(applyWidth + cancelWidth + ImGui::GetStyle().ItemSpacing.x);
+    if (ImGui::Button("Cancel", ImVec2(cancelWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        showResize_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!changed);
+    if (theme::defaultButton("Apply Resize", ImVec2(applyWidth, 0.0f))) {
+        applyResize();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::EndPopup();
+}
+
 void EditorApp::drawModifyHeight() {
     if (!showModifyHeight_) {
         return;
@@ -4968,7 +5168,7 @@ bool EditorApp::draw() {
             }
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen("Error") && !ImGui::IsPopupOpen("Tile Limit") && !ImGui::IsPopupOpen("Generate Map") && !ImGui::IsPopupOpen("New Map") && !ImGui::IsPopupOpen("Modify Height") && !ImGui::IsPopupOpen("Unsaved Changes") && !hpiEditor_.focused()
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen("Error") && !ImGui::IsPopupOpen("Tile Limit") && !ImGui::IsPopupOpen("Generate Map") && !ImGui::IsPopupOpen("New Map") && !ImGui::IsPopupOpen("Resize Map") && !ImGui::IsPopupOpen("Modify Height") && !ImGui::IsPopupOpen("Unsaved Changes") && !hpiEditor_.focused()
         && !showAddFavorite_ && !showCreateFavorites_ && !showDeleteFavorite_ && !selectionMenuOpen_) {
         if (showMapSettings_ && !ImGui::GetIO().WantTextInput) {
             showMapSettings_ = false;
@@ -5115,6 +5315,13 @@ bool EditorApp::draw() {
                 showMapSettings_ = true;
                 mapSettingsFresh_ = true;
             }
+            if (ImGui::MenuItem(theme::withEllipsis("Resize Map").c_str(), nullptr, false, map_.has_value())) {
+                resizeLeft_ = 0;
+                resizeRight_ = 0;
+                resizeTop_ = 0;
+                resizeBottom_ = 0;
+                showResize_ = true;
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
@@ -5244,6 +5451,7 @@ bool EditorApp::draw() {
     }
     drawGenerate();
     drawNewMap();
+    drawResizeMap();
     drawModifyHeight();
     drawAddFavorite();
     drawDeleteFavorite();

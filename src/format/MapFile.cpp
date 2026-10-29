@@ -1102,6 +1102,100 @@ LoadedMap createBlankMap(int tileWidth, int tileHeight) {
     return map;
 }
 
+bool resizeMap(LoadedMap& map, int left, int right, int top, int bottom) {
+    if (map.tileWidth < 1 || map.tileHeight < 1) {
+        return false;
+    }
+    const long long newWidth = static_cast<long long>(map.tileWidth) + left + right;
+    const long long newHeight = static_cast<long long>(map.tileHeight) + top + bottom;
+    if (newWidth < kMinMapTiles || newHeight < kMinMapTiles || newWidth > kMaxMapTiles || newHeight > kMaxMapTiles) {
+        return false;
+    }
+    if (left == 0 && right == 0 && top == 0 && bottom == 0) {
+        return true;
+    }
+
+    const int width = static_cast<int>(newWidth);
+    const int height = static_cast<int>(newHeight);
+    const int oldWidth = map.tileWidth;
+    const int oldHeight = map.tileHeight;
+    const int oldCellsWide = map.heightWidth();
+    const int oldCellsHigh = map.heightHeight();
+    const int cellsWide = width * 2;
+    const int cellsHigh = height * 2;
+
+    std::vector<std::uint32_t> indices(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const int sourceX = std::clamp(x - left, 0, oldWidth - 1);
+            const int sourceY = std::clamp(y - top, 0, oldHeight - 1);
+            const std::size_t source = static_cast<std::size_t>(sourceY) * static_cast<std::size_t>(oldWidth) + static_cast<std::size_t>(sourceX);
+            indices[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)] =
+                source < map.indices.size() ? map.indices[source] : 0;
+        }
+    }
+
+    const std::size_t cellCount = static_cast<std::size_t>(cellsWide) * static_cast<std::size_t>(cellsHigh);
+    std::vector<std::uint8_t> heights(cellCount);
+    std::vector<std::uint16_t> features(cellCount, kNoFeature);
+    std::vector<std::uint8_t> padding(cellCount, 0);
+    for (int y = 0; y < cellsHigh; ++y) {
+        for (int x = 0; x < cellsWide; ++x) {
+            const int sourceX = x - left * 2;
+            const int sourceY = y - top * 2;
+            const std::size_t dest = static_cast<std::size_t>(y) * static_cast<std::size_t>(cellsWide) + static_cast<std::size_t>(x);
+            const bool inside = sourceX >= 0 && sourceY >= 0 && sourceX < oldCellsWide && sourceY < oldCellsHigh;
+            if (inside) {
+                const std::size_t source = static_cast<std::size_t>(sourceY) * static_cast<std::size_t>(oldCellsWide) + static_cast<std::size_t>(sourceX);
+                heights[dest] = source < map.heights.size() ? map.heights[source] : 0;
+                if (source < map.featureIndices.size()) {
+                    features[dest] = map.featureIndices[source];
+                }
+                if (source < map.featurePadding.size()) {
+                    padding[dest] = map.featurePadding[source];
+                }
+            } else if (oldCellsWide > 0 && oldCellsHigh > 0) {
+                const int edgeX = std::clamp(sourceX, 0, oldCellsWide - 1);
+                const int edgeY = std::clamp(sourceY, 0, oldCellsHigh - 1);
+                const std::size_t edge = static_cast<std::size_t>(edgeY) * static_cast<std::size_t>(oldCellsWide) + static_cast<std::size_t>(edgeX);
+                heights[dest] = edge < map.heights.size() ? map.heights[edge] : 0;
+            }
+        }
+    }
+
+    map.tileWidth = width;
+    map.tileHeight = height;
+    map.indices = std::move(indices);
+    map.heights = std::move(heights);
+    map.featureIndices = std::move(features);
+    map.featurePadding = std::move(padding);
+    rebuildFeaturePlacements(map);
+
+    const int shiftX = left * 32;
+    const int shiftY = top * 32;
+    std::vector<StartPosition> starts;
+    starts.reserve(map.starts.size());
+    for (StartPosition start : map.starts) {
+        start.x += shiftX;
+        start.y += shiftY;
+        if (start.x < 0 || start.y < 0 || start.x >= map.pixelWidth() || start.y >= map.pixelHeight()) {
+            continue;
+        }
+        starts.push_back(start);
+    }
+    map.starts = std::move(starts);
+
+    if (!map.otaText.empty()) {
+        int blocksWide = 0;
+        int blocksHigh = 0;
+        mapBlocks(map, blocksWide, blocksHigh);
+        std::string text(map.otaText.begin(), map.otaText.end());
+        setGlobalKey(text, "size", std::to_string(blocksWide) + " x " + std::to_string(blocksHigh), true);
+        map.otaText.assign(text.begin(), text.end());
+    }
+    return true;
+}
+
 LoadedMap loadMapFile(const std::filesystem::path& path) {
     const std::string ext = lowerExt(path);
     LoadedMap map;

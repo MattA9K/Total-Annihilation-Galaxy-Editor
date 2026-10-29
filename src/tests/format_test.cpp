@@ -167,6 +167,85 @@ void testHeightGrid() {
     expect(high[0] > high[2], "mountain height is warmer than the water blue");
 }
 
+void testSaveRoundTrip(const galaxy::LoadedMap& map, const std::filesystem::path& destination, const std::string& label);
+
+void testResizeMap() {
+    auto map = galaxy::createBlankMap(4, 3);
+    for (int y = 0; y < map.tileHeight; ++y) {
+        for (int x = 0; x < map.tileWidth; ++x) {
+            map.indices[static_cast<std::size_t>(y) * map.tileWidth + x] = static_cast<std::uint32_t>(y * 10 + x);
+        }
+    }
+    for (int y = 0; y < map.heightHeight(); ++y) {
+        for (int x = 0; x < map.heightWidth(); ++x) {
+            map.heights[static_cast<std::size_t>(y) * map.heightWidth() + x] = static_cast<std::uint8_t>(y * 20 + x);
+        }
+    }
+    map.featureNames.push_back("Tree");
+    map.featureIndices[static_cast<std::size_t>(2) * map.heightWidth() + 1] = 0;
+    map.starts.push_back(galaxy::StartPosition{1, 40, 50});
+    map.starts.push_back(galaxy::StartPosition{2, 8, 8});
+    const char* ota = "[GlobalHeader]\r\n{\r\nsize=1 x 1;\r\nmissionname=Keep Me;\r\n}\r\n";
+    map.otaText.assign(ota, ota + std::strlen(ota));
+    map.missionName = "Keep Me";
+
+    const auto unchanged = map;
+    expect(!galaxy::resizeMap(map, -4, 0, 0, 0), "a resize that leaves no tiles is refused");
+    expect(map.tileWidth == unchanged.tileWidth && map.indices == unchanged.indices, "a refused resize leaves the map alone");
+    expect(!galaxy::resizeMap(map, 2048, 0, 0, 0), "a resize past 2048 tiles is refused");
+
+    expect(galaxy::resizeMap(map, 0, 0, 1, 0), "adding a tile to the top is allowed");
+    expect(map.tileWidth == 4 && map.tileHeight == 4, "the top grows by one tile");
+    expect(map.indices[2] == 2, "the new top row continues the old top row");
+    expect(map.indices[static_cast<std::size_t>(1) * 4 + 2] == 2, "the old top row moves down one tile");
+    expect(map.heights[0] == 0 && map.heights[map.heightWidth()] == 0, "the new height rows continue the old top");
+    expect(map.heights[static_cast<std::size_t>(2) * map.heightWidth()] == 0, "the old top height row moves down two cells");
+    expect(map.heights[static_cast<std::size_t>(2) * map.heightWidth() + 3] == 3, "a height inside the old map keeps its value");
+    bool treeMoved = false;
+    for (const galaxy::FeaturePlacement& feature : map.features) {
+        treeMoved = treeMoved || (feature.name == "Tree" && feature.x == 1 && feature.y == 4);
+    }
+    expect(treeMoved, "a feature moves down with the ground");
+    expect(map.featureIndices[0] == 0xFFFF && map.featureIndices[map.heightWidth()] == 0xFFFF, "new rows have no features");
+    expect(map.starts.size() == 2 && map.starts[0].y == 82 && map.starts[1].y == 40, "start positions move down with the ground");
+    const std::string otaText(map.otaText.begin(), map.otaText.end());
+    expect(otaText.find("size=1 x 1;") != std::string::npos, "the saved size follows the new map");
+    expect(otaText.find("Keep Me") != std::string::npos, "resizing leaves the mission name in place");
+
+    expect(galaxy::resizeMap(map, 1, 0, 0, -1), "adding on the left and removing on the bottom is allowed");
+    expect(map.tileWidth == 5 && map.tileHeight == 3, "left and bottom change independently");
+    expect(map.indices[0] == 0, "the new left column continues the old left column");
+    expect(map.indices[1] == 0 && map.indices[2] == 1, "the old left column moves right one tile");
+    treeMoved = false;
+    for (const galaxy::FeaturePlacement& feature : map.features) {
+        treeMoved = treeMoved || (feature.name == "Tree" && feature.x == 3 && feature.y == 4);
+    }
+    expect(treeMoved, "a feature moves right with the ground");
+    expect(map.starts.size() == 2, "both starts still fit");
+    expect(map.starts[0].x == 72 && map.starts[0].y == 82, "a start moves right with the ground");
+
+    map.starts.push_back(galaxy::StartPosition{3, 4, 10});
+    expect(galaxy::resizeMap(map, -1, 0, 0, 0), "removing the new left column is allowed");
+    expect(map.starts.size() == 2 && map.starts[0].player == 1 && map.starts[1].player == 2, "a start on the removed edge is deleted");
+    expect(map.starts[0].x == 40, "the remaining start moves back with the ground");
+
+    auto wide = galaxy::createBlankMap(16, 16);
+    wide.otaText.assign(ota, ota + std::strlen(ota));
+    expect(galaxy::resizeMap(wide, 1, 0, 0, 0), "a wide map can grow by one tile");
+    const std::string wideOta(wide.otaText.begin(), wide.otaText.end());
+    expect(wideOta.find("size=2 x 1;") != std::string::npos, "the saved size follows the new map");
+
+    auto saved = galaxy::createBlankMap(4, 3);
+    saved.heights[3] = 40;
+    saved.featureNames.push_back("Tree");
+    saved.featureIndices[1] = 0;
+    saved.starts.push_back(galaxy::StartPosition{1, 40, 50});
+    expect(galaxy::resizeMap(saved, 0, 1, 1, 0), "a blank map can grow for a save");
+    expect(saved.heights[static_cast<std::size_t>(2) * saved.heightWidth() + 3] == 40, "a height survives the shift into the saved map");
+    expect(saved.starts.size() == 1 && saved.starts[0].y == 82, "a start survives the shift into the saved map");
+    testSaveRoundTrip(saved, std::filesystem::temp_directory_path() / "galaxy-resize-map-test.ufo", "resized map");
+}
+
 void testSyntheticSections() {
     for (const int version : {2, 3}) {
         const auto bytes = buildSct(version, 1, 1, 1, 40, 167);
@@ -2250,6 +2329,7 @@ int main() {
     testAppearanceSettings();
     testSeaSettings();
     testOrbitCamera();
+    testResizeMap();
     testSyntheticSections();
     testHeightGrid();
 
