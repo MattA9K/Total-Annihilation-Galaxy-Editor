@@ -34,14 +34,28 @@ std::string favoritesNameProblem(std::string_view name);
 // note file because an HPI cannot be empty. Refuses to replace an existing file.
 void createFavoritesArchive(const std::filesystem::path& path);
 
+// The next free tile name in that subcategory, such as Rivers03. Empty when the
+// category or subcategory cannot be used as a name.
+std::string nextFavoriteSectionName(
+    const std::filesystem::path& archivePath,
+    std::string_view category,
+    std::string_view subcategory);
+
+// The file name to store, trimmed, and without a trailing .sct. The typed text
+// may include that extension; it is not part of the name.
+std::string favoriteTileFileName(std::string_view typed);
+
 // Adds a tile under sections/<category>/<subcategory>/ and rewrites the archive.
-// The tile is named after the subcategory with a number, such as Rivers03, and
-// that name is returned. The archive is left as it was if anything fails.
+// tileName is the file name to use. When it is empty, the tile is named after
+// the subcategory with a number, such as Rivers03. The name that was written is
+// returned. The archive is left as it was if anything fails, including when the
+// chosen name is already used.
 std::string addFavoriteSection(
     const std::filesystem::path& archivePath,
     std::string_view category,
     std::string_view subcategory,
-    const SectionStamp& section);
+    const SectionStamp& section,
+    std::string_view tileName = {});
 
 // Removes one file from an archive, by the path the archive lists, and rewrites it.
 void removeFavoriteSection(const std::filesystem::path& archivePath, std::string_view sectionPath);

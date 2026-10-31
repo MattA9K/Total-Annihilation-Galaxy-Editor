@@ -61,7 +61,43 @@ HpiWriteFile noteFile() {
     return note;
 }
 
+std::string folderFor(const std::string& categoryName, const std::string& subcategoryName) {
+    return "sections/" + categoryName + "/" + subcategoryName + "/";
+}
+
+std::set<std::string> takenInFolder(const HpiArchive& archive, const std::string& folder) {
+    const std::string folderLower = lowered(folder);
+    std::set<std::string> taken;
+    for (const HpiFile& file : archive.files()) {
+        const std::string path = lowered(slashes(file.path));
+        if (path.compare(0, folderLower.size(), folderLower) == 0) {
+            taken.insert(path);
+        }
+    }
+    return taken;
+}
+
+std::string numberedName(const std::set<std::string>& taken, const std::string& folder, const std::string& subcategoryName) {
+    for (int number = 1; number < 100000; ++number) {
+        char digits[16];
+        std::snprintf(digits, sizeof(digits), "%02d", number);
+        const std::string candidate = subcategoryName + digits;
+        if (taken.count(lowered(folder + candidate + ".sct")) == 0) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
 }  // namespace
+
+std::string favoriteTileFileName(std::string_view typed) {
+    std::string name = trimmedName(typed);
+    if (name.size() >= 4 && lowered(name).compare(name.size() - 4, 4, ".sct") == 0) {
+        name = trimmedName(name.substr(0, name.size() - 4));
+    }
+    return name;
+}
 
 bool isFavoritesArchiveName(std::string_view filename) {
     const std::string name = lowered(filename);
@@ -115,11 +151,26 @@ void createFavoritesArchive(const std::filesystem::path& path) {
     writeHpiArchive(path, std::move(files));
 }
 
+std::string nextFavoriteSectionName(
+    const std::filesystem::path& archivePath,
+    std::string_view category,
+    std::string_view subcategory) {
+    const std::string categoryName = trimmedName(category);
+    const std::string subcategoryName = trimmedName(subcategory);
+    if (!favoritesNameProblem(categoryName).empty() || !favoritesNameProblem(subcategoryName).empty()) {
+        return {};
+    }
+    const HpiArchive archive = HpiArchive::open(archivePath);
+    const std::string folder = folderFor(categoryName, subcategoryName);
+    return numberedName(takenInFolder(archive, folder), folder, subcategoryName);
+}
+
 std::string addFavoriteSection(
     const std::filesystem::path& archivePath,
     std::string_view category,
     std::string_view subcategory,
-    const SectionStamp& section) {
+    const SectionStamp& section,
+    std::string_view tileName) {
     const std::string categoryName = trimmedName(category);
     const std::string subcategoryName = trimmedName(subcategory);
     if (const std::string problem = favoritesNameProblem(categoryName); !problem.empty()) {
@@ -134,27 +185,21 @@ std::string addFavoriteSection(
     const HpiArchive archive = HpiArchive::open(archivePath);
     std::vector<HpiWriteFile> files = everyFile(archive);
 
-    const std::string folder = "sections/" + categoryName + "/" + subcategoryName + "/";
-    const std::string folderLower = lowered(folder);
-    std::set<std::string> taken;
-    for (const HpiWriteFile& file : files) {
-        const std::string path = lowered(slashes(file.path));
-        if (path.compare(0, folderLower.size(), folderLower) == 0) {
-            taken.insert(path);
-        }
-    }
-    std::string name;
-    for (int number = 1; number < 100000; ++number) {
-        char digits[16];
-        std::snprintf(digits, sizeof(digits), "%02d", number);
-        const std::string candidate = subcategoryName + digits;
-        if (taken.count(lowered(folder + candidate + ".sct")) == 0) {
-            name = candidate;
-            break;
-        }
-    }
+    const std::string folder = folderFor(categoryName, subcategoryName);
+    const std::set<std::string> taken = takenInFolder(archive, folder);
+    std::string name = favoriteTileFileName(tileName);
     if (name.empty()) {
-        throw std::runtime_error("That subcategory has no room for another tile.");
+        name = numberedName(taken, folder, subcategoryName);
+        if (name.empty()) {
+            throw std::runtime_error("That subcategory has no room for another tile.");
+        }
+    } else {
+        if (const std::string problem = favoritesNameProblem(name); !problem.empty()) {
+            throw std::runtime_error("File name: " + problem);
+        }
+        if (taken.count(lowered(folder + name + ".sct")) != 0) {
+            throw std::runtime_error("A tile named " + name + " is already in that subcategory.");
+        }
     }
 
     files.push_back(HpiWriteFile{folder + name + ".sct", std::move(bytes)});

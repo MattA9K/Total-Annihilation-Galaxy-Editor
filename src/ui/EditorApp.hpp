@@ -338,8 +338,9 @@ private:
     // Right-click menu over the selected tiles.
     bool selectionMenuRequested_ = false;
     bool selectionMenuOpen_ = false;
-    // The Add to Favorites sheet. The archive and the names stay as they were last
-    // time, since people add several tiles to the same place in a row.
+    // The Add to Favorites sheet. The archive, category, and subcategory stay as
+    // they were last time, since people add several tiles to the same place in a
+    // row. The file name starts again from the suggested name for each tile.
     bool showAddFavorite_ = false;
     std::optional<SectionStamp> favoriteStamp_;
     std::string favoriteDescription_;
@@ -349,6 +350,13 @@ private:
     std::filesystem::path favoriteArchive_;
     char favoriteCategory_[128] = {};
     char favoriteSubcategory_[128] = {};
+    char favoriteTileName_[128] = {};
+    // The suggestion last written into the file name field. A name the user typed
+    // is left alone when the suggested name changes.
+    std::string favoriteShownSuggestion_;
+    std::string favoriteNameSuggestion_;
+    std::string favoriteNameKey_;
+    bool favoriteTileNameEditing_ = false;
     bool showCreateFavorites_ = false;
     char favoriteNewName_[128] = {};
     bool showDeleteFavorite_ = false;

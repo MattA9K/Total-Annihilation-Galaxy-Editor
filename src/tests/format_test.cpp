@@ -2021,6 +2021,11 @@ void testFavorites() {
     expect(!isFavoritesArchiveName("My-GE-Favorites-One.hpi"), "prefix must start the name");
     expect(favoritesArchiveFilename("  FirstOne ") == "GE-Favorites-FirstOne.hpi", "favorites file name");
     expect(favoritesArchiveName("GE-Favorites-FirstOne.hpi") == "FirstOne", "favorites archive name part");
+    expect(favoriteTileFileName("  Cliff.sct ") == "Cliff", "file name drops a trailing sct");
+    expect(favoriteTileFileName("Cliff.SCT") == "Cliff", "file name extension ignores case");
+    expect(favoriteTileFileName("  Rivers  ") == "Rivers", "file name is trimmed");
+    expect(favoriteTileFileName(".sct").empty(), "only an extension is not a name");
+    expect(favoriteTileFileName("Cliff.sct.bak") == "Cliff.sct.bak", "a different extension stays");
     expect(favoritesNameProblem("Rivers").empty(), "plain name is fine");
     expect(favoritesNameProblem("Sm Lakes").empty(), "name with a space is fine");
     expect(!favoritesNameProblem("   ").empty(), "blank name is refused");
@@ -2102,11 +2107,35 @@ void testFavorites() {
     if (file != nullptr) {
         expect(loadSectionStamp(listed.archive().extract(*file)).indices == stamp.indices, "stored favorite reads back");
     }
+    expect(nextFavoriteSectionName(path, "Mine", "Ponds") == "Ponds01", "next name starts at one");
+    expect(nextFavoriteSectionName(path, "Mine", "Rivers") == "Rivers04", "next name skips names in use");
+    expect(nextFavoriteSectionName(path, "bad/name", "Ponds").empty(), "next name needs a usable category");
 
     removeFavoriteSection(path, "sections/Mine/Rivers/Rivers01.sct");
     expect(library.refreshArchive(path) == 0 && library.sectionCount() == 4, "refresh replaces the archive in place");
     expect(library.archives()[0].archive().find("sections/Mine/Rivers/Rivers02.sct") != nullptr, "other tiles stay");
     expect(addFavoriteSection(path, "Mine", "Rivers", stamp) == "Rivers01", "a freed name is reused");
+
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp, "  Cliff.sct ") == "Cliff", "custom tile name");
+    expect(openTilesetArchive(path).archive().find("sections/Mine/Rivers/Cliff.sct") != nullptr, "custom name is the file name");
+    bool duplicateName = false;
+    try {
+        addFavoriteSection(path, "mine", "rivers", stamp, "cliff");
+    } catch (const std::exception&) {
+        duplicateName = true;
+    }
+    expect(duplicateName, "a file name already in that subcategory is refused");
+    expect(addFavoriteSection(path, "Mine", "Cliffs", stamp, "Rivers01") == "Rivers01", "custom name can differ from the subcategory");
+    expect(addFavoriteSection(path, "Mine", "Cliffs", stamp) == "Cliffs01", "an empty file name is still numbered");
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp, "   ") == "Rivers04", "a blank file name is numbered");
+    bool badName = false;
+    try {
+        addFavoriteSection(path, "Mine", "Rivers", stamp, "no/slash");
+    } catch (const std::exception&) {
+        badName = true;
+    }
+    expect(badName, "a file name with a slash is refused");
+    expect(openTilesetArchive(path).archive().find("sections/Mine/Rivers/no/slash.sct") == nullptr, "a refused name is not written");
 
     bool missing = false;
     try {
@@ -2116,7 +2145,7 @@ void testFavorites() {
     }
     expect(missing, "removing a tile that is not there is an error");
 
-    for (const char* name : {"Mine/Rivers/Rivers01", "Mine/Rivers/Rivers02", "Mine/Rivers/rivers03", "Mine/Sm Lakes/Sm Lakes01", "Other/Rivers/Rivers01"}) {
+    for (const char* name : {"Mine/Rivers/Rivers01", "Mine/Rivers/Rivers02", "Mine/Rivers/rivers03", "Mine/Rivers/Rivers04", "Mine/Rivers/Cliff", "Mine/Cliffs/Rivers01", "Mine/Cliffs/Cliffs01", "Mine/Sm Lakes/Sm Lakes01", "Other/Rivers/Rivers01"}) {
         removeFavoriteSection(path, std::string("sections/") + name + ".sct");
     }
     expect(openTilesetArchive(path).sections.empty(), "an archive emptied of tiles still opens");

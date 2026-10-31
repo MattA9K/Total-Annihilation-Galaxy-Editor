@@ -4456,6 +4456,11 @@ void EditorApp::openAddToFavorites(SectionStamp stamp, std::string description, 
     favoriteStamp_ = std::move(stamp);
     favoriteDescription_ = std::move(description);
     favoriteNote_ = std::move(note);
+    favoriteTileName_[0] = '\0';
+    favoriteShownSuggestion_.clear();
+    favoriteNameSuggestion_.clear();
+    favoriteNameKey_.clear();
+    favoriteTileNameEditing_ = false;
     showAddFavorite_ = true;
 }
 
@@ -4590,18 +4595,65 @@ void EditorApp::drawAddFavorite() {
     nameField("Category:", "##favorite-category", "Type a new name or choose one", favoriteCategory_, sizeof(favoriteCategory_), categories);
     nameField("Subcategory:", "##favorite-subcategory", "Type a new name or choose one", favoriteSubcategory_, sizeof(favoriteSubcategory_), subcategories);
 
-    const std::string subcategoryName = spelledLikeExisting(favoriteSubcategory_, subcategories);
+    const std::string categoryNow = spelledLikeExisting(favoriteCategory_, categories);
+    const std::string subcategoryNow = spelledLikeExisting(favoriteSubcategory_, subcategories);
+    std::string suggestion = "Tile01";
+    if (chosen != nullptr && favoritesNameProblem(categoryNow).empty() && favoritesNameProblem(subcategoryNow).empty()) {
+        const std::string key = chosen->path.string() + "\n" + categoryNow + "\n" + subcategoryNow;
+        if (key != favoriteNameKey_) {
+            favoriteNameKey_ = key;
+            try {
+                favoriteNameSuggestion_ = nextFavoriteSectionName(chosen->path, categoryNow, subcategoryNow);
+            } catch (const std::exception&) {
+                favoriteNameSuggestion_.clear();
+            }
+        }
+        if (!favoriteNameSuggestion_.empty()) {
+            suggestion = favoriteNameSuggestion_;
+        }
+    } else {
+        favoriteNameKey_.clear();
+    }
+    if (std::string(favoriteTileName_) == favoriteShownSuggestion_ || (favoriteTileName_[0] == '\0' && !favoriteTileNameEditing_)) {
+        if (std::string(favoriteTileName_) != suggestion) {
+            copyText(favoriteTileName_, sizeof(favoriteTileName_), suggestion);
+        }
+        favoriteShownSuggestion_ = suggestion;
+    }
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("File name:");
+    ImGui::SameLine(labelWidth);
+    ImGui::SetNextItemWidth(contentWidth - labelWidth);
+    ImGui::InputText("##favorite-tile-name", favoriteTileName_, sizeof(favoriteTileName_));
+    favoriteTileNameEditing_ = ImGui::IsItemActive();
+
+    const std::string tileFileName = favoriteTileFileName(favoriteTileName_);
     std::string nameProblem;
     if (!trimmed(favoriteCategory_).empty()) {
-        nameProblem = favoritesNameProblem(categoryName);
+        nameProblem = favoritesNameProblem(categoryNow);
         if (!nameProblem.empty()) {
             nameProblem = "Category: " + nameProblem;
         }
     }
     if (nameProblem.empty() && !trimmed(favoriteSubcategory_).empty()) {
-        nameProblem = favoritesNameProblem(subcategoryName);
+        nameProblem = favoritesNameProblem(subcategoryNow);
         if (!nameProblem.empty()) {
             nameProblem = "Subcategory: " + nameProblem;
+        }
+    }
+    if (nameProblem.empty()) {
+        const std::string problem = favoritesNameProblem(tileFileName);
+        if (!problem.empty()) {
+            nameProblem = "File name: " + problem;
+        }
+    }
+    if (nameProblem.empty() && chosen != nullptr) {
+        for (const TilesetSection& section : chosen->sections) {
+            if (sameName(section.world, categoryNow) && sameName(section.category, subcategoryNow) && sameName(section.name, tileFileName)) {
+                nameProblem = "A tile named " + tileFileName + " is already in that subcategory.";
+                break;
+            }
         }
     }
     ImGui::PushFont(theme::smallFont());
@@ -4614,7 +4666,7 @@ void EditorApp::drawAddFavorite() {
     } else {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + contentWidth);
-        ImGui::TextWrapped("A category groups subcategories, like Acid_New_1 holding Rivers and Sm Lakes.");
+        ImGui::TextWrapped("A category groups subcategories, like Acid_New_1 holding Rivers and Sm Lakes. The file name is filled in; change it or leave it.");
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
     }
@@ -4622,7 +4674,8 @@ void EditorApp::drawAddFavorite() {
 
     ImGui::Dummy(ImVec2(0.0f, 8.0f));
     const bool canAdd = chosen != nullptr && favoriteProblem_.empty() && nameProblem.empty()
-        && !trimmed(favoriteCategory_).empty() && !trimmed(favoriteSubcategory_).empty() && favoriteStamp_.has_value();
+        && !trimmed(favoriteCategory_).empty() && !trimmed(favoriteSubcategory_).empty()
+        && !tileFileName.empty() && favoriteStamp_.has_value();
     const float buttonWidth = theme::pushButtonWidth("Cancel");
     theme::alignRight(buttonWidth * 2.0f + style.ItemSpacing.x);
     if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f)) || (!showCreateFavorites_ && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
@@ -4634,10 +4687,10 @@ void EditorApp::drawAddFavorite() {
     if (theme::defaultButton("Add", ImVec2(buttonWidth, 0.0f))) {
         try {
             const std::filesystem::path archivePath = chosen->path;
-            const std::string tile = addFavoriteSection(archivePath, categoryName, subcategoryName, *favoriteStamp_);
+            const std::string tile = addFavoriteSection(archivePath, categoryNow, subcategoryNow, *favoriteStamp_, tileFileName);
             refreshFavoritesArchive(archivePath);
-            copyText(favoriteCategory_, sizeof(favoriteCategory_), categoryName);
-            copyText(favoriteSubcategory_, sizeof(favoriteSubcategory_), subcategoryName);
+            copyText(favoriteCategory_, sizeof(favoriteCategory_), categoryNow);
+            copyText(favoriteSubcategory_, sizeof(favoriteSubcategory_), subcategoryNow);
             statusNote_ = "Added " + tile + " to " + archivePath.filename().string();
             error_.clear();
         } catch (const std::exception& ex) {
