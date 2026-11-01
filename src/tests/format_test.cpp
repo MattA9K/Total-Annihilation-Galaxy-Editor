@@ -1,4 +1,5 @@
 #include "core/ArchiveDocument.hpp"
+#include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
@@ -2332,7 +2333,329 @@ void testArchiveDocument() {
     fs::remove_all(work, ignored);
 }
 
+void testBrushStrokeNames() {
+    using namespace galaxy;
+    expect(brushStrokeVariation("Base-85-16x16-01", "Base-85", 16) == 1, "base 85 16x16 first variation");
+    expect(brushStrokeVariation("base-85-16x16-03", "Base-85", 16) == 3, "stroke name ignores case");
+    expect(brushStrokeVariation("Base-219-16x16-04", "Base-219", 16) == 4, "a later variation still matches");
+    expect(brushStrokeVariation("Base-0-16x16-01", "Base-0", 16) == 1, "base 0 16x16 stroke");
+    expect(brushStrokeVariation("Base-0-16x16-01", "Base-69", 16) < 0, "0 stroke is not a 69 stroke");
+    expect(brushStrokeVariation("Base-85-128x128-01", "Base-85", 128) == 1, "128 stroke");
+    expect(brushStrokeVariation("Base-85-16x16-10", "Base-85", 16) == 10, "variation 10");
+    expect(brushStrokeVariation("Base-85-16x16-01", "Base-219", 16) < 0, "85 stroke is not a 219 stroke");
+    expect(brushStrokeVariation("Base-85-32x32-01", "Base-85", 16) < 0, "32x32 is not a 16x16 stroke");
+    expect(brushStrokeVariation("Base-85-16x16-01", "Base-8", 16) < 0, "paint name must match in full");
+    expect(brushStrokeVariation("Base-85-16x16-", "Base-85", 16) < 0, "missing variation");
+    expect(brushStrokeVariation("Base-85-16x16-01a", "Base-85", 16) < 0, "variation is only digits");
+
+    expect(transitionVariation("Cliff-High-BR-01", "Cliff-High-BR") == 1, "cliff variation 1");
+    expect(transitionVariation("cliff-high-t-04", "Cliff-High-T") == 4, "cliff variation ignores case");
+    expect(transitionVariation("Cliff-High-TL-01", "Cliff-High-T") < 0, "a T edge is not a TL corner");
+    expect(transitionVariation("Cliff-Low-BR-01", "Cliff-High-BR") < 0, "a low corner is not a high corner");
+    expect(transitionVariation("Coast-Water-B-01", "Coast-Water-B") == 1, "coast variation 1");
+    expect(transitionVariation("Coast-Land-BL-02", "Coast-Land-BL") == 2, "coast land variation 2");
+    expect(transitionVariation("Coast-Water-BL-01", "Coast-Water-B") < 0, "a B edge is not a BL corner");
+    expect(transitionVariation("Cliff-High-BR-01", "") < 0, "no piece means no match");
+
+    // Every corner pattern has the piece the tileset names for it.
+    expect(cliffPieceName(0).empty() && cliffPieceName(15).empty(), "flat cells need no cliff");
+    expect(coastPieceName(0).empty() && coastPieceName(15).empty(), "flat cells need no coast");
+    expect(cliffDiagonal(6) && cliffDiagonal(9) && !cliffDiagonal(3), "only the two diagonal masks are diagonal");
+    expect(cliffPieceName(8) == "Cliff-High-BR" && cliffPieceName(4) == "Cliff-High-BL", "bottom corners");
+    expect(cliffPieceName(2) == "Cliff-High-TR" && cliffPieceName(1) == "Cliff-High-TL", "top corners");
+    expect(cliffPieceName(12) == "Cliff-High-B" && cliffPieceName(3) == "Cliff-High-T", "top and bottom edges");
+    expect(cliffPieceName(5) == "Cliff-High-L" && cliffPieceName(10) == "Cliff-High-R", "left and right edges");
+    expect(cliffPieceName(7) == "Cliff-Low-BR" && cliffPieceName(11) == "Cliff-Low-BL", "low bottom corners");
+    expect(cliffPieceName(13) == "Cliff-Low-TR" && cliffPieceName(14) == "Cliff-Low-TL", "low top corners");
+    expect(coastPieceName(8) == "Coast-Land-BR" && coastPieceName(1) == "Coast-Land-TL", "land corners");
+    expect(coastPieceName(2) == "Coast-Land-TR" && coastPieceName(4) == "Coast-Land-BL", "more land corners");
+    expect(coastPieceName(12) == "Coast-Water-T" && coastPieceName(3) == "Coast-Water-B", "water along the top and bottom");
+    expect(coastPieceName(5) == "Coast-Water-R" && coastPieceName(10) == "Coast-Water-L", "water along the right and left");
+    expect(coastPieceName(7) == "Coast-Water-BR" && coastPieceName(11) == "Coast-Water-BL", "water in the bottom corners");
+    expect(coastPieceName(13) == "Coast-Water-TR" && coastPieceName(14) == "Coast-Water-TL", "water in the top corners");
+    expect(transitionPieceName(TransitionStyle::Coast, 8) == "Coast-Land-BR" && transitionPieceName(TransitionStyle::Cliff, 8) == "Cliff-High-BR", "coast and cliff families name their pieces");
+    expect(transitionPieceName(TransitionStyle::ShallowCoast, 8) == "ShallowCoast-Land-BR" && transitionPieceName(TransitionStyle::ShallowCoast, 12) == "ShallowCoast-Water-T", "shallow coast pieces carry the Shallow prefix");
+    expect(transitionPieceName(TransitionStyle::ShallowDeep, 2) == "ShallowDeep-Shallow-TR" && transitionPieceName(TransitionStyle::ShallowDeep, 12) == "ShallowDeep-Shallow-B" && transitionPieceName(TransitionStyle::ShallowDeep, 5) == "ShallowDeep-Shallow-L", "shallow water in a deep cell");
+    expect(transitionPieceName(TransitionStyle::ShallowDeep, 7) == "ShallowDeep-Deep-BR" && transitionPieceName(TransitionStyle::ShallowDeep, 14) == "ShallowDeep-Deep-TL", "deep water in a shallow cell");
+    expect(transitionPieceName(TransitionStyle::ShallowDeep, 6).empty() && transitionPieceName(TransitionStyle::ShallowDeep, 15).empty(), "diagonal and flat cells have no ShallowDeep piece");
+    expect(brushStrokeVariation("Base-69-32x32-01", "Base-68", 32) == 1 && brushStrokeVariation("Base-68-32x32-02", "Base-68", 32) == 2, "Base-68 uses the strokes named Base-69");
+    expect(brushStrokeVariation("Base-69-32x32-01", "Base-85", 32) < 0 && brushStrokeVariation("Base-69-32x32-01", "Base-69", 32) == 1, "the alias does not leak to other paints");
+    expect(transitionPieceName(TransitionStyle::Coast, 0).empty() && transitionPieceName(TransitionStyle::None, 8).empty(), "flat cells and unjoined paints have no piece");
+    expect(transitionVariation("ShallowCoast-Water-T-01", "Coast-Water-T") < 0, "a shallow coast piece is not a coast piece");
+
+    const BrushGraph deep(std::vector<int>{0, 68, 85, 219});
+    expect(deep.style(0, 2) == TransitionStyle::Coast && deep.style(1, 2) == TransitionStyle::ShallowCoast && deep.style(2, 3) == TransitionStyle::Cliff, "each pair of paints has its own family");
+    expect(deep.style(0, 1) == TransitionStyle::ShallowDeep && deep.style(1, 0) == TransitionStyle::ShallowDeep, "Base-0 and Base-68 join with ShallowDeep pieces");
+    expect(deep.style(0, 3) == TransitionStyle::None && deep.style(1, 3) == TransitionStyle::None, "paints without pieces are not joined");
+    expect(deep.stepToward(3, 0) == 2 && deep.stepToward(1, 0) == 0 && deep.distance(0, 3) == 2 && deep.distance(1, 3) == 2, "0, 68 and 219 reach each other through 85");
+    expect(deep.compatible(2, 0) && deep.compatible(0, 1) && !deep.compatible(0, 3) && !deep.compatible(1, 3), "only joined paints share a cell");
+}
+
+// Keeps the corner levels a test stroke has set so the next stroke can read them.
+// Level 0 is Base-0, level 1 is Base-85 and level 2 is Base-219.
+struct BrushTestLattice {
+    int cellsX = 6;
+    int cellsY = 6;
+    galaxy::BrushGraph graph;
+    std::vector<std::vector<int>> levels;
+
+    BrushTestLattice(int cx, int cy, int start, const galaxy::BrushGraph& paints) : cellsX(cx), cellsY(cy), graph(paints), levels(static_cast<std::size_t>(cy + 1), std::vector<int>(static_cast<std::size_t>(cx + 1), start)) {}
+
+    int read(int x, int y) const { return levels[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)]; }
+
+    galaxy::BrushPlan paint(int cellX, int cellY, int cells, int level) {
+        galaxy::BrushPlan plan = galaxy::planBrush(cellsX, cellsY, cellX, cellY, cells, level, graph, [&](int x, int y) { return read(x, y); });
+        for (const galaxy::BrushNode& node : plan.nodes) {
+            levels[static_cast<std::size_t>(node.y)][static_cast<std::size_t>(node.x)] = node.level;
+        }
+        return plan;
+    }
+
+    // The picture a cell ends up with, named like the tileset names it.
+    std::string piece(int cx, int cy) const {
+        const int corners[4] = {read(cx, cy), read(cx + 1, cy), read(cx, cy + 1), read(cx + 1, cy + 1)};
+        const int lowest = *std::min_element(corners, corners + 4);
+        const int highest = *std::max_element(corners, corners + 4);
+        if (highest == lowest) {
+            return "Base-" + std::to_string(graph.height(lowest));
+        }
+        int mask = 0;
+        bool onlyTwo = true;
+        for (int i = 0; i < 4; ++i) {
+            mask |= corners[i] == highest ? (1 << i) : 0;
+            onlyTwo = onlyTwo && (corners[i] == lowest || corners[i] == highest);
+        }
+        const galaxy::TransitionStyle style = graph.style(lowest, highest);
+        if (!onlyTwo || style == galaxy::TransitionStyle::None) {
+            return "Unjoined";
+        }
+        const std::string name = galaxy::transitionPieceName(style, mask);
+        return name.empty() ? "Diagonal" : name;
+    }
+
+    bool steep() const {
+        for (int cy = 0; cy < cellsY; ++cy) {
+            for (int cx = 0; cx < cellsX; ++cx) {
+                const std::string name = piece(cx, cy);
+                if (name == "Unjoined" || name == "Diagonal") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+};
+
+void testBrushCells() {
+    using namespace galaxy;
+    const BrushGraph ladder(std::vector<int>{0, 85, 219});
+    const BrushGraph deep(std::vector<int>{0, 68, 85, 219});
+
+    // One 16 x 16 click in the middle of an all-85 map: the cell turns to 219 and
+    // the eight cells around it turn into cliff pieces. No 219 cell touches an 85 one.
+    BrushTestLattice single(5, 5, 1, ladder);
+    BrushPlan one = single.paint(2, 2, 1, 2);
+    expect(single.piece(2, 2) == "Base-219", "the clicked cell is high ground");
+    expect(single.piece(1, 1) == "Cliff-High-BR", "up and left of a click is High-BR");
+    expect(single.piece(2, 1) == "Cliff-High-B", "above a click is High-B");
+    expect(single.piece(3, 1) == "Cliff-High-BL", "up and right of a click is High-BL");
+    expect(single.piece(1, 2) == "Cliff-High-R", "left of a click is High-R");
+    expect(single.piece(3, 2) == "Cliff-High-L", "right of a click is High-L");
+    expect(single.piece(1, 3) == "Cliff-High-TR", "down and left of a click is High-TR");
+    expect(single.piece(2, 3) == "Cliff-High-T", "below a click is High-T");
+    expect(single.piece(3, 3) == "Cliff-High-TL", "down and right of a click is High-TL");
+    expect(single.piece(0, 0) == "Base-85" && single.piece(4, 4) == "Base-85" && single.piece(0, 2) == "Base-85", "cells farther away stay 85");
+    expect(one.cells.size() == 8, "a single click restyles its eight neighbors");
+    bool ringHasBlock = false;
+    for (const BrushCell& cell : one.cells) {
+        ringHasBlock = ringHasBlock || (cell.x == 2 && cell.y == 2);
+    }
+    expect(!ringHasBlock, "the painted cell is not part of the ring");
+    bool ringIsTransition = true;
+    for (const BrushCell& cell : one.cells) {
+        ringIsTransition = ringIsTransition && cell.level == 1 && cell.mask != 0;
+    }
+    expect(ringIsTransition, "every ring cell sits between level 1 and level 2");
+
+    // Painting a high cell next to another one merges them into a longer shape.
+    BrushTestLattice pair(5, 6, 1, ladder);
+    pair.paint(2, 1, 1, 2);
+    pair.paint(2, 2, 1, 2);
+    expect(pair.piece(2, 1) == "Base-219" && pair.piece(2, 2) == "Base-219", "two clicks give two high cells");
+    expect(pair.piece(1, 1) == "Cliff-High-R" && pair.piece(1, 2) == "Cliff-High-R", "the left wall runs down both cells");
+    expect(pair.piece(3, 1) == "Cliff-High-L" && pair.piece(3, 2) == "Cliff-High-L", "the right wall runs down both cells");
+    expect(pair.piece(2, 0) == "Cliff-High-B" && pair.piece(2, 3) == "Cliff-High-T", "the ends close with a bottom and top edge");
+    expect(pair.piece(1, 0) == "Cliff-High-BR" && pair.piece(3, 3) == "Cliff-High-TL", "the ends close with corners");
+
+    // The plateau drawn in the design: five high cells and the cliff ring around them.
+    BrushTestLattice figure(6, 6, 1, ladder);
+    const int solid[][2] = {{3, 1}, {1, 2}, {2, 2}, {3, 2}, {2, 3}};
+    for (const auto& cell : solid) {
+        figure.paint(cell[0], cell[1], 1, 2);
+    }
+    const char* design[6][6] = {
+        {"Base-85", "Base-85", "Cliff-High-BR", "Cliff-High-B", "Cliff-High-BL", "Base-85"},
+        {"Cliff-High-BR", "Cliff-High-B", "Cliff-Low-TL", "Base-219", "Cliff-High-L", "Base-85"},
+        {"Cliff-High-R", "Base-219", "Base-219", "Base-219", "Cliff-High-L", "Base-85"},
+        {"Cliff-High-TR", "Cliff-Low-BL", "Base-219", "Cliff-Low-BR", "Cliff-High-TL", "Base-85"},
+        {"Base-85", "Cliff-High-TR", "Cliff-High-T", "Cliff-High-TL", "Base-85", "Base-85"},
+        {"Base-85", "Base-85", "Base-85", "Base-85", "Base-85", "Base-85"},
+    };
+    bool designMatches = true;
+    for (int cy = 0; cy < 6; ++cy) {
+        for (int cx = 0; cx < 6; ++cx) {
+            if (figure.piece(cx, cy) != design[cy][cx]) {
+                designMatches = false;
+                std::cerr << "design cell " << cx << "," << cy << " is " << figure.piece(cx, cy) << " but should be " << design[cy][cx] << "\n";
+            }
+        }
+    }
+    expect(designMatches, "five painted cells draw the plateau in the design");
+
+    // A diagonal pair of clicks cannot leave two high corners touching only at a point.
+    BrushTestLattice diagonal(4, 4, 1, ladder);
+    diagonal.paint(1, 1, 1, 2);
+    diagonal.paint(2, 2, 1, 2);
+    expect(!diagonal.steep(), "no cell is left with two diagonal high corners");
+
+    // A 32 x 32 brush paints a 2 x 2 block of cells.
+    BrushTestLattice big(6, 6, 1, ladder);
+    BrushPlan block = big.paint(2, 2, 2, 2);
+    expect(big.piece(2, 2) == "Base-219" && big.piece(3, 3) == "Base-219" && big.piece(2, 3) == "Base-219", "a 32x32 brush fills four cells");
+    expect(big.piece(1, 1) == "Cliff-High-BR" && big.piece(4, 4) == "Cliff-High-TL" && big.piece(3, 1) == "Cliff-High-B", "the ring closes the larger block");
+    expect(block.cells.size() == 12, "a 2 x 2 block has twelve cells around it");
+
+    // Painting 85 into a 219 plateau cuts a hole with the low pieces around it.
+    BrushTestLattice flat(5, 5, 1, ladder);
+    flat.paint(1, 1, 3, 2);
+    BrushPlan hole = flat.paint(2, 2, 1, 1);
+    expect(flat.piece(2, 2) == "Base-85", "the erased cell is 85");
+    expect(flat.piece(1, 1) == "Cliff-Low-BR" && flat.piece(3, 1) == "Cliff-Low-BL", "the hole's upper corners are Low pieces");
+    expect(flat.piece(1, 3) == "Cliff-Low-TR" && flat.piece(3, 3) == "Cliff-Low-TL", "the hole's lower corners are Low pieces");
+    expect(flat.piece(2, 1) == "Cliff-High-T" && flat.piece(2, 3) == "Cliff-High-B", "the hole's top and bottom walls");
+    expect(flat.piece(1, 2) == "Cliff-High-L" && flat.piece(3, 2) == "Cliff-High-R", "the hole's side walls");
+    expect(hole.cells.size() == 8, "erasing one cell restyles its eight neighbors");
+
+    // Painting 85 on 85 changes nothing around it.
+    BrushTestLattice grass(4, 4, 1, ladder);
+    BrushPlan same = grass.paint(1, 1, 1, 1);
+    expect(same.cells.empty(), "85 on 85 leaves the neighbors alone");
+
+    // A block at the map edge only restyles the cells that exist.
+    BrushTestLattice edge(3, 3, 1, ladder);
+    BrushPlan corner = edge.paint(0, 0, 1, 2);
+    expect(edge.piece(0, 0) == "Base-219" && edge.piece(1, 0) == "Cliff-High-L" && edge.piece(0, 1) == "Cliff-High-T" && edge.piece(1, 1) == "Cliff-High-TL", "a corner click ends at the map edge");
+    expect(corner.cells.size() == 3, "a corner click restyles three cells");
+
+    // Base-85 painted into water meets it with Coast pieces, the same way 219 meets 85 with cliffs.
+    BrushTestLattice shore(5, 5, 0, ladder);
+    BrushPlan land = shore.paint(2, 2, 1, 1);
+    expect(shore.piece(2, 2) == "Base-85", "the painted cell is land");
+    expect(shore.piece(1, 1) == "Coast-Land-BR" && shore.piece(3, 1) == "Coast-Land-BL", "land corners up and to the sides");
+    expect(shore.piece(1, 3) == "Coast-Land-TR" && shore.piece(3, 3) == "Coast-Land-TL", "land corners down and to the sides");
+    expect(shore.piece(2, 1) == "Coast-Water-T" && shore.piece(2, 3) == "Coast-Water-B", "water above and below the land");
+    expect(shore.piece(1, 2) == "Coast-Water-L" && shore.piece(3, 2) == "Coast-Water-R", "water left and right of the land");
+    expect(shore.piece(0, 0) == "Base-0" && shore.piece(4, 4) == "Base-0", "cells farther away stay water");
+    expect(land.cells.size() == 8, "land in water restyles its eight neighbors");
+    bool ringIsCoast = true;
+    for (const BrushCell& cell : land.cells) {
+        ringIsCoast = ringIsCoast && cell.level == 0 && cell.mask != 0;
+    }
+    expect(ringIsCoast, "every ring cell sits between level 0 and level 1");
+
+    // 219 painted into water cannot touch it: a ring of cliffs and a ring of coast surround the plateau.
+    BrushTestLattice island(6, 6, 0, ladder);
+    BrushPlan peak = island.paint(2, 2, 1, 2);
+    expect(island.piece(2, 2) == "Base-219", "the painted cell is high ground");
+    expect(island.piece(1, 1) == "Cliff-High-BR" && island.piece(2, 1) == "Cliff-High-B" && island.piece(3, 3) == "Cliff-High-TL", "cliffs touch the high ground");
+    expect(island.piece(0, 0) == "Coast-Land-BR" && island.piece(2, 0) == "Coast-Water-T" && island.piece(4, 0) == "Coast-Land-BL", "coast pieces touch the water above");
+    expect(island.piece(0, 2) == "Coast-Water-L" && island.piece(4, 2) == "Coast-Water-R", "coast pieces touch the water to the sides");
+    expect(island.piece(0, 4) == "Coast-Land-TR" && island.piece(2, 4) == "Coast-Water-B" && island.piece(4, 4) == "Coast-Land-TL", "coast pieces touch the water below");
+    expect(island.piece(5, 5) == "Base-0" && !island.steep(), "no cell jumps from water to high ground");
+    expect(peak.cells.size() == 24, "a 219 click in water restyles a 5 x 5 block of cells");
+
+    // Painting 0 into a 219 plateau steps down through cliffs and then coast.
+    BrushTestLattice mesa(6, 6, 2, ladder);
+    mesa.paint(2, 2, 1, 0);
+    expect(mesa.piece(2, 2) == "Base-0", "the painted cell is water");
+    expect(mesa.piece(1, 1) == "Coast-Water-BR" && mesa.piece(2, 1) == "Coast-Water-B" && mesa.piece(3, 3) == "Coast-Water-TL", "the ring around the water is coast");
+    expect(mesa.piece(0, 0) == "Cliff-Low-BR" && mesa.piece(5, 5) == "Base-219" && !mesa.steep(), "cliffs bring it back up to the plateau");
+
+    // Painting 0 into 85 gives a pond with coast pieces and nothing steeper.
+    BrushTestLattice pond(5, 5, 1, ladder);
+    pond.paint(2, 2, 1, 0);
+    expect(pond.piece(2, 2) == "Base-0" && pond.piece(1, 1) == "Coast-Water-BR" && pond.piece(2, 1) == "Coast-Water-B", "a pond has water pieces on the land side");
+    expect(pond.piece(3, 3) == "Coast-Water-TL" && pond.piece(1, 2) == "Coast-Water-R" && pond.piece(3, 2) == "Coast-Water-L", "the pond's other sides");
+    expect(!pond.steep(), "a pond leaves no steep cell");
+
+    // With Base-68 in the set, Base-0 painted on Base-85 still meets it with Coast
+    // pieces only: no cliffs, no shallow coast, and no 68 band in between.
+    BrushTestLattice lake(5, 5, 2, deep);
+    BrushPlan water = lake.paint(2, 2, 1, 0);
+    expect(lake.piece(2, 2) == "Base-0", "the painted cell is water");
+    expect(lake.piece(1, 1) == "Coast-Water-BR" && lake.piece(2, 1) == "Coast-Water-B" && lake.piece(3, 1) == "Coast-Water-BL", "water meets land with coast pieces above");
+    expect(lake.piece(1, 2) == "Coast-Water-R" && lake.piece(3, 2) == "Coast-Water-L", "water meets land with coast pieces on the sides");
+    expect(lake.piece(1, 3) == "Coast-Water-TR" && lake.piece(2, 3) == "Coast-Water-T" && lake.piece(3, 3) == "Coast-Water-TL", "water meets land with coast pieces below");
+    bool onlyCoast = water.cells.size() == 8;
+    for (int cy = 0; cy < 5; ++cy) {
+        for (int cx = 0; cx < 5; ++cx) {
+            const std::string name = lake.piece(cx, cy);
+            const bool transition = name.rfind("Base-", 0) != 0;
+            onlyCoast = onlyCoast && (!transition || name.rfind("Coast-", 0) == 0);
+        }
+    }
+    expect(onlyCoast, "painting water on land uses nothing but coast pieces");
+    for (const BrushCell& cell : water.cells) {
+        onlyCoast = onlyCoast && cell.level == 0 && cell.upper == 2 && cell.mask != 0;
+    }
+    expect(onlyCoast, "every ring cell joins level 0 to level 2");
+
+    // The same click on land that has a high plateau next to it keeps coast and cliffs apart.
+    BrushTestLattice shoreline(8, 5, 2, deep);
+    shoreline.paint(5, 2, 1, 3);
+    shoreline.paint(1, 2, 1, 0);
+    expect(shoreline.piece(5, 2) == "Base-219" && shoreline.piece(1, 2) == "Base-0", "a plateau and a lake share the map");
+    expect(shoreline.piece(4, 2) == "Cliff-High-R" && shoreline.piece(2, 2) == "Coast-Water-L", "cliffs next to the plateau and coast next to the lake");
+    expect(!shoreline.steep(), "the lake and the plateau never touch a piece they have no match for");
+
+    // Shallow water joins land with ShallowCoast pieces, and steps through land to reach deep water.
+    BrushTestLattice shallows(6, 6, 2, deep);
+    shallows.paint(2, 2, 1, 1);
+    expect(shallows.piece(2, 2) == "Base-68" && shallows.piece(1, 1) == "ShallowCoast-Water-BR" && shallows.piece(2, 1) == "ShallowCoast-Water-B", "shallow water meets land with ShallowCoast pieces");
+    expect(!shallows.steep(), "shallow water leaves no unjoined cell");
+    BrushTestLattice basin(6, 6, 0, deep);
+    BrushPlan shallow = basin.paint(2, 2, 1, 1);
+    expect(basin.piece(2, 2) == "Base-68" && basin.piece(1, 1) == "ShallowDeep-Shallow-BR" && basin.piece(2, 1) == "ShallowDeep-Shallow-B" && basin.piece(3, 1) == "ShallowDeep-Shallow-BL", "shallow water in deep water meets it with ShallowDeep pieces");
+    expect(basin.piece(1, 2) == "ShallowDeep-Shallow-R" && basin.piece(3, 2) == "ShallowDeep-Shallow-L" && basin.piece(2, 3) == "ShallowDeep-Shallow-T", "on every side");
+    bool onlyShallowDeep = shallow.cells.size() == 8;
+    for (const BrushCell& cell : shallow.cells) {
+        onlyShallowDeep = onlyShallowDeep && cell.level == 0 && cell.upper == 1;
+    }
+    expect(onlyShallowDeep && !basin.steep(), "deep water never touches land through the shallows");
+
+    BrushTestLattice deepHole(7, 7, 1, deep);
+    deepHole.paint(3, 3, 1, 0);
+    expect(deepHole.piece(3, 3) == "Base-0" && deepHole.piece(2, 2) == "ShallowDeep-Deep-BR" && deepHole.piece(3, 2) == "ShallowDeep-Shallow-T" && deepHole.piece(4, 3) == "ShallowDeep-Shallow-R", "deep water in shallow water is ringed by ShallowDeep pieces");
+    expect(!deepHole.steep(), "a deep hole leaves no unjoined cell");
+
+    // Deep water beside a shallow pool on land never shares a cell with all three.
+    BrushTestLattice cove(9, 7, 2, deep);
+    cove.paint(2, 3, 1, 1);
+    cove.paint(4, 3, 1, 0);
+    cove.paint(3, 3, 1, 0);
+    expect(!cove.steep(), "land, shallows and deep water meet without a cell holding all three");
+    expect(cove.piece(3, 3) == "Base-0" && cove.piece(4, 3) == "Base-0" && cove.piece(2, 3) != "Base-68", "the deep water has taken the cell beside it");
+    for (int cy = 0; cy < 7; ++cy) {
+        for (int cx = 0; cx < 9; ++cx) {
+            const std::string name = cove.piece(cx, cy);
+            expect(name.rfind("Cliff", 0) != 0, "water never makes cliffs");
+        }
+    }
+}
+
 int main() {
+    testBrushStrokeNames();
+    testBrushCells();
     testFavorites();
     testArchiveDocument();
     testBlankMap();

@@ -1,5 +1,6 @@
 #include "ui/EditorApp.hpp"
 
+#include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
@@ -24,6 +25,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -249,6 +251,47 @@ bool nameLess(const std::string& a, const std::string& b) {
         }
     }
     return a.size() < b.size();
+}
+
+// The random-map tileset is a favorites archive for now. Matching the name, rather
+// than the GE-Favorites- prefix, keeps working after that prefix is removed.
+bool isRandomMapTileset(const std::filesystem::path& path) {
+    return lowerText(path.filename().string()).find("randommapgeneratortiles") != std::string::npos;
+}
+
+bool isBaseBrushTile(std::string_view world, std::string_view name) {
+    return lowerText(world) == "basetiles" && lowerText(name).starts_with("base");
+}
+
+bool isBrushStrokeWorld(std::string_view world) {
+    return lowerText(world) == "basetilebrushstrokes";
+}
+
+// Cliff, coast and shallow coast sections are the pieces that join one base to the next.
+bool isTransitionWorld(std::string_view world) {
+    const std::string name = lowerText(world);
+    return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles";
+}
+
+int trailingNumber(std::string_view name) {
+    int value = -1;
+    int current = 0;
+    bool digits = false;
+    for (const char character : name) {
+        if (character >= '0' && character <= '9') {
+            digits = true;
+            current = std::min(1000000, current * 10 + (character - '0'));
+        } else if (digits) {
+            value = current;
+            current = 0;
+            digits = false;
+        }
+    }
+    return digits ? current : value;
+}
+
+std::string brushSizeLabel(int size) {
+    return std::to_string(size) + "x" + std::to_string(size);
 }
 
 std::string fitLabel(const std::string& text, float width) {
@@ -514,6 +557,9 @@ void EditorApp::toggleSelectMode() {
     selectionMode_ = !selectionMode_;
     selecting_ = false;
     pasteArmed_ = false;
+    if (selectionMode_) {
+        brushName_.clear();
+    }
 }
 
 void EditorApp::toggleDeleteMode() {
@@ -687,6 +733,42 @@ void EditorApp::drawToolbar() {
         }
     }
 
+    if (!brushName_.empty()) {
+        theme::toolbarSeparator();
+        const float topY = ImGui::GetCursorPosY();
+        const float frameHeight = ImGui::GetFrameHeight();
+        ImGui::PushFont(theme::toolbarLabelFont());
+        const float captionWidth = ImGui::CalcTextSize("Brush").x;
+        const float captionHeight = ImGui::GetTextLineHeight();
+        ImGui::PopFont();
+        const float comboWidth = std::max(std::floor(88.0f * theme::unit()), captionWidth);
+        const float blockHeight = frameHeight + captionHeight + 2.0f;
+        const float blockX = ImGui::GetCursorPosX();
+        ImGui::BeginGroup();
+        ImGui::SetCursorPos(ImVec2(blockX, topY + std::floor((theme::toolbarItemHeight() - blockHeight) * 0.5f)));
+        ImGui::SetNextItemWidth(comboWidth);
+        const std::string currentSize = brushSizeLabel(brushSize_);
+        if (ImGui::BeginCombo("##brush-size", currentSize.c_str())) {
+            for (const int size : {16, 32, 64, 128}) {
+                const std::string label = brushSizeLabel(size);
+                if (ImGui::Selectable(label.c_str(), brushSize_ == size)) {
+                    brushSize_ = size;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        const bool sizeHovered = ImGui::IsItemHovered();
+        ImGui::PushFont(theme::toolbarLabelFont());
+        ImGui::SetCursorPosX(blockX + std::max(0.0f, (comboWidth - captionWidth) * 0.5f));
+        ImGui::TextUnformatted("Brush");
+        ImGui::PopFont();
+        ImGui::EndGroup();
+        usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
+        if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
+            ImGui::SetTooltip("Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells");
+        }
+    }
+
     // The HPI editor sits at the right edge, apart from the map tools.
     {
         ImGui::PushFont(theme::toolbarLabelFont());
@@ -809,7 +891,7 @@ void EditorApp::ensureGhost() {
 }
 
 const SectionStamp* EditorApp::placementStamp() const {
-    if (!map_ || startLocationsTab_ || featuresTab_) {
+    if (!map_ || startLocationsTab_ || featuresTab_ || !brushName_.empty()) {
         return nullptr;
     }
     if (pasteArmed_ && clipboard_) {
@@ -1006,6 +1088,15 @@ void EditorApp::pushCommand(EditorCommand command, bool editsMap) {
 void EditorApp::rememberPlacement(PlacementChange change) {
     EditorCommand command;
     command.terrain = std::move(change);
+    pushCommand(std::move(command), true);
+}
+
+void EditorApp::rememberPlacements(std::vector<PlacementChange> changes) {
+    if (changes.empty()) {
+        return;
+    }
+    EditorCommand command;
+    command.terrains = std::move(changes);
     pushCommand(std::move(command), true);
 }
 
@@ -1255,6 +1346,7 @@ void EditorApp::armPaste() {
     if (!map_ || !clipboard_) {
         return;
     }
+    brushName_.clear();
     selectionMode_ = false;
     selecting_ = false;
     pasteArmed_ = true;
@@ -1301,7 +1393,15 @@ void EditorApp::undoPlacement() {
         return;
     }
     try {
-        if (undo_.back().terrain) {
+        if (!undo_.back().terrains.empty()) {
+            for (auto it = undo_.back().terrains.rbegin(); it != undo_.back().terrains.rend(); ++it) {
+                revertPlacement(*map_, *it);
+            }
+            deduper_ = {};
+            invalidateView();
+            markMapDirty();
+            statusNote_ = "Undid terrain edit";
+        } else if (undo_.back().terrain) {
             revertPlacement(*map_, *undo_.back().terrain);
             deduper_ = {};
             invalidateView();
@@ -1346,7 +1446,16 @@ void EditorApp::redoPlacement() {
     }
     try {
         const int tileCountBefore = map_->tileCount;
-        if (redo_.back().terrain) {
+        if (!redo_.back().terrains.empty()) {
+            for (const PlacementChange& change : redo_.back().terrains) {
+                reapplyPlacement(*map_, change);
+            }
+            deduper_ = {};
+            invalidateView();
+            markMapDirty();
+            statusNote_ = "Redid terrain edit";
+            warnIfPastVanillaTiles(tileCountBefore);
+        } else if (redo_.back().terrain) {
             reapplyPlacement(*map_, *redo_.back().terrain);
             deduper_ = {};
             invalidateView();
@@ -1866,6 +1975,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                             if (cached.preview == 0 && ImGui::Selectable(caption.c_str(), selected, 0, ImVec2(std::max(cardWidth, ImGui::CalcTextSize(caption.c_str()).x), image))) {
                                 selectedSection_ = index;
                                 pasteArmed_ = false;
+                                brushName_.clear();
                             }
                             const ImVec2 buttonMin = ImGui::GetItemRectMin();
                             const ImVec2 buttonMax = ImGui::GetItemRectMax();
@@ -1896,6 +2006,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                             } else if (pressed) {
                                 selectedSection_ = index;
                                 pasteArmed_ = false;
+                                brushName_.clear();
                             }
                             if (overBadge) {
                                 ImGui::SetTooltip("%s", favorites ? "delete tile from favorites" : "add to favorites");
@@ -2396,7 +2507,8 @@ void EditorApp::drawMap() {
             canvasPressed_ = true;
         }
     }
-    if (draggingStartPlayer_ == 0 && active && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 6.0f) && (!selectionMode_ || startLocationsTab_ || featuresTab_) && !featureSelecting) {
+    const bool brushOwnsMap = !brushName_.empty() && !featuresTab_ && !startLocationsTab_;
+    if (draggingStartPlayer_ == 0 && active && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 6.0f) && !brushOwnsMap && (!selectionMode_ || startLocationsTab_ || featuresTab_) && !featureSelecting) {
         panX_ += io.MouseDelta.x;
         panY_ += io.MouseDelta.y;
         fit_ = false;
@@ -2671,6 +2783,27 @@ void EditorApp::drawMap() {
         const bool featureUnderCursor = featureAtPointer(underX, underY, underCursor);
         if (hovered && (featureDelete_ ? featureUnderCursor : (!armedFeature_.empty() || featureUnderCursor || featurePasteArmed_))) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+    } else if (brushOwnsMap) {
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            brushName_.clear();
+            brushStroking_ = false;
+            statusNote_ = "Brush cancelled";
+        } else if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            paintBrushStroke(tileX, tileY);
+            brushStrokeX_ = tileX / kBrushCellTiles;
+            brushStrokeY_ = tileY / kBrushCellTiles;
+            brushStroking_ = true;
+        } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            // The brush works on 16 x 16 tile cells, so a drag paints again on each new cell.
+            if (tileX / kBrushCellTiles != brushStrokeX_ || tileY / kBrushCellTiles != brushStrokeY_) {
+                paintBrushStroke(tileX, tileY);
+                brushStrokeX_ = tileX / kBrushCellTiles;
+                brushStrokeY_ = tileY / kBrushCellTiles;
+            }
+        }
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            brushStroking_ = false;
         }
     } else if (selectionMode_) {
         if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -3165,7 +3298,20 @@ void EditorApp::drawMap() {
             draw->AddRect(toScreen(x0, y0), toScreen(x1, y1), IM_COL32(255, 220, 80, 255), 0.0f, 0, 2.0f);
         }
     }
-    if (hoverOverMap_) {
+    if (brushOwnsMap && hoverOverMap_) {
+        // The square sits on the 16 x 16 tile cell under the pointer.
+        const int brushTiles = std::max(kBrushCellTiles, brushSize_);
+        const float x0 = static_cast<float>(tileX / kBrushCellTiles * kBrushCellTiles * 32);
+        const float y0 = static_cast<float>(tileY / kBrushCellTiles * kBrushCellTiles * 32);
+        const float x1 = x0 + static_cast<float>(brushTiles * 32);
+        const float y1 = y0 + static_cast<float>(brushTiles * 32);
+        const ImVec2 brushMin = toScreen(x0, y0);
+        const ImVec2 brushMax = toScreen(x1, y1);
+        draw->AddRectFilled(brushMin, brushMax, IM_COL32(255, 255, 255, 36));
+        draw->AddRect(brushMin, brushMax, IM_COL32(0, 0, 0, 230), 0.0f, 0, 3.0f);
+        draw->AddRect(brushMin, brushMax, IM_COL32(255, 255, 255, 245), 0.0f, 0, 1.25f);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    } else if (hoverOverMap_) {
         const float cellX = static_cast<float>(pixelX & ~15);
         const float cellY = static_cast<float>(pixelY & ~15);
         draw->AddRect(toScreen(cellX, cellY), toScreen(cellX + 16.0f, cellY + 16.0f), IM_COL32(255, 255, 255, 230), 0.0f, 0, 1.0f);
@@ -3187,6 +3333,12 @@ void EditorApp::drawMap() {
             ImGui::SetTooltip("Click to paste %d features with their cell %d, %d as the top-left\nEsc cancels", static_cast<int>(featureClipboard_.size()), featureCellX, featureCellY);
         } else if (overMap) {
             ImGui::SetTooltip(featureSelectMode_ ? "Drag a box around features, or click one\nHeight %d" : "Choose a feature on the left to place it, or press Select to select features\nHeight %d", hoverHeight_);
+        }
+    } else if (hovered && brushOwnsMap) {
+        if (hoverOverMap_) {
+            ImGui::SetTooltip("%s\nBrush %s\nClick to paint. Cliffs and coasts keep the bases from touching\nEsc cancels\nHeight %d", brushName_.c_str(), brushSizeLabel(brushSize_).c_str(), hoverHeight_);
+        } else {
+            ImGui::SetTooltip("%s\nBrush %s\nClick to paint. Cliffs and coasts keep the bases from touching\nEsc cancels", brushName_.c_str(), brushSizeLabel(brushSize_).c_str());
         }
     } else if (hovered && pasteArmed_ && clipboard_) {
         if (clipboard_->heightsOnly) {
@@ -5248,6 +5400,9 @@ bool EditorApp::draw() {
             const TileSelection before = selection_;
             selection_ = {};
             rememberSelection(before, selection_);
+        } else if (!brushName_.empty() && !ImGui::IsPopupOpen("##brush-size")) {
+            brushName_.clear();
+            statusNote_ = "Brush cancelled";
         } else {
             selectedSection_ = -1;
         }
@@ -5412,6 +5567,7 @@ bool EditorApp::draw() {
             ImGui::MenuItem("Show Feature Borders", nullptr, &showFeatureBorders_);
             ImGui::MenuItem("Start Positions", nullptr, &showStarts_);
             ImGui::MenuItem("Minimap", nullptr, &showMinimap_);
+            ImGui::MenuItem("Tile Brush", nullptr, &showTileBrush_);
             ImGui::MenuItem("Frosted Glass", nullptr, &frostedGlass_);
             ImGui::EndMenu();
         }
@@ -5513,6 +5669,7 @@ bool EditorApp::draw() {
     drawOptions();
     drawMapSettings();
     drawMinimap();
+    drawTileBrush();
     hpiEditor_.draw();
     if (featureDelete_ && featuresTab_) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
@@ -5522,6 +5679,456 @@ bool EditorApp::draw() {
         overlay->AddRect(square, ImVec2(square.x + 6.0f, square.y + 6.0f), IM_COL32(0, 0, 0, 230));
     }
     return !quit_;
+}
+
+void EditorApp::armBrush(const std::string& name) {
+    if (name.empty()) {
+        return;
+    }
+    if (brushName_ == name) {
+        brushName_.clear();
+        statusNote_ = "Brush cancelled";
+        return;
+    }
+    brushName_ = name;
+    brushStroking_ = false;
+    selectionMode_ = false;
+    selecting_ = false;
+    pasteArmed_ = false;
+    selectedSection_ = -1;
+    statusNote_ = "Brush " + name;
+}
+
+void EditorApp::paintBrushStroke(int tileX, int tileY) {
+    if (!map_ || brushName_.empty() || brushTilesetPath_.empty()) {
+        return;
+    }
+    const int cell = kBrushCellTiles;
+    const int size = std::max(cell, brushSize_ / cell * cell);
+    const int blockCells = size / cell;
+    const int blockX = tileX / cell;
+    const int blockY = tileY / cell;
+    const int cellsX = (map_->tileWidth + cell - 1) / cell;
+    const int cellsY = (map_->tileHeight + cell - 1) / cell;
+    if (tileX < 0 || tileY < 0 || blockX >= cellsX || blockY >= cellsY) {
+        statusNote_ = "The brush is outside the map";
+        return;
+    }
+
+    static std::mt19937 rng{std::random_device{}()};
+    const auto strokesFor = [&](const std::string& paint, int strokeSize) {
+        std::vector<BrushStroke*> matches;
+        for (BrushStroke& stroke : brushStrokes_) {
+            if (brushStrokeVariation(stroke.name, paint, strokeSize) >= 0) {
+                matches.push_back(&stroke);
+            }
+        }
+        return matches;
+    };
+    const auto piecesFor = [&](const std::string& category, std::string_view piece) {
+        std::vector<BrushPiece*> matches;
+        for (BrushPiece& candidate : brushPieces_) {
+            if (lowerText(candidate.category) == lowerText(category) && transitionVariation(candidate.name, piece) >= 0) {
+                matches.push_back(&candidate);
+            }
+        }
+        return matches;
+    };
+    const auto pickOne = [&](auto& matches) {
+        std::uniform_int_distribution<int> pick(0, static_cast<int>(matches.size()) - 1);
+        return matches[static_cast<std::size_t>(pick(rng))];
+    };
+
+    const std::vector<BrushStroke*> blockStrokes = strokesFor(brushName_, size);
+    if (blockStrokes.empty()) {
+        statusNote_ = "No " + brushName_ + " " + brushSizeLabel(size) + " brush stroke";
+        return;
+    }
+
+    // The paints, lowest to highest, are the levels. The graph says which pairs
+    // have pieces, such as Coast for Base-0 and Base-85.
+    std::vector<const BrushPaint*> levels;
+    for (const BrushPaint& paint : brushPaints_) {
+        if (trailingNumber(paint.name) >= 0) {
+            levels.push_back(&paint);
+        }
+    }
+    std::stable_sort(levels.begin(), levels.end(), [](const BrushPaint* left, const BrushPaint* right) {
+        return trailingNumber(left->name) < trailingNumber(right->name);
+    });
+    std::vector<int> levelHeights;
+    for (const BrushPaint* paint : levels) {
+        levelHeights.push_back(trailingNumber(paint->name));
+    }
+    const BrushGraph graph(levelHeights);
+    int armedLevel = -1;
+    for (std::size_t i = 0; i < levels.size(); ++i) {
+        if (lowerText(levels[i]->name) == lowerText(brushName_)) {
+            armedLevel = static_cast<int>(i);
+        }
+    }
+    const bool transitions = armedLevel >= 0 && graph.connected(armedLevel);
+
+    try {
+        auto loadStamp = [&](std::optional<SectionStamp>& slot, const std::string& sectionPath, const std::string& label) {
+            if (slot) {
+                return;
+            }
+            const TilesetArchive* source = nullptr;
+            for (const TilesetArchive& archive : tilesets_.archives()) {
+                if (archive.path == brushTilesetPath_) {
+                    source = &archive;
+                    break;
+                }
+            }
+            if (source == nullptr) {
+                throw std::runtime_error("The random map tileset is not loaded.");
+            }
+            const HpiFile* file = source->archive().find(sectionPath);
+            if (file == nullptr) {
+                throw std::runtime_error(label + " is missing from the tileset.");
+            }
+            slot = loadSectionStamp(source->archive().extract(*file));
+        };
+
+        struct PlannedStamp {
+            const SectionStamp* stamp = nullptr;
+            int x = 0;
+            int y = 0;
+        };
+        std::vector<PlannedStamp> planned;
+        int transitionPieces = 0;
+
+        BrushStroke* chosen = pickOne(blockStrokes);
+        loadStamp(chosen->stamp, chosen->sectionPath, chosen->name);
+        planned.push_back(PlannedStamp{&*chosen->stamp, blockX * cell, blockY * cell});
+
+        if (transitions) {
+            // A corner sits on the level whose paint height is closest to the
+            // tiles around it.
+            const auto readCorner = [&](int nodeX, int nodeY) {
+                std::vector<int> votes(levels.size(), 0);
+                for (int dy = -1; dy <= 0; ++dy) {
+                    for (int dx = -1; dx <= 0; ++dx) {
+                        const int tx = std::clamp(nodeX * cell + dx, 0, map_->tileWidth - 1);
+                        const int ty = std::clamp(nodeY * cell + dy, 0, map_->tileHeight - 1);
+                        const std::size_t index = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
+                        if (index >= map_->heights.size()) {
+                            continue;
+                        }
+                        const int height = map_->heights[index];
+                        std::size_t nearest = 0;
+                        for (std::size_t i = 1; i < levels.size(); ++i) {
+                            if (std::abs(height - levelHeights[i]) < std::abs(height - levelHeights[nearest])) {
+                                nearest = i;
+                            }
+                        }
+                        ++votes[nearest];
+                    }
+                }
+                std::size_t winner = 0;
+                for (std::size_t i = 1; i < votes.size(); ++i) {
+                    if (votes[i] > votes[winner]) {
+                        winner = i;
+                    }
+                }
+                return static_cast<int>(winner);
+            };
+            const BrushPlan plan = planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readCorner);
+            std::vector<std::string> missing;
+            const auto noteMissing = [&](const std::string& what) {
+                if (std::find(missing.begin(), missing.end(), what) == missing.end()) {
+                    missing.push_back(what);
+                }
+            };
+            for (const BrushCell& ringCell : plan.cells) {
+                const BrushPaint* lower = levels[static_cast<std::size_t>(ringCell.level)];
+                if (ringCell.mask == 0) {
+                    // Flat ground: the cell is all one base again.
+                    const std::vector<BrushStroke*> flat = strokesFor(lower->name, cell);
+                    if (flat.empty()) {
+                        noteMissing(lower->name + " " + brushSizeLabel(cell) + " brush stroke");
+                        continue;
+                    }
+                    BrushStroke* stroke = pickOne(flat);
+                    loadStamp(stroke->stamp, stroke->sectionPath, stroke->name);
+                    planned.push_back(PlannedStamp{&*stroke->stamp, ringCell.x * cell, ringCell.y * cell});
+                    continue;
+                }
+                const BrushPaint* upper = levels[static_cast<std::size_t>(ringCell.upper)];
+                const std::string piece = transitionPieceName(graph.style(ringCell.level, ringCell.upper), ringCell.mask);
+                if (piece.empty()) {
+                    noteMissing("a piece joining " + lower->name + " to " + upper->name);
+                    continue;
+                }
+                const std::vector<BrushPiece*> pieces = piecesFor(armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category, piece);
+                if (pieces.empty()) {
+                    noteMissing(piece);
+                    continue;
+                }
+                BrushPiece* transition = pickOne(pieces);
+                loadStamp(transition->stamp, transition->sectionPath, transition->name);
+                planned.push_back(PlannedStamp{&*transition->stamp, ringCell.x * cell, ringCell.y * cell});
+                ++transitionPieces;
+            }
+            if (!missing.empty()) {
+                // The tileset is not finished for this paint yet, so the map is left alone.
+                std::string note = "The tileset needs ";
+                for (std::size_t i = 0; i < missing.size() && i < 3; ++i) {
+                    note += (i == 0 ? "" : ", ") + missing[i];
+                }
+                if (missing.size() > 3) {
+                    note += " and " + std::to_string(missing.size() - 3) + " more";
+                }
+                statusNote_ = note + " for " + brushName_;
+                error_.clear();
+                return;
+            }
+        }
+
+        // Every stamp is loaded before the first edit, so a missing piece leaves the map alone.
+        const int tileCountBefore = map_->tileCount;
+        std::vector<PlacementChange> changes;
+        for (const PlannedStamp& piece : planned) {
+            auto change = stampSectionChange(*map_, *piece.stamp, piece.x, piece.y, &deduper_, 100);
+            if (change) {
+                changes.push_back(std::move(*change));
+            }
+        }
+        if (changes.empty()) {
+            statusNote_ = "The brush is outside the map";
+        } else {
+            std::string note = "Placed " + chosen->name;
+            if (transitionPieces > 0) {
+                note += " with " + std::to_string(transitionPieces) + (transitionPieces == 1 ? " transition piece" : " transition pieces");
+            }
+            if (changes.size() == 1) {
+                rememberPlacement(std::move(changes.front()));
+            } else {
+                rememberPlacements(std::move(changes));
+            }
+            statusNote_ = note;
+            warnIfPastVanillaTiles(tileCountBefore);
+        }
+        error_.clear();
+    } catch (const std::exception& ex) {
+        error_ = ex.what();
+    }
+}
+
+void EditorApp::ensureBrushPaints() {
+    const TilesetArchive* source = nullptr;
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        if (isRandomMapTileset(archive.path)) {
+            source = &archive;
+            break;
+        }
+    }
+    std::string key = "missing";
+    if (source != nullptr) {
+        key = source->path.string() + "\n" + std::to_string(source->sections.size());
+    } else if (loadingTilesets()) {
+        key = "loading";
+    }
+    if (key == brushCatalogKey_) {
+        return;
+    }
+    for (BrushPaint& paint : brushPaints_) {
+        destroyTexture(paint.preview);
+    }
+    brushPaints_.clear();
+    brushStrokes_.clear();
+    brushPieces_.clear();
+    brushTilesetPath_.clear();
+    brushCatalogKey_ = key;
+    if (source == nullptr) {
+        if (!loadingTilesets()) {
+            brushName_.clear();
+        }
+        return;
+    }
+    brushTilesetPath_ = source->path;
+
+    std::vector<const TilesetSection*> chosen;
+    for (const TilesetSection& section : source->sections) {
+        if (isBaseBrushTile(section.world, section.name)) {
+            chosen.push_back(&section);
+        } else if (isBrushStrokeWorld(section.world)) {
+            BrushStroke stroke;
+            stroke.name = section.name;
+            stroke.sectionPath = section.archivePath;
+            brushStrokes_.push_back(std::move(stroke));
+        } else if (isTransitionWorld(section.world)) {
+            BrushPiece cliff;
+            cliff.name = section.name;
+            cliff.category = section.category;
+            cliff.sectionPath = section.archivePath;
+            brushPieces_.push_back(std::move(cliff));
+        }
+    }
+    std::sort(chosen.begin(), chosen.end(), [](const TilesetSection* left, const TilesetSection* right) {
+        const int leftNumber = trailingNumber(left->name);
+        const int rightNumber = trailingNumber(right->name);
+        if (leftNumber != rightNumber) {
+            return leftNumber < rightNumber;
+        }
+        return nameLess(left->name, right->name);
+    });
+    for (const TilesetSection* section : chosen) {
+        try {
+            const HpiFile* file = source->archive().find(section->archivePath);
+            if (file == nullptr) {
+                continue;
+            }
+            const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+            int width = 0;
+            int height = 0;
+            const std::vector<std::uint8_t> rgba = renderSectionRgba(stamp, 128, width, height);
+            BrushPaint paint;
+            paint.name = section->name;
+            paint.category = section->category;
+            paint.preview = uploadTexture(rgba.data(), width, height, false);
+            if (paint.preview == 0) {
+                continue;
+            }
+            brushPaints_.push_back(std::move(paint));
+        } catch (const std::exception&) {
+        }
+    }
+    if (!brushName_.empty()) {
+        bool found = false;
+        for (const BrushPaint& paint : brushPaints_) {
+            if (paint.name == brushName_) {
+                found = true;
+            }
+        }
+        if (!found) {
+            brushName_.clear();
+        }
+    }
+}
+
+void EditorApp::drawTileBrush() {
+    ensureBrushPaints();
+    if (!showTileBrush_) {
+        return;
+    }
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - 280.0f, viewport->WorkPos.y + viewport->WorkSize.y - 220.0f),
+        ImGuiCond_FirstUseEver);
+    constexpr float kRounding = 5.0f;
+    constexpr float kRowWidth = 240.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 5.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, kRounding);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize
+        | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground;
+    const bool visible = ImGui::Begin("Tile Brush", nullptr, flags);
+    ImGui::PopStyleVar(3);
+    if (!visible) {
+        ImGui::End();
+        return;
+    }
+
+    {
+        const ImVec2 windowMin = ImGui::GetWindowPos();
+        const ImVec2 windowSize = ImGui::GetWindowSize();
+        const ImVec2 windowMax(windowMin.x + windowSize.x, windowMin.y + windowSize.y);
+        if (!drawGlass(tileBrushGlass_, windowMin.x, windowMin.y, windowMax.x, windowMax.y, kRounding)) {
+            ImGui::GetWindowDrawList()->AddRectFilled(windowMin, windowMax, ImGui::GetColorU32(ImGuiCol_WindowBg), kRounding);
+        }
+        ImGui::GetWindowDrawList()->AddRect(windowMin, windowMax, theme::glassStyle().outline, kRounding);
+    }
+
+    {
+        const float startX = ImGui::GetCursorPosX();
+        ImGui::PushFont(theme::smallFont());
+        const float lineHeight = ImGui::GetTextLineHeight();
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::glassStyle().titleText);
+        ImGui::TextUnformatted("Tile Brush");
+        ImGui::PopStyleColor();
+        const float closeSize = lineHeight;
+        ImGui::SameLine(startX + kRowWidth - closeSize, 0.0f);
+        const ImVec2 closeMin = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("tile-brush-close", ImVec2(closeSize, lineHeight))) {
+            showTileBrush_ = false;
+        }
+        const bool closeHot = ImGui::IsItemHovered();
+        const ImVec2 center(closeMin.x + closeSize * 0.5f, closeMin.y + lineHeight * 0.5f);
+        const float arm = closeSize * 0.22f;
+        const ImU32 xColor = closeHot ? theme::glassStyle().closeMarkHot : theme::glassStyle().closeMark;
+        ImDrawList* titleDraw = ImGui::GetWindowDrawList();
+        titleDraw->AddLine(ImVec2(center.x - arm, center.y - arm), ImVec2(center.x + arm, center.y + arm), xColor, 1.5f);
+        titleDraw->AddLine(ImVec2(center.x - arm, center.y + arm), ImVec2(center.x + arm, center.y - arm), xColor, 1.5f);
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2(0.0f, 1.0f));
+    }
+
+    if (brushPaints_.empty()) {
+        ImGui::PushFont(theme::smallFont());
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kRowWidth);
+        ImGui::TextWrapped("%s", loadingTilesets()
+                ? "Loading base tiles..."
+                : "No base tiles were found in the random map tileset.");
+        ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2(kRowWidth, 0.0f));
+        ImGui::End();
+        return;
+    }
+
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float thumb = std::floor((kRowWidth - style.ItemSpacing.x - style.FramePadding.x * 4.0f) * 0.5f);
+    for (std::size_t index = 0; index < brushPaints_.size(); ++index) {
+        const BrushPaint& paint = brushPaints_[index];
+        if (index > 0 && index % 2 != 0) {
+            ImGui::SameLine();
+        }
+        ImGui::PushID(paint.name.c_str());
+        ImGui::BeginGroup();
+        const float groupX = ImGui::GetCursorPosX();
+        const bool selected = brushName_ == paint.name;
+        if (selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+        }
+        const bool pressed = ImGui::ImageButton(
+            "brush-paint",
+            textureId(paint.preview),
+            ImVec2(thumb, thumb),
+            ImVec2(0.0f, 0.0f),
+            ImVec2(1.0f, 1.0f),
+            ImVec4(0.30f, 0.31f, 0.33f, 1.0f));
+        const ImVec2 buttonMin = ImGui::GetItemRectMin();
+        const ImVec2 buttonMax = ImGui::GetItemRectMax();
+        if (selected) {
+            ImGui::PopStyleColor(3);
+            ImGui::GetWindowDrawList()->AddRect(
+                ImVec2(buttonMin.x - 1.0f, buttonMin.y - 1.0f),
+                ImVec2(buttonMax.x + 1.0f, buttonMax.y + 1.0f),
+                theme::accentColor(),
+                style.FrameRounding,
+                0,
+                2.0f);
+        }
+        if (pressed) {
+            armBrush(paint.name);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", selected ? "Click again or press Esc to leave the brush" : "Use this tile as the brush");
+        }
+        const float textWidth = ImGui::CalcTextSize(paint.name.c_str()).x;
+        const float itemWidth = buttonMax.x - buttonMin.x;
+        ImGui::SetCursorPosX(groupX + std::max(0.0f, (itemWidth - textWidth) * 0.5f));
+        ImGui::TextUnformatted(paint.name.c_str());
+        ImGui::EndGroup();
+        ImGui::PopID();
+    }
+
+    ImGui::End();
 }
 
 void EditorApp::ensureMinimap() {

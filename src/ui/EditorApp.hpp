@@ -184,6 +184,12 @@ private:
     void drawAbout();
     void drawMinimap();
     void ensureMinimap();
+    // Base tiles from the random-map tileset, shown in the Tile Brush window.
+    void ensureBrushPaints();
+    void drawTileBrush();
+    void armBrush(const std::string& name);
+    // Stamps one random BaseTileBrushStrokes variation for the armed paint and size.
+    void paintBrushStroke(int tileX, int tileY);
     void pumpSectionLoads();
     void requestCategory(std::size_t archiveIndex, const std::string& world, const std::string& category);
     void ensureGhost();
@@ -194,6 +200,9 @@ private:
 
     struct EditorCommand {
         std::optional<PlacementChange> terrain;
+        // Several terrain edits from one gesture, such as a base stroke plus its cliff.
+        // Undo walks this from last to first.
+        std::vector<PlacementChange> terrains;
         std::optional<FeatureChange> feature;
         std::vector<FeatureChange> features;
         bool selection = false;
@@ -202,6 +211,7 @@ private:
     };
 
     void rememberPlacement(PlacementChange change);
+    void rememberPlacements(std::vector<PlacementChange> changes);
     void rememberFeature(FeatureChange change);
     void rememberFeatures(std::vector<FeatureChange> changes);
     // The selected features that are still on the map, in map order.
@@ -304,6 +314,37 @@ private:
     int gridTiles_ = 0;
     int heightGridSize_ = 32;
     bool showMinimap_ = true;
+    // Floating palette of base tiles. Choosing one arms a square brush on the map.
+    bool showTileBrush_ = true;
+    struct BrushPaint {
+        std::string name;
+        std::string category;
+        GLuint preview = 0;
+    };
+    std::vector<BrushPaint> brushPaints_;
+    // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
+    struct BrushStroke {
+        std::string name;
+        std::string sectionPath;
+        std::optional<SectionStamp> stamp;
+    };
+    std::vector<BrushStroke> brushStrokes_;
+    // CliffTiles and CoastTiles sections, such as Cliff-High-BR-01 and Coast-Water-B-01. Loaded on first use.
+    struct BrushPiece {
+        std::string name;
+        std::string category;
+        std::string sectionPath;
+        std::optional<SectionStamp> stamp;
+    };
+    std::vector<BrushPiece> brushPieces_;
+    std::filesystem::path brushTilesetPath_;
+    std::string brushCatalogKey_;
+    std::string brushName_;
+    int brushSize_ = 16;
+    bool brushStroking_ = false;
+    int brushStrokeX_ = -1;
+    int brushStrokeY_ = -1;
+    GlassPanel tileBrushGlass_;
     bool miniDirty_ = true;
     bool heightDirty_ = true;
     bool quit_ = false;
