@@ -60,4 +60,14 @@ std::string addFavoriteSection(
 // Removes one file from an archive, by the path the archive lists, and rewrites it.
 void removeFavoriteSection(const std::filesystem::path& archivePath, std::string_view sectionPath);
 
+// Changes the file name of one section and rewrites the archive. newName is the
+// file name, with or without a trailing .sct, and the section stays in its
+// folder. The name that was written is returned. Any tileset archive can be
+// renamed this way, not only a favorites archive. The archive is left as it was
+// when the name is refused or already used in that folder.
+std::string renameTilesetSection(
+    const std::filesystem::path& archivePath,
+    std::string_view sectionPath,
+    std::string_view newName);
+
 }  // namespace galaxy

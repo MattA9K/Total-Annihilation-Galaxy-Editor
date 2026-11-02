@@ -207,6 +207,74 @@ std::string addFavoriteSection(
     return name;
 }
 
+namespace {
+
+std::string parentKey(std::string_view path) {
+    const std::string slashed = slashes(std::string(path));
+    const auto slash = slashed.find_last_of('/');
+    return lowered(slash == std::string::npos ? std::string_view() : std::string_view(slashed).substr(0, slash));
+}
+
+std::string leafOf(std::string_view path) {
+    const auto slash = path.find_last_of("/\\");
+    return std::string(slash == std::string_view::npos ? path : path.substr(slash + 1));
+}
+
+std::string extensionOf(std::string_view leaf) {
+    const auto dot = leaf.find_last_of('.');
+    if (dot == std::string_view::npos || dot == 0) {
+        return ".sct";
+    }
+    return std::string(leaf.substr(dot));
+}
+
+}  // namespace
+
+std::string renameTilesetSection(const std::filesystem::path& archivePath, std::string_view sectionPath, std::string_view newName) {
+    const std::string name = favoriteTileFileName(newName);
+    if (const std::string problem = favoritesNameProblem(name); !problem.empty()) {
+        throw std::runtime_error("File name: " + problem);
+    }
+
+    const HpiArchive archive = HpiArchive::open(archivePath);
+    const std::string target = lowered(slashes(std::string(sectionPath)));
+    const HpiFile* source = nullptr;
+    for (const HpiFile& file : archive.files()) {
+        if (lowered(slashes(file.path)) == target) {
+            source = &file;
+            break;
+        }
+    }
+    if (source == nullptr) {
+        throw std::runtime_error("That tile is no longer in " + archivePath.filename().string() + ".");
+    }
+
+    const std::string leaf = leafOf(source->path);
+    const std::string extension = extensionOf(leaf);
+    if (name + extension == leaf) {
+        return name;
+    }
+    const std::string folder = parentKey(source->path);
+    for (const HpiFile& file : archive.files()) {
+        if (&file == source || parentKey(file.path) != folder) {
+            continue;
+        }
+        if (lowered(leafOf(file.path)) == lowered(name + extension)) {
+            throw std::runtime_error("A file named " + name + " is already in that category.");
+        }
+    }
+
+    const auto slash = source->path.find_last_of("/\\");
+    const std::string renamed = (slash == std::string::npos ? std::string() : source->path.substr(0, slash + 1)) + name + extension;
+    std::vector<HpiWriteFile> files;
+    files.reserve(archive.files().size());
+    for (const HpiFile& file : archive.files()) {
+        files.push_back(HpiWriteFile{&file == source ? renamed : file.path, archive.extract(file)});
+    }
+    writeHpiArchive(archivePath, std::move(files));
+    return name;
+}
+
 void removeFavoriteSection(const std::filesystem::path& archivePath, std::string_view sectionPath) {
     const HpiArchive archive = HpiArchive::open(archivePath);
     const std::string target = lowered(slashes(std::string(sectionPath)));

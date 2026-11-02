@@ -4,6 +4,7 @@
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
 #include "core/OrbitCamera.hpp"
+#include "core/RiverBrush.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
@@ -2138,6 +2139,39 @@ void testFavorites() {
     expect(badName, "a file name with a slash is refused");
     expect(openTilesetArchive(path).archive().find("sections/Mine/Rivers/no/slash.sct") == nullptr, "a refused name is not written");
 
+    expect(renameTilesetSection(path, "sections/Mine/Rivers/Cliff.sct", "  Water.sct ") == "Water", "a tile can be renamed");
+    {
+        const TilesetArchive renamed = openTilesetArchive(path);
+        const HpiFile* water = renamed.archive().find("sections/Mine/Rivers/Water.sct");
+        expect(water != nullptr && water->path.find("Water.sct") != std::string::npos, "renamed tile uses the new file name");
+        expect(renamed.archive().find("sections/Mine/Rivers/Cliff.sct") == nullptr, "the old file name is gone");
+        expect(renamed.archive().find("GE-Favorites.txt") != nullptr, "renaming one tile leaves the other files");
+        if (water != nullptr) {
+            expect(loadSectionStamp(renamed.archive().extract(*water)).indices == stamp.indices, "a renamed tile keeps its pictures");
+        }
+    }
+    bool renamedOnto = false;
+    try {
+        renameTilesetSection(path, "sections/Mine/Rivers/Water.sct", "Rivers02");
+    } catch (const std::exception&) {
+        renamedOnto = true;
+    }
+    expect(renamedOnto, "renaming onto a file already there is refused");
+    expect(openTilesetArchive(path).archive().find("sections/Mine/Rivers/Water.sct") != nullptr, "a refused rename leaves the file");
+    expect(renameTilesetSection(path, "sections/Mine/Rivers/Water.sct", "water") == "water", "a rename can change only the letter case");
+    {
+        const TilesetArchive renamed = openTilesetArchive(path);
+        const HpiFile* water = renamed.archive().find("sections/Mine/Rivers/water.sct");
+        expect(water != nullptr && water->path.find("water.sct") != std::string::npos, "the new letter case is stored");
+    }
+    bool missingRename = false;
+    try {
+        renameTilesetSection(path, "sections/Mine/Rivers/Nothing.sct", "Pond");
+    } catch (const std::exception&) {
+        missingRename = true;
+    }
+    expect(missingRename, "renaming a tile that is not there is an error");
+
     bool missing = false;
     try {
         removeFavoriteSection(path, "sections/Mine/Rivers/Nothing.sct");
@@ -2146,7 +2180,7 @@ void testFavorites() {
     }
     expect(missing, "removing a tile that is not there is an error");
 
-    for (const char* name : {"Mine/Rivers/Rivers01", "Mine/Rivers/Rivers02", "Mine/Rivers/rivers03", "Mine/Rivers/Rivers04", "Mine/Rivers/Cliff", "Mine/Cliffs/Rivers01", "Mine/Cliffs/Cliffs01", "Mine/Sm Lakes/Sm Lakes01", "Other/Rivers/Rivers01"}) {
+    for (const char* name : {"Mine/Rivers/Rivers01", "Mine/Rivers/Rivers02", "Mine/Rivers/rivers03", "Mine/Rivers/Rivers04", "Mine/Rivers/water", "Mine/Cliffs/Rivers01", "Mine/Cliffs/Cliffs01", "Mine/Sm Lakes/Sm Lakes01", "Other/Rivers/Rivers01"}) {
         removeFavoriteSection(path, std::string("sections/") + name + ".sct");
     }
     expect(openTilesetArchive(path).sections.empty(), "an archive emptied of tiles still opens");
@@ -2386,9 +2420,11 @@ void testBrushStrokeNames() {
     const BrushGraph deep(std::vector<int>{0, 68, 85, 219});
     expect(deep.style(0, 2) == TransitionStyle::Coast && deep.style(1, 2) == TransitionStyle::ShallowCoast && deep.style(2, 3) == TransitionStyle::Cliff, "each pair of paints has its own family");
     expect(deep.style(0, 1) == TransitionStyle::ShallowDeep && deep.style(1, 0) == TransitionStyle::ShallowDeep, "Base-0 and Base-68 join with ShallowDeep pieces");
-    expect(deep.style(0, 3) == TransitionStyle::None && deep.style(1, 3) == TransitionStyle::None, "paints without pieces are not joined");
-    expect(deep.stepToward(3, 0) == 2 && deep.stepToward(1, 0) == 0 && deep.distance(0, 3) == 2 && deep.distance(1, 3) == 2, "0, 68 and 219 reach each other through 85");
-    expect(deep.compatible(2, 0) && deep.compatible(0, 1) && !deep.compatible(0, 3) && !deep.compatible(1, 3), "only joined paints share a cell");
+    expect(deep.style(0, 3) == TransitionStyle::CoastalCliffDeep && deep.style(1, 3) == TransitionStyle::CoastalCliffShallow && deep.style(3, 1) == TransitionStyle::CoastalCliffShallow, "Base-219 joins Base-0 and Base-68 with CoastalCliff pieces");
+    expect(deep.stepToward(3, 0) == 0 && deep.stepToward(1, 0) == 0 && deep.distance(0, 3) == 1 && deep.distance(1, 3) == 1 && deep.distance(0, 2) == 1, "every pair of paints is one step apart");
+    expect(deep.compatible(2, 0) && deep.compatible(0, 1) && deep.compatible(0, 3) && deep.compatible(1, 3), "every pair of paints can share a cell");
+    const BrushGraph threePaints(std::vector<int>{0, 85, 219});
+    expect(threePaints.style(0, 2) == TransitionStyle::CoastalCliffDeep && threePaints.style(0, 1) == TransitionStyle::Coast, "a set without Base-68 still joins 0 and 219");
 }
 
 // Keeps the corner levels a test stroke has set so the next stroke can read them.
@@ -2413,31 +2449,19 @@ struct BrushTestLattice {
 
     // The picture a cell ends up with, named like the tileset names it.
     std::string piece(int cx, int cy) const {
-        const int corners[4] = {read(cx, cy), read(cx + 1, cy), read(cx, cy + 1), read(cx + 1, cy + 1)};
-        const int lowest = *std::min_element(corners, corners + 4);
-        const int highest = *std::max_element(corners, corners + 4);
-        if (highest == lowest) {
-            return "Base-" + std::to_string(graph.height(lowest));
+        const std::array<int, 4> corners = {read(cx, cy), read(cx + 1, cy), read(cx, cy + 1), read(cx + 1, cy + 1)};
+        if (corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3]) {
+            return "Base-" + std::to_string(graph.height(corners[0]));
         }
-        int mask = 0;
-        bool onlyTwo = true;
-        for (int i = 0; i < 4; ++i) {
-            mask |= corners[i] == highest ? (1 << i) : 0;
-            onlyTwo = onlyTwo && (corners[i] == lowest || corners[i] == highest);
-        }
-        const galaxy::TransitionStyle style = graph.style(lowest, highest);
-        if (!onlyTwo || style == galaxy::TransitionStyle::None) {
-            return "Unjoined";
-        }
-        const std::string name = galaxy::transitionPieceName(style, mask);
-        return name.empty() ? "Diagonal" : name;
+        const std::string name = galaxy::brushPieceName(graph, corners);
+        return name.empty() ? "Unjoined" : name;
     }
 
     bool steep() const {
         for (int cy = 0; cy < cellsY; ++cy) {
             for (int cx = 0; cx < cellsX; ++cx) {
                 const std::string name = piece(cx, cy);
-                if (name == "Unjoined" || name == "Diagonal") {
+                if (name == "Unjoined") {
                     return true;
                 }
             }
@@ -2563,23 +2587,22 @@ void testBrushCells() {
     }
     expect(ringIsCoast, "every ring cell sits between level 0 and level 1");
 
-    // 219 painted into water cannot touch it: a ring of cliffs and a ring of coast surround the plateau.
+    // 219 painted into water meets it directly with CoastalCliff pieces.
     BrushTestLattice island(6, 6, 0, ladder);
     BrushPlan peak = island.paint(2, 2, 1, 2);
     expect(island.piece(2, 2) == "Base-219", "the painted cell is high ground");
-    expect(island.piece(1, 1) == "Cliff-High-BR" && island.piece(2, 1) == "Cliff-High-B" && island.piece(3, 3) == "Cliff-High-TL", "cliffs touch the high ground");
-    expect(island.piece(0, 0) == "Coast-Land-BR" && island.piece(2, 0) == "Coast-Water-T" && island.piece(4, 0) == "Coast-Land-BL", "coast pieces touch the water above");
-    expect(island.piece(0, 2) == "Coast-Water-L" && island.piece(4, 2) == "Coast-Water-R", "coast pieces touch the water to the sides");
-    expect(island.piece(0, 4) == "Coast-Land-TR" && island.piece(2, 4) == "Coast-Water-B" && island.piece(4, 4) == "Coast-Land-TL", "coast pieces touch the water below");
-    expect(island.piece(5, 5) == "Base-0" && !island.steep(), "no cell jumps from water to high ground");
-    expect(peak.cells.size() == 24, "a 219 click in water restyles a 5 x 5 block of cells");
+    expect(island.piece(1, 1) == "CC-219-BR-0-ALL" && island.piece(2, 1) == "CC-219-B-0-T" && island.piece(3, 1) == "CC-219-BL-0-ALL", "coastal cliffs above the high ground");
+    expect(island.piece(1, 2) == "CC-219-R-0-L" && island.piece(3, 2) == "CC-219-L-0-R", "coastal cliffs beside the high ground");
+    expect(island.piece(1, 3) == "CC-219-TR-0-ALL" && island.piece(2, 3) == "CC-219-T-0-B" && island.piece(3, 3) == "CC-219-TL-0-ALL", "coastal cliffs below the high ground");
+    expect(island.piece(0, 0) == "Base-0" && island.piece(5, 5) == "Base-0" && !island.steep(), "the rest stays water");
+    expect(peak.cells.size() == 8, "a 219 click in water restyles its eight neighbors");
 
-    // Painting 0 into a 219 plateau steps down through cliffs and then coast.
+    // Painting 0 into a 219 plateau leaves coastal cliffs around the water.
     BrushTestLattice mesa(6, 6, 2, ladder);
     mesa.paint(2, 2, 1, 0);
     expect(mesa.piece(2, 2) == "Base-0", "the painted cell is water");
-    expect(mesa.piece(1, 1) == "Coast-Water-BR" && mesa.piece(2, 1) == "Coast-Water-B" && mesa.piece(3, 3) == "Coast-Water-TL", "the ring around the water is coast");
-    expect(mesa.piece(0, 0) == "Cliff-Low-BR" && mesa.piece(5, 5) == "Base-219" && !mesa.steep(), "cliffs bring it back up to the plateau");
+    expect(mesa.piece(1, 1) == "CC-219-ALL-0-BR" && mesa.piece(2, 1) == "CC-219-T-0-B" && mesa.piece(3, 3) == "CC-219-ALL-0-TL", "coastal cliffs around the water");
+    expect(mesa.piece(0, 0) == "Base-219" && mesa.piece(5, 5) == "Base-219" && !mesa.steep(), "the plateau goes on around it");
 
     // Painting 0 into 85 gives a pond with coast pieces and nothing steeper.
     BrushTestLattice pond(5, 5, 1, ladder);
@@ -2618,6 +2641,139 @@ void testBrushCells() {
     expect(shoreline.piece(4, 2) == "Cliff-High-R" && shoreline.piece(2, 2) == "Coast-Water-L", "cliffs next to the plateau and coast next to the lake");
     expect(!shoreline.steep(), "the lake and the plateau never touch a piece they have no match for");
 
+    // CoastalCliff names: Base-219 against Base-0 or Base-68, with or without Base-85.
+    {
+        expect(coastalCliffName(0, kCornerBottomRight, 0) == "CC-219-BR-0-ALL" && coastalCliffName(68, kCornerTopRight, 0) == "CC-219-TR-68-ALL", "Base-219 on one corner");
+        expect(coastalCliffName(0, 7, 0) == "CC-219-ALL-0-BR" && coastalCliffName(68, 11, 0) == "CC-219-ALL-68-BL", "Base-219 on all but one corner");
+        expect(coastalCliffName(0, 10, 0) == "CC-219-R-0-L" && coastalCliffName(68, 3, 0) == "CC-219-T-68-B" && coastalCliffName(0, 12, 0) == "CC-219-B-0-T", "Base-219 along one side");
+        expect(coastalCliffName(0, 1, 4) == "CC-219-TL-85-BL-0-R" && coastalCliffName(0, 4, 1) == "CC-219-BL-85-TL-0-R", "219 and 85 down the left side with water on the right");
+        expect(coastalCliffName(0, 2, 8) == "CC-219-TR-85-BR-0-L" && coastalCliffName(0, 4, 8) == "CC-219-BL-85-BR-0-T", "219 beside 85 with water on the far side");
+        expect(coastalCliffName(0, 10, 1) == "CC-219-R-85-TL-0-BL" && coastalCliffName(68, 5, 2) == "CC-219-L-85-TR-68-BR", "219 along one side with 85 and water at the other corners");
+        expect(coastalCliffName(68, 3, 4) == "CC-219-T-85-BL-68-BR", "shallow water takes the place of deep water");
+        expect(coastalCliffName(0, 6, 0).empty() && coastalCliffName(0, 9, 0).empty() && coastalCliffName(0, 15, 0).empty() && coastalCliffName(0, 0, 0).empty(), "diagonal and flat cells have no coastal cliff");
+        expect(coastalCliffName(0, 1, 8).empty() && coastalCliffName(0, 1, 6).empty() && coastalCliffName(85, 1, 0).empty(), "layouts without a section have no name");
+
+        std::vector<std::string> made;
+        for (const int low : {0, 68}) {
+            for (int high = 1; high < 15; ++high) {
+                for (int mid = 0; mid < 15; ++mid) {
+                    const std::string name = coastalCliffName(low, high, mid);
+                    if (!name.empty()) {
+                        made.push_back(name);
+                    }
+                }
+            }
+        }
+        std::sort(made.begin(), made.end());
+        expect(std::adjacent_find(made.begin(), made.end()) == made.end(), "no two layouts share a name");
+        expect(made.size() == 56, "28 coastal cliff layouts for each of Base-0 and Base-68");
+
+        const BrushGraph four(std::vector<int>{0, 68, 85, 219});
+        expect(brushPieceName(four, {3, 3, 3, 0}) == "CC-219-ALL-0-BR" && brushPieceName(four, {1, 1, 3, 1}) == "CC-219-BL-68-ALL", "corners on 219 and Base-0 or Base-68");
+        expect(brushPieceName(four, {3, 0, 2, 0}) == "CC-219-TL-85-BL-0-R", "corners on 219, 85 and 0");
+        expect(brushPieceName(four, {3, 3, 1, 2}) == "CC-219-T-85-BR-68-BL", "corners on 219, 85 and 68");
+        expect(brushPieceName(four, {3, 1, 0, 0}).empty() && brushPieceName(four, {3, 2, 1, 0}).empty(), "219 with both 0 and 68 has no section");
+        expect(brushPieceName(four, {2, 2, 3, 3}) == "Cliff-High-B", "219 against 85 still uses the cliffs");
+    }
+
+    // CoastDSL: every layout of land, shallow and deep corners that has a section, and no other.
+    {
+        const std::vector<std::string> sections = {
+            "DSL-Land-L-Shallow-BR-Water-TR", "DSL-Land-L-Shallow-TR-Water-BR", "DSL-Land-R-Shallow-BL-Water-TL", "DSL-Land-R-Shallow-TL-Water-BL",
+            "DSL-Land-T-Shallow-BR-Water-BL", "DSL-Land-T-Shallow-BL-Water-BR", "DSL-Land-B-Shallow-TR-Water-TL", "DSL-Land-B-Shallow-TL-Water-TR",
+            "DSL-Land-BR-Shallow-TR-Water-L", "DSL-Land-BR-Shallow-BL-Water-T", "DSL-Land-BR-Shallow-BL_and_TR-Water-TL",
+            "DSL-Land-BL-Shallow-TL-Water-R", "DSL-Land-BL-Shallow-BR-Water-T", "DSL-Land-BL-Shallow-TL_and_BR-Water-TR",
+            "DSL-Land-TL-Shallow-BL-Water-R", "DSL-Land-TL-Shallow-TR-Water-B", "DSL-Land-TL-Shallow-BL_and_TR-Water-BR",
+            "DSL-Land-TR-Shallow-BR-Water-L", "DSL-Land-TR-Shallow-TL-Water-B", "DSL-Land-TR-Shallow-TL_and_BR-Water-BL"};
+        std::vector<std::string> made;
+        for (int land = 1; land < 15; ++land) {
+            for (int shallow = 1; shallow < 15; ++shallow) {
+                const std::string name = dslPieceName(land, shallow);
+                if (!name.empty()) {
+                    made.push_back(name);
+                }
+            }
+        }
+        std::vector<std::string> wanted = sections;
+        std::sort(made.begin(), made.end());
+        std::sort(wanted.begin(), wanted.end());
+        expect(made == wanted, "the CoastDSL layouts are exactly the 20 sections in the tileset");
+        expect(dslPieceName(5, 2) == "DSL-Land-L-Shallow-TR-Water-BR", "land on the left, shallow at the top right");
+        expect(dslPieceName(8, 4 | 2) == "DSL-Land-BR-Shallow-BL_and_TR-Water-TL", "one land corner opposite deep water");
+        expect(dslPieceName(1, 4) == "DSL-Land-TL-Shallow-BL-Water-R", "a land corner with shallow water below it");
+        expect(dslPieceName(1, 8).empty() && dslPieceName(9, 2).empty(), "layouts without a section have no name");
+        expect(transitionVariation("DSL-Land-L-Shallow-BR-Water-TR", "DSL-Land-L-Shallow-BR-Water-TR") == 0, "a section without a number is its own variation");
+        expect(transitionVariation("DSL-Land-L-Shallow-BR-Water-TR", "DSL-Land-L-Shallow-BR-Water-T") < 0 && transitionVariation("dsl-land-l-shallow-br-water-tr", "DSL-Land-L-Shallow-BR-Water-TR") == 0, "the match is exact and ignores case");
+        const std::array<int, 4> corners = {2, 1, 0, 0};
+        expect(brushPieceName(deep, corners) == "DSL-Land-TL-Shallow-TR-Water-B", "corners on 85, 68 and 0 pick the matching section");
+    }
+
+    // Deep water painted beside shallow water on land makes cells that hold all three.
+    {
+        BrushTestLattice shore(9, 9, 2, deep);
+        shore.paint(3, 3, 1, 1);
+        shore.paint(4, 3, 1, 0);
+        bool anyDsl = false;
+        for (int cy = 0; cy < 9; ++cy) {
+            for (int cx = 0; cx < 9; ++cx) {
+                anyDsl = anyDsl || shore.piece(cx, cy).rfind("DSL-", 0) == 0;
+            }
+        }
+        expect(anyDsl && !shore.steep(), "land, shallows and deep water meet through CoastDSL sections");
+    }
+
+    // Many paints of every kind never leave a cell without a picture or a cliff on water.
+    {
+        std::uint32_t state = 12345;
+        const auto next = [&](int limit) {
+            state = state * 1664525u + 1013904223u;
+            return static_cast<int>((state >> 8) % static_cast<std::uint32_t>(limit));
+        };
+        for (int round = 0; round < 6; ++round) {
+            BrushTestLattice mix(10, 10, 2, deep);
+            bool dslUsed = false;
+            bool valid = true;
+            bool noCliffOnWater = true;
+            for (int click = 0; click < 60; ++click) {
+                const int cells = 1 + next(2);
+                mix.paint(next(11 - cells), next(11 - cells), cells, next(4));
+                for (int cy = 0; cy < 10; ++cy) {
+                    for (int cx = 0; cx < 10; ++cx) {
+                        const std::string name = mix.piece(cx, cy);
+                        valid = valid && name != "Unjoined";
+                        dslUsed = dslUsed || name.rfind("DSL-", 0) == 0;
+                        const std::array<int, 4> corners = {mix.read(cx, cy), mix.read(cx + 1, cy), mix.read(cx, cy + 1), mix.read(cx + 1, cy + 1)};
+                        const int lowest = *std::min_element(corners.begin(), corners.end());
+                        const int highest = *std::max_element(corners.begin(), corners.end());
+                        noCliffOnWater = noCliffOnWater && !(name.rfind("Cliff", 0) == 0 && (lowest != 2 || highest != 3)) && !(name.rfind("CC-", 0) == 0 && highest != 3);
+                    }
+                }
+            }
+            expect(valid, "every cell has a picture after many mixed paints");
+            expect(noCliffOnWater, "cliffs sit between Base-85 and Base-219 and coastal cliffs only hold Base-219");
+            expect(dslUsed || round > 0, "mixed paints make CoastDSL cells");
+        }
+    }
+
+    // Base-219 on shallow water uses coastal cliffs, and on land beside water it gets all three paints.
+    {
+        BrushTestLattice reef(6, 6, 1, deep);
+        reef.paint(2, 2, 1, 3);
+        expect(reef.piece(2, 2) == "Base-219" && reef.piece(1, 1) == "CC-219-BR-68-ALL" && reef.piece(2, 1) == "CC-219-B-68-T" && reef.piece(3, 3) == "CC-219-TL-68-ALL", "219 on shallow water has coastal cliffs around it");
+        expect(!reef.steep(), "219 on shallow water leaves no unjoined cell");
+
+        BrushTestLattice cape(8, 6, 0, deep);
+        cape.paint(1, 2, 3, 2);
+        cape.paint(3, 2, 1, 3);
+        bool three = false;
+        for (int cy = 0; cy < 6; ++cy) {
+            for (int cx = 0; cx < 8; ++cx) {
+                three = three || (cape.piece(cx, cy).rfind("CC-219-", 0) == 0 && cape.piece(cx, cy).find("-85-") != std::string::npos);
+            }
+        }
+        expect(three && !cape.steep(), "219 on land beside water meets both through coastal cliffs that hold 85");
+    }
+
     // Shallow water joins land with ShallowCoast pieces, and steps through land to reach deep water.
     BrushTestLattice shallows(6, 6, 2, deep);
     shallows.paint(2, 2, 1, 1);
@@ -2653,9 +2809,400 @@ void testBrushCells() {
     }
 }
 
+// A small grid of cells for the river rules. Each cell holds a label such as "Base-85".
+struct RiverTestGrid {
+    int width = 0;
+    int height = 0;
+    std::vector<std::string> labels;
+
+    RiverTestGrid(int w, int h, const std::string& fill) : width(w), height(h), labels(static_cast<std::size_t>(w * h), fill) {}
+
+    std::string& at(int x, int y) { return labels[static_cast<std::size_t>(y * width + x)]; }
+
+    galaxy::RiverCell look(int x, int y) {
+        if (x < 0 || y < 0 || x >= width || y >= height) {
+            return galaxy::RiverCell{};
+        }
+        return galaxy::classifyRiverLabel(at(x, y));
+    }
+
+    galaxy::RiverPlan river(int x, int y) {
+        const galaxy::RiverPlan plan = galaxy::planRiver(x, y, [&](int cx, int cy) { return look(cx, cy); });
+        apply(plan);
+        return plan;
+    }
+
+    galaxy::RiverPlan ridge(int x, int y) {
+        const galaxy::RiverPlan plan = galaxy::planRidge(x, y, [&](int cx, int cy) { return look(cx, cy); });
+        apply(plan);
+        return plan;
+    }
+
+    galaxy::RiverPlan spacer(int x, int y) {
+        const galaxy::RiverPlan plan = galaxy::planRidgeSpacer(x, y, [&](int cx, int cy) { return look(cx, cy); });
+        apply(plan);
+        return plan;
+    }
+
+    galaxy::RiverPlan bridge(int x, int y) {
+        const galaxy::RiverPlan plan = galaxy::planRiverBridge(x, y, [&](int cx, int cy) { return look(cx, cy); });
+        apply(plan);
+        return plan;
+    }
+
+    void apply(const galaxy::RiverPlan& plan) {
+        if (!plan.allowed()) {
+            return;
+        }
+        for (const galaxy::RiverEdit& edit : plan.edits) {
+            at(edit.x, edit.y) = edit.key + "-01";
+        }
+    }
+};
+
+void testRivers() {
+    using galaxy::kRiverBottom;
+    using galaxy::kRiverLeft;
+    using galaxy::kRiverRight;
+    using galaxy::kRiverTop;
+
+    // Piece names.
+    const galaxy::RiverPiece horizontal = galaxy::parseRiverPiece("River-Horizontal-02");
+    expect(horizontal.valid && !horizontal.bridge && horizontal.flexible && horizontal.sides == (kRiverLeft | kRiverRight) && horizontal.key == "River-Horizontal", "River-Horizontal joins left and right");
+    expect(galaxy::parseRiverPiece("River-Vertical-01").sides == (kRiverTop | kRiverBottom), "River-Vertical joins top and bottom");
+    expect(galaxy::parseRiverPiece("River-R-B-02").sides == (kRiverRight | kRiverBottom), "River-R-B is a bend");
+    expect(galaxy::parseRiverPiece("River-T-L-01").sides == (kRiverTop | kRiverLeft), "River-T-L is a bend");
+    expect(galaxy::parseRiverPiece("RiverIntersect-4way-01").sides == galaxy::kRiverAllSides, "the 4-way joins every side");
+    expect(galaxy::parseRiverPiece("RiverIntersect-3way-L-R-B-01").sides == (kRiverLeft | kRiverRight | kRiverBottom), "a 3-way names its three sides");
+    expect(galaxy::parseRiverPiece("River-Base-03").valid && galaxy::parseRiverPiece("River-Base-03").sides == 0, "River-Base is a pond");
+    const galaxy::RiverPiece mouth = galaxy::parseRiverPiece("River-Mouth-T-01");
+    expect(mouth.valid && mouth.mouth && !mouth.flexible && mouth.sides == kRiverBottom, "River-Mouth-T has water on top and the river below");
+    expect(galaxy::parseRiverPiece("River-Mouth-R-01").sides == kRiverLeft, "River-Mouth-R takes the river from the left");
+    const galaxy::RiverPiece bridgePiece = galaxy::parseRiverPiece("RiverB-L-B-02");
+    expect(bridgePiece.valid && bridgePiece.bridge && !bridgePiece.flexible && bridgePiece.sides == (kRiverLeft | kRiverBottom), "RiverB-L-B is a fixed bridge bend");
+    expect(!galaxy::parseRiverPiece("Base-85").valid && !galaxy::parseRiverPiece("Coast-Water-T-01").valid && !galaxy::parseRiverPiece("River-Weird-01").valid, "other names are not river pieces");
+
+    // The piece for a set of sides always exists in the archive's naming.
+    expect(galaxy::riverKeyForSides(0) == "River-Base" && galaxy::riverKeyForSides(kRiverTop) == "River-Vertical" && galaxy::riverKeyForSides(kRiverLeft) == "River-Horizontal", "dead ends carry on straight");
+    expect(galaxy::riverKeyForSides(kRiverRight | kRiverBottom) == "River-R-B" && galaxy::riverKeyForSides(kRiverTop | kRiverRight) == "River-T-R", "bends are named for their sides");
+    expect(galaxy::riverKeyForSides(kRiverLeft | kRiverBottom) == "River-L-B" && galaxy::riverKeyForSides(kRiverTop | kRiverLeft) == "River-T-L", "all four bends exist");
+    expect(galaxy::riverKeyForSides(galaxy::kRiverAllSides) == "RiverIntersect-4way", "four sides make the 4-way");
+    expect(galaxy::riverKeyForSides(kRiverTop | kRiverRight | kRiverBottom) == "RiverIntersect-3way-T-R-B"
+            && galaxy::riverKeyForSides(kRiverTop | kRiverLeft | kRiverBottom) == "RiverIntersect-3way-T-L-B"
+            && galaxy::riverKeyForSides(kRiverTop | kRiverLeft | kRiverRight) == "RiverIntersect-3way-T-L-R"
+            && galaxy::riverKeyForSides(kRiverLeft | kRiverRight | kRiverBottom) == "RiverIntersect-3way-L-R-B",
+        "three sides make the matching 3-way");
+    for (int sides = 0; sides < 16; ++sides) {
+        const galaxy::RiverPiece piece = galaxy::parseRiverPiece(galaxy::riverKeyForSides(sides));
+        expect(piece.valid && piece.flexible, "every side set has a river piece");
+        expect(sides == 0 || (piece.sides & sides) == sides, "the piece reaches every side that has a river");
+    }
+
+    // Bridges copy the River- name and exist only for straights and bends.
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Horizontal-03")) == "RiverB-Horizontal", "a bridge over River-Horizontal is RiverB-Horizontal");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-T-R-01")) == "RiverB-T-R", "a bridge over River-T-R is RiverB-T-R");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Base-01")).empty(), "a pond has no bridge");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-4way-01")).empty(), "a junction has no bridge");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Mouth-B-01")).empty(), "a mouth has no bridge");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverB-Vertical-01")).empty(), "a bridge has no second bridge");
+
+    // Coast names.
+    expect(galaxy::coastWaterSide("Coast-Water-T-02") == kRiverTop && galaxy::coastWaterSide("Coast-Water-L-01") == kRiverLeft, "straight coasts have a water side");
+    expect(galaxy::coastWaterSide("Coast-Water-TL-01") == 0 && galaxy::coastWaterSide("Coast-Land-BR-01") == 0 && galaxy::coastWaterSide("ShallowCoast-Water-T-01") == 0, "corners and other coasts have none");
+
+    // What a cell holds.
+    expect(galaxy::classifyRiverLabel("Base-85").kind == galaxy::RiverCell::Kind::Land, "Base-85 takes rivers");
+    expect(galaxy::classifyRiverLabel("Base-68").kind == galaxy::RiverCell::Kind::Other && galaxy::classifyRiverLabel("Base-68").label == "Base-68", "Base-68 does not");
+    expect(galaxy::classifyRiverLabel("Base-219").kind == galaxy::RiverCell::Kind::Other, "Base-219 does not");
+    expect(galaxy::classifyRiverLabel("Coast-Water-B-01").kind == galaxy::RiverCell::Kind::Coast, "a straight coast takes a mouth");
+    expect(galaxy::classifyRiverLabel("Coast-Water-BR-01").kind == galaxy::RiverCell::Kind::Other, "a coast corner does not");
+
+    // Placing the first river cell.
+    RiverTestGrid lone(5, 5, "Base-85");
+    expect(lone.river(2, 2).allowed() && lone.at(2, 2) == "River-Base-01", "a lone river is a pond");
+
+    // Drawing a line east.
+    RiverTestGrid line(7, 5, "Base-85");
+    line.river(1, 2);
+    const galaxy::RiverPlan second = line.river(2, 2);
+    expect(second.edits.size() == 2, "the second cell also redraws the pond beside it");
+    line.river(3, 2);
+    expect(line.at(1, 2) == "River-Horizontal-01" && line.at(2, 2) == "River-Horizontal-01" && line.at(3, 2) == "River-Horizontal-01", "a row of rivers runs straight");
+
+    // A bend and a junction.
+    line.river(3, 3);
+    expect(line.at(3, 2) == "River-L-B-01" && line.at(3, 3) == "River-Vertical-01", "a river turning south bends the cell above");
+    line.river(4, 2);
+    expect(line.at(3, 2) == "RiverIntersect-3way-L-R-B-01" && line.at(4, 2) == "River-Horizontal-01", "a branch makes a 3-way");
+    line.river(3, 1);
+    expect(line.at(3, 2) == "RiverIntersect-4way-01", "four neighbours make the 4-way");
+    expect(line.at(2, 2) == "River-Horizontal-01", "cells away from the change keep their pieces");
+
+    // Painting on a river again changes nothing.
+    const galaxy::RiverPlan again = line.river(3, 2);
+    expect(!again.allowed() && again.reason == "A river is already here", "a river on a river is a no-op");
+
+    // Mouths.
+    RiverTestGrid shore(6, 6, "Base-85");
+    for (int i = 0; i < 5; ++i) {
+        shore.at(i, 0) = "Coast-Water-T-02";
+        shore.at(5, i + 1) = "Coast-Water-R-01";
+    }
+    shore.at(5, 0) = "Coast-Water-TR-01";
+    expect(shore.river(2, 0).allowed() && shore.at(2, 0) == "River-Mouth-T-01", "a river on Coast-Water-T is River-Mouth-T");
+    expect(shore.river(5, 3).allowed() && shore.at(5, 3) == "River-Mouth-R-01", "a river on Coast-Water-R is River-Mouth-R");
+    const galaxy::RiverPlan corner = shore.river(5, 0);
+    expect(!corner.allowed() && !corner.reason.empty() && shore.at(5, 0) == "Coast-Water-TR-01", "a river on a coast corner does nothing");
+    shore.river(2, 1);
+    expect(shore.at(2, 1) == "River-Vertical-01" && shore.at(2, 0) == "River-Mouth-T-01", "a river below a mouth runs straight");
+    shore.river(2, 2);
+    shore.river(3, 2);
+    shore.river(4, 2);
+    expect(shore.at(2, 2) == "River-T-R-01" && shore.at(3, 2) == "River-Horizontal-01" && shore.at(4, 2) == "River-Horizontal-01", "the river bends away from the mouth");
+    shore.river(4, 3);
+    expect(shore.at(4, 3) == "River-T-R-01" && shore.at(4, 2) == "River-L-B-01" && shore.at(5, 3) == "River-Mouth-R-01", "a river runs into the side of the mouth that is open");
+
+    // A river beside a mouth's closed side does not join it.
+    RiverTestGrid side(5, 3, "Base-85");
+    side.at(2, 0) = "Coast-Water-T-01";
+    side.river(2, 0);
+    side.river(1, 0);
+    expect(side.at(2, 0) == "River-Mouth-T-01" && side.at(1, 0) == "River-Base-01", "a river on the side of a mouth leaves it alone");
+    side.river(2, 1);
+    expect(side.at(2, 0) == "River-Mouth-T-01" && side.at(2, 1) == "River-Vertical-01", "the cell below the mouth joins it");
+
+    // Everything else refuses, and says why.
+    RiverTestGrid mixed(4, 1, "Base-85");
+    mixed.at(0, 0) = "Base-219";
+    mixed.at(1, 0) = "Base-68";
+    mixed.at(2, 0) = "Base-0";
+    mixed.at(3, 0) = "Cliff-High-TL-01";
+    for (int x = 0; x < 4; ++x) {
+        const std::string held = mixed.at(x, 0);
+        const galaxy::RiverPlan plan = mixed.river(x, 0);
+        expect(!plan.allowed() && !plan.reason.empty() && plan.edits.empty() && mixed.at(x, 0) == held, "rivers do nothing on " + held);
+    }
+    expect(galaxy::planRiver(0, 0, [&](int cx, int cy) { return mixed.look(cx, cy); }).reason.find("Base-219") != std::string::npos, "the reason names the base");
+    expect(!galaxy::planRiver(9, 9, [&](int cx, int cy) { return mixed.look(cx, cy); }).allowed(), "off the grid does nothing");
+
+    // Bridges.
+    RiverTestGrid span(5, 5, "Base-85");
+    span.river(0, 2);
+    span.river(1, 2);
+    span.river(2, 2);
+    expect(span.bridge(1, 2).allowed() && span.at(1, 2) == "RiverB-Horizontal-01", "a bridge goes over River-Horizontal as RiverB-Horizontal");
+    const galaxy::RiverPlan twice = span.bridge(1, 2);
+    expect(!twice.allowed() && twice.reason == "A bridge is already here", "a second bridge is refused");
+    expect(!span.bridge(3, 3).allowed() && span.at(3, 3) == "Base-85", "a bridge on Base-85 does nothing");
+    RiverTestGrid wet(3, 3, "Base-85");
+    wet.at(1, 0) = "Coast-Water-T-01";
+    wet.at(0, 0) = "Base-0";
+    expect(!wet.bridge(1, 0).allowed() && !wet.bridge(0, 0).allowed(), "bridges refuse coasts and water");
+    RiverTestGrid fork(5, 5, "Base-85");
+    fork.river(2, 2);
+    expect(!fork.bridge(2, 2).allowed() && fork.at(2, 2) == "River-Base-01", "a pond takes no bridge");
+    fork.river(1, 2);
+    fork.river(3, 2);
+    fork.river(2, 1);
+    expect(!fork.bridge(2, 2).allowed() && fork.at(2, 2) == "RiverIntersect-3way-T-L-R-01", "a junction takes no bridge");
+    RiverTestGrid bend(4, 4, "Base-85");
+    bend.river(1, 1);
+    bend.river(2, 1);
+    bend.river(1, 2);
+    expect(bend.at(1, 1) == "River-R-B-01" && bend.bridge(1, 1).allowed() && bend.at(1, 1) == "RiverB-R-B-01", "a bend takes a bend bridge");
+    // A bridge keeps its shape: a river painted beside it does not join the closed side.
+    bend.river(0, 1);
+    expect(bend.at(1, 1) == "RiverB-R-B-01", "a bridge is not redrawn by its neighbours");
+    expect(bend.at(0, 1) == "River-Base-01", "a river beside a bridge's closed side stays a pond");
+    bend.river(1, 3);
+    expect(bend.at(1, 2) == "River-Vertical-01" && bend.at(1, 3) == "River-Vertical-01", "a river joins the open side of a bridge");
+    const galaxy::RiverPlan over = bend.river(1, 1);
+    expect(!over.allowed() && bend.at(1, 1) == "RiverB-R-B-01", "the river brush leaves a bridge alone");
+
+    // Recognising cells on a map by their pictures.
+    galaxy::RiverCatalog catalog;
+    const galaxy::SectionStamp grassStamp = galaxy::loadSectionStamp(buildSct(3, 16, 16, 1, 85, 167));
+    const galaxy::SectionStamp bigStamp = galaxy::loadSectionStamp(buildSct(3, 32, 32, 1, 85, 12));
+    const galaxy::SectionStamp riverStamp = galaxy::loadSectionStamp(buildSct(3, 16, 16, 1, 40, 90));
+    catalog.add(grassStamp, "Base-85");
+    catalog.add(bigStamp, "Base-68");
+    catalog.add(riverStamp, "River-Horizontal-01");
+    galaxy::LoadedMap grassMap = blankMap(32, 167);
+    expect(catalog.classify(grassMap, 0, 0).kind == galaxy::RiverCell::Kind::Land && catalog.classify(grassMap, 1, 1).kind == galaxy::RiverCell::Kind::Land, "a map cell with a section's pictures is recognised");
+    galaxy::LoadedMap deepMap = blankMap(32, 12);
+    expect(catalog.classify(deepMap, 1, 0).label == "Base-68", "every cell of a large stroke is recognised");
+    galaxy::LoadedMap riverMap = blankMap(32, 90);
+    const galaxy::RiverCell found = catalog.classify(riverMap, 0, 1);
+    expect(found.kind == galaxy::RiverCell::Kind::River && found.piece.key == "River-Horizontal", "a river cell is read back as its piece");
+    galaxy::LoadedMap strangeMap = blankMap(32, 3);
+    expect(catalog.classify(strangeMap, 0, 0).kind == galaxy::RiverCell::Kind::Other && catalog.classify(strangeMap, 0, 0).label.empty(), "unknown pictures are not recognised");
+    expect(catalog.classify(grassMap, 2, 0).kind == galaxy::RiverCell::Kind::Other && catalog.classify(grassMap, -1, 0).kind == galaxy::RiverCell::Kind::Other, "cells outside the map are not recognised");
+    // Base-85 and Base-219 share their pictures. The height of the cell tells them apart.
+    galaxy::RiverCatalog twins;
+    twins.add(galaxy::loadSectionStamp(buildSct(3, 16, 16, 1, 85, 167)), "Base-85");
+    twins.add(galaxy::loadSectionStamp(buildSct(3, 16, 16, 1, 219, 167)), "Base-219");
+    galaxy::LoadedMap lowMap = blankMap(16, 167);
+    std::fill(lowMap.heights.begin(), lowMap.heights.end(), static_cast<std::uint8_t>(85));
+    galaxy::LoadedMap highMap = blankMap(16, 167);
+    std::fill(highMap.heights.begin(), highMap.heights.end(), static_cast<std::uint8_t>(219));
+    expect(twins.classify(lowMap, 0, 0).kind == galaxy::RiverCell::Kind::Land, "a cell at height 85 is Base-85");
+    expect(twins.classify(highMap, 0, 0).kind == galaxy::RiverCell::Kind::Other && twins.classify(highMap, 0, 0).label == "Base-219", "a cell at height 219 is Base-219 even though the pictures match");
+    std::fill(lowMap.heights.begin(), lowMap.heights.end(), static_cast<std::uint8_t>(90));
+    expect(twins.classify(lowMap, 0, 0).kind == galaxy::RiverCell::Kind::Land, "a slightly raised Base-85 cell is still Base-85");
+    grassMap.tileImages.assign(2048, 167);
+    grassMap.tileCount = 2;
+    grassMap.indices[0] = 1;
+    grassMap.tileImages[1024 + 7] = 5;
+    expect(catalog.classify(grassMap, 0, 0).kind == galaxy::RiverCell::Kind::Other && catalog.classify(grassMap, 1, 0).kind == galaxy::RiverCell::Kind::Land, "one changed tile makes the cell unrecognised");
+}
+
+void testRidges() {
+    using galaxy::kRiverBottom;
+    using galaxy::kRiverLeft;
+    using galaxy::kRiverRight;
+    using galaxy::kRiverTop;
+
+    // Piece names.
+    const galaxy::RiverPiece end = galaxy::parseRidgePiece("Ridge-End-B-02");
+    expect(end.valid && end.flexible && end.sides == kRiverBottom && end.key == "Ridge-End-B" && end.family == galaxy::LineFamily::Ridge, "Ridge-End-B leaves through the bottom");
+    expect(galaxy::parseRidgePiece("Ridge-Base").valid && galaxy::parseRidgePiece("Ridge-Base").sides == 0, "Ridge-Base stands alone");
+    expect(galaxy::parseRidgePiece("Ridge-Horizontal-03").sides == (kRiverLeft | kRiverRight) && galaxy::parseRidgePiece("Ridge-Vertical-04").sides == (kRiverTop | kRiverBottom), "straight ridges");
+    expect(galaxy::parseRidgePiece("Ridge-Corner-T-R").sides == (kRiverTop | kRiverRight) && galaxy::parseRidgePiece("Ridge-Corner-L-B").sides == (kRiverLeft | kRiverBottom), "corners name their sides");
+    expect(galaxy::parseRidgePiece("Ridge-3Way-L-R-B").sides == (kRiverLeft | kRiverRight | kRiverBottom) && galaxy::parseRidgePiece("Ridge-4Way").sides == galaxy::kRiverAllSides, "junctions");
+    const galaxy::RiverPiece ridgeMouth = galaxy::parseRidgePiece("Ridge-Mouth-T");
+    expect(ridgeMouth.valid && ridgeMouth.mouth && !ridgeMouth.flexible && ridgeMouth.sides == kRiverBottom, "Ridge-Mouth-T has high ground on top and the ridge below");
+    expect(galaxy::parseRidgePiece("Ridge-Mouth-R").sides == kRiverLeft, "Ridge-Mouth-R takes the ridge from the left");
+    const galaxy::RiverPiece spacerPiece = galaxy::parseRidgePiece("Ridge-L_R-Spacer-01");
+    expect(spacerPiece.valid && spacerPiece.bridge && !spacerPiece.flexible && spacerPiece.sides == (kRiverLeft | kRiverRight), "Ridge-L_R-Spacer is a fixed piece");
+    expect(galaxy::parseRidgePiece("Ridge-T_B-Spacer-01").sides == (kRiverTop | kRiverBottom), "Ridge-T_B-Spacer joins top and bottom");
+    expect(!galaxy::parseRidgePiece("River-Horizontal-01").valid && !galaxy::parseRiverPiece("Ridge-Horizontal-01").valid && !galaxy::parseRidgePiece("Ridge-Weird").valid, "rivers and ridges keep their own names");
+
+    // The piece for every set of sides exists, and ridges end instead of carrying on.
+    expect(galaxy::ridgeKeyForSides(0) == "Ridge-Base" && galaxy::ridgeKeyForSides(kRiverTop) == "Ridge-End-T" && galaxy::ridgeKeyForSides(kRiverLeft) == "Ridge-End-L", "one side is an end");
+    expect(galaxy::ridgeKeyForSides(kRiverTop | kRiverBottom) == "Ridge-Vertical" && galaxy::ridgeKeyForSides(kRiverLeft | kRiverRight) == "Ridge-Horizontal", "opposite sides are straight");
+    expect(galaxy::ridgeKeyForSides(kRiverTop | kRiverRight) == "Ridge-Corner-T-R" && galaxy::ridgeKeyForSides(kRiverRight | kRiverBottom) == "Ridge-Corner-R-B"
+            && galaxy::ridgeKeyForSides(kRiverLeft | kRiverBottom) == "Ridge-Corner-L-B" && galaxy::ridgeKeyForSides(kRiverTop | kRiverLeft) == "Ridge-Corner-T-L",
+        "all four corners");
+    expect(galaxy::ridgeKeyForSides(galaxy::kRiverAllSides) == "Ridge-4Way" && galaxy::ridgeKeyForSides(kRiverTop | kRiverLeft | kRiverRight) == "Ridge-3Way-T-L-R", "junctions follow their sides");
+    for (int sides = 0; sides < 16; ++sides) {
+        const galaxy::RiverPiece piece = galaxy::parseRidgePiece(galaxy::ridgeKeyForSides(sides));
+        expect(piece.valid && piece.flexible && piece.sides == sides, "every side set has a ridge piece that matches it");
+    }
+    expect(galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-Vertical-02")) == "Ridge-T_B-Spacer", "a spacer fills a vertical ridge");
+    expect(galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-Horizontal-01")) == "Ridge-L_R-Spacer", "a spacer fills a horizontal ridge");
+    expect(galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-End-T-01")).empty() && galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-Corner-T-R")).empty()
+            && galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-4Way")).empty() && galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-Mouth-B")).empty()
+            && galaxy::ridgeSpacerKey(galaxy::parseRidgePiece("Ridge-T_B-Spacer-01")).empty(),
+        "only straight ridges take a spacer");
+
+    // Cells.
+    const galaxy::RiverCell cliff = galaxy::classifyRiverLabel("Cliff-High-L-02");
+    expect(cliff.kind == galaxy::RiverCell::Kind::Cliff && cliff.waterSide == kRiverLeft, "a straight cliff takes a mouth");
+    expect(galaxy::classifyRiverLabel("Cliff-High-BL-01").kind == galaxy::RiverCell::Kind::Other && galaxy::classifyRiverLabel("Cliff-Low-TL-01").kind == galaxy::RiverCell::Kind::Other, "cliff corners do not");
+    expect(galaxy::classifyRiverLabel("Ridge-Corner-L-B-01").kind == galaxy::RiverCell::Kind::Ridge && galaxy::classifyRiverLabel("River-L-B-01").kind == galaxy::RiverCell::Kind::River, "ridge and river cells are told apart");
+
+    // Drawing a ridge east.
+    RiverTestGrid lone(5, 5, "Base-85");
+    expect(lone.ridge(2, 2).allowed() && lone.at(2, 2) == "Ridge-Base-01", "a lone ridge stands alone");
+    RiverTestGrid line(7, 5, "Base-85");
+    line.ridge(1, 2);
+    line.ridge(2, 2);
+    expect(line.at(1, 2) == "Ridge-End-R-01" && line.at(2, 2) == "Ridge-End-L-01", "two ridge cells make two ends");
+    line.ridge(3, 2);
+    expect(line.at(1, 2) == "Ridge-End-R-01" && line.at(2, 2) == "Ridge-Horizontal-01" && line.at(3, 2) == "Ridge-End-L-01", "a longer ridge is straight between its ends");
+    line.ridge(3, 3);
+    expect(line.at(3, 2) == "Ridge-Corner-L-B-01" && line.at(3, 3) == "Ridge-End-T-01", "turning south makes a corner");
+    line.ridge(4, 2);
+    expect(line.at(3, 2) == "Ridge-3Way-L-R-B-01" && line.at(4, 2) == "Ridge-End-L-01", "a branch makes a 3-way");
+    line.ridge(3, 1);
+    expect(line.at(3, 2) == "Ridge-4Way-01", "four neighbours make the 4-way");
+    const galaxy::RiverPlan again = line.ridge(3, 2);
+    expect(!again.allowed() && again.reason == "A ridge is already here", "a ridge on a ridge is a no-op");
+
+    // Mouths on cliffs.
+    RiverTestGrid mesa(6, 6, "Base-85");
+    for (int x = 0; x < 6; ++x) {
+        mesa.at(x, 0) = "Cliff-High-T-02";
+    }
+    mesa.at(5, 0) = "Cliff-High-TR-01";
+    mesa.at(0, 3) = "Cliff-High-L-01";
+    expect(mesa.ridge(2, 0).allowed() && mesa.at(2, 0) == "Ridge-Mouth-T-01", "a ridge on Cliff-High-T is Ridge-Mouth-T");
+    expect(mesa.ridge(0, 3).allowed() && mesa.at(0, 3) == "Ridge-Mouth-L-01", "a ridge on Cliff-High-L is Ridge-Mouth-L");
+    const galaxy::RiverPlan cliffCorner = mesa.ridge(5, 0);
+    expect(!cliffCorner.allowed() && !cliffCorner.reason.empty() && mesa.at(5, 0) == "Cliff-High-TR-01", "a ridge on a cliff corner does nothing");
+    mesa.ridge(2, 1);
+    mesa.ridge(2, 2);
+    mesa.ridge(2, 3);
+    expect(mesa.at(2, 1) == "Ridge-Vertical-01" && mesa.at(2, 2) == "Ridge-Vertical-01" && mesa.at(2, 3) == "Ridge-End-T-01", "the ridge runs away from its mouth");
+    mesa.ridge(1, 3);
+    expect(mesa.at(1, 3) == "Ridge-Horizontal-01" && mesa.at(0, 3) == "Ridge-Mouth-L-01" && mesa.at(2, 3) == "Ridge-Corner-T-L-01", "a second mouth joins the same ridge");
+    RiverTestGrid side(5, 3, "Base-85");
+    side.at(2, 0) = "Cliff-High-T-01";
+    side.ridge(2, 0);
+    side.ridge(1, 0);
+    expect(side.at(2, 0) == "Ridge-Mouth-T-01" && side.at(1, 0) == "Ridge-Base-01", "a ridge beside a mouth's closed side leaves it alone");
+
+    // Ridges and rivers never mix.
+    RiverTestGrid mixed(8, 1, "Base-85");
+    mixed.at(0, 0) = "Base-219";
+    mixed.at(1, 0) = "Base-68";
+    mixed.at(2, 0) = "Base-0";
+    mixed.at(3, 0) = "Coast-Water-T-01";
+    mixed.at(4, 0) = "River-Horizontal-01";
+    mixed.at(5, 0) = "Cliff-High-BL-01";
+    mixed.at(6, 0) = "Cliff-Low-TL-01";
+    for (int x = 0; x < 7; ++x) {
+        const std::string held = mixed.at(x, 0);
+        const galaxy::RiverPlan plan = mixed.ridge(x, 0);
+        expect(!plan.allowed() && !plan.reason.empty() && plan.edits.empty() && mixed.at(x, 0) == held, "ridges do nothing on " + held);
+    }
+    expect(galaxy::planRidge(0, 0, [&](int cx, int cy) { return mixed.look(cx, cy); }).reason.find("Base-219") != std::string::npos, "the reason names the base");
+    RiverTestGrid crossed(4, 1, "Base-85");
+    crossed.at(0, 0) = "Ridge-Horizontal-01";
+    crossed.at(1, 0) = "Cliff-High-T-01";
+    expect(!crossed.river(0, 0).allowed() && !crossed.river(1, 0).allowed() && crossed.at(0, 0) == "Ridge-Horizontal-01", "rivers do nothing on a ridge or a cliff");
+    expect(!crossed.bridge(0, 0).allowed(), "a river bridge does nothing on a ridge");
+    RiverTestGrid beside(4, 1, "Base-85");
+    beside.river(1, 0);
+    beside.ridge(2, 0);
+    expect(beside.at(1, 0) == "River-Base-01" && beside.at(2, 0) == "Ridge-Base-01", "a ridge beside a river does not join it");
+
+    // Spacers.
+    RiverTestGrid gap(5, 5, "Base-85");
+    gap.ridge(1, 2);
+    gap.ridge(2, 2);
+    gap.ridge(3, 2);
+    expect(gap.spacer(2, 2).allowed() && gap.at(2, 2) == "Ridge-L_R-Spacer-01", "a spacer goes on Ridge-Horizontal");
+    const galaxy::RiverPlan twice = gap.spacer(2, 2);
+    expect(!twice.allowed() && twice.reason == "A spacer is already here", "a second spacer is refused");
+    expect(!gap.spacer(1, 2).allowed() && gap.at(1, 2) == "Ridge-End-R-01", "an end takes no spacer");
+    expect(!gap.spacer(0, 0).allowed() && gap.at(0, 0) == "Base-85", "a spacer on Base-85 does nothing");
+    expect(!gap.ridge(2, 2).allowed() && gap.at(2, 2) == "Ridge-L_R-Spacer-01", "the ridge brush leaves a spacer alone");
+    gap.ridge(4, 2);
+    expect(gap.at(2, 2) == "Ridge-L_R-Spacer-01" && gap.at(3, 2) == "Ridge-Horizontal-01", "a spacer is not redrawn by its neighbours");
+    gap.ridge(2, 3);
+    expect(gap.at(2, 3) == "Ridge-Base-01", "a ridge beside a spacer's closed side stays alone");
+    RiverTestGrid tall(4, 5, "Base-85");
+    tall.ridge(1, 1);
+    tall.ridge(1, 2);
+    tall.ridge(1, 3);
+    expect(tall.spacer(1, 2).allowed() && tall.at(1, 2) == "Ridge-T_B-Spacer-01", "a spacer goes on Ridge-Vertical");
+    RiverTestGrid bendGrid(4, 4, "Base-85");
+    bendGrid.ridge(1, 1);
+    bendGrid.ridge(2, 1);
+    bendGrid.ridge(1, 2);
+    expect(!bendGrid.spacer(1, 1).allowed() && bendGrid.at(1, 1) == "Ridge-Corner-R-B-01", "a corner takes no spacer");
+    RiverTestGrid wall(3, 3, "Base-85");
+    wall.at(1, 0) = "Cliff-High-T-01";
+    wall.ridge(1, 0);
+    expect(!wall.spacer(1, 0).allowed() && !wall.spacer(0, 0).allowed(), "spacers refuse mouths and base tiles");
+}
+
 int main() {
     testBrushStrokeNames();
     testBrushCells();
+    testRivers();
+    testRidges();
     testFavorites();
     testArchiveDocument();
     testBlankMap();

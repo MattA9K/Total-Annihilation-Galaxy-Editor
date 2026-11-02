@@ -36,12 +36,15 @@ public:
     void uploadTexture();
 
     // Call between NewFrame and Render. progress runs from 0 to 1. The status
-    // sits left of the bar and the count sits at its right end.
+    // sits left of the bar and the count sits at its right end. The version
+    // sits under the "GALAXY EDITOR" line baked into the picture.
     void draw(float progress, const std::string& status, const std::string& count) const;
 
 private:
     SplashImage image_;
     unsigned int texture_ = 0;
+    // Where the baked title ends, as a fraction of the picture height.
+    float titleBottom_ = 0.72f;
 };
 
 }  // namespace galaxy

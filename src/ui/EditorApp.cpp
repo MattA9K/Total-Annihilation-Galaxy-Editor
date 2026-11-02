@@ -241,6 +241,11 @@ std::string trimmed(std::string_view text) {
     return std::string(text.substr(begin, end - begin));
 }
 
+std::string archiveLeaf(std::string_view path) {
+    const auto slash = path.find_last_of("/\\");
+    return std::string(slash == std::string_view::npos ? path : path.substr(slash + 1));
+}
+
 bool nameLess(const std::string& a, const std::string& b) {
     const std::size_t count = std::min(a.size(), b.size());
     for (std::size_t i = 0; i < count; ++i) {
@@ -270,7 +275,13 @@ bool isBrushStrokeWorld(std::string_view world) {
 // Cliff, coast and shallow coast sections are the pieces that join one base to the next.
 bool isTransitionWorld(std::string_view world) {
     const std::string name = lowerText(world);
-    return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles";
+    return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles" || name == "coastdsl" || name == "coastalcliff";
+}
+
+// River and ridge sections: pieces, mouths, bridges and spacers.
+bool isRiverWorld(std::string_view world) {
+    const std::string name = lowerText(world);
+    return name == "rivers" || name == "ridges";
 }
 
 int trailingNumber(std::string_view name) {
@@ -747,7 +758,12 @@ void EditorApp::drawToolbar() {
         ImGui::BeginGroup();
         ImGui::SetCursorPos(ImVec2(blockX, topY + std::floor((theme::toolbarItemHeight() - blockHeight) * 0.5f)));
         ImGui::SetNextItemWidth(comboWidth);
-        const std::string currentSize = brushSizeLabel(brushSize_);
+        // Rivers and ridges always fill one 16 x 16 cell, so the size is fixed for them.
+        const bool fixedSize = lineBrushArmed();
+        const std::string currentSize = brushSizeLabel(fixedSize ? kBrushCellTiles : brushSize_);
+        if (fixedSize) {
+            ImGui::BeginDisabled();
+        }
         if (ImGui::BeginCombo("##brush-size", currentSize.c_str())) {
             for (const int size : {16, 32, 64, 128}) {
                 const std::string label = brushSizeLabel(size);
@@ -757,7 +773,10 @@ void EditorApp::drawToolbar() {
             }
             ImGui::EndCombo();
         }
-        const bool sizeHovered = ImGui::IsItemHovered();
+        if (fixedSize) {
+            ImGui::EndDisabled();
+        }
+        const bool sizeHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
         ImGui::PushFont(theme::toolbarLabelFont());
         ImGui::SetCursorPosX(blockX + std::max(0.0f, (comboWidth - captionWidth) * 0.5f));
         ImGui::TextUnformatted("Brush");
@@ -765,7 +784,7 @@ void EditorApp::drawToolbar() {
         ImGui::EndGroup();
         usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
-            ImGui::SetTooltip("Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells");
+            ImGui::SetTooltip(fixedSize ? "Rivers and ridges fill one 16 x 16 tile cell" : "Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells");
         }
     }
 
@@ -1848,8 +1867,8 @@ void EditorApp::drawSidebar() {
 
 void EditorApp::drawTilesetBrowser(bool favorites) {
     theme::helpText(favorites
-            ? "Open a category, click a tile, then click the map. To save more tiles, select them on the map and right-click."
-            : "Open a category, click a tile, then click the map.");
+            ? "Open a category, click a tile, then click the map. Right-click a tile to copy or rename its file name. To save more tiles, select them on the map and right-click."
+            : "Open a category, click a tile, then click the map. Right-click a tile to copy or rename its file name.");
     char* const searchText = favorites ? favoritesSearch_ : tilesetSearch_;
     const std::size_t searchSize = favorites ? sizeof(favoritesSearch_) : sizeof(tilesetSearch_);
     const std::string query = trimmed(searchText);
@@ -2028,8 +2047,30 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                             list->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), caption.c_str());
                             list->PopClipRect();
                             ImGui::EndGroup();
-                            const float advance = ImGui::GetItemRectSize().x + style.ItemSpacing.x;
-                            if (n + 1 < pageCount && ImGui::GetItemRectMax().x + advance < regionRight) {
+                            const float itemWidthOnRow = ImGui::GetItemRectSize().x;
+                            const float itemRight = ImGui::GetItemRectMax().x;
+                            if (ImGui::BeginPopupContextItem("tile-file")) {
+                                const TilesetSection* listed = nullptr;
+                                if (archiveIndex < tilesets_.archives().size()) {
+                                    for (const TilesetSection& section : tilesets_.archives()[archiveIndex].sections) {
+                                        if (section.world == cached.world && section.category == cached.category && section.name == cached.name) {
+                                            listed = &section;
+                                            break;
+                                        }
+                                    }
+                                }
+                                const std::string filename = listed != nullptr ? archiveLeaf(listed->archivePath) : cached.name + ".sct";
+                                if (ImGui::MenuItem("Copy file name")) {
+                                    ImGui::SetClipboardText(filename.c_str());
+                                    statusNote_ = "Copied " + filename;
+                                }
+                                if (ImGui::MenuItem("Rename file")) {
+                                    requestRenameTile(archiveIndex, cached);
+                                }
+                                ImGui::EndPopup();
+                            }
+                            const float advance = itemWidthOnRow + style.ItemSpacing.x;
+                            if (n + 1 < pageCount && itemRight + advance < regionRight) {
                                 ImGui::SameLine();
                             }
                             ImGui::PopID();
@@ -3298,18 +3339,25 @@ void EditorApp::drawMap() {
             draw->AddRect(toScreen(x0, y0), toScreen(x1, y1), IM_COL32(255, 220, 80, 255), 0.0f, 0, 2.0f);
         }
     }
+    // Rivers and bridges say whether the cell under the pointer takes them.
+    const bool riverTool = brushOwnsMap && (lineBrushArmed());
+    RiverPlan riverHover;
+    if (riverTool && hoverOverMap_) {
+        riverHover = riverPlanAt(tileX / kBrushCellTiles, tileY / kBrushCellTiles, armedBrushKind());
+    }
+    const bool riverBlocked = riverTool && hoverOverMap_ && !riverHover.allowed();
     if (brushOwnsMap && hoverOverMap_) {
         // The square sits on the 16 x 16 tile cell under the pointer.
-        const int brushTiles = std::max(kBrushCellTiles, brushSize_);
+        const int brushTiles = riverTool ? kBrushCellTiles : std::max(kBrushCellTiles, brushSize_);
         const float x0 = static_cast<float>(tileX / kBrushCellTiles * kBrushCellTiles * 32);
         const float y0 = static_cast<float>(tileY / kBrushCellTiles * kBrushCellTiles * 32);
         const float x1 = x0 + static_cast<float>(brushTiles * 32);
         const float y1 = y0 + static_cast<float>(brushTiles * 32);
         const ImVec2 brushMin = toScreen(x0, y0);
         const ImVec2 brushMax = toScreen(x1, y1);
-        draw->AddRectFilled(brushMin, brushMax, IM_COL32(255, 255, 255, 36));
+        draw->AddRectFilled(brushMin, brushMax, riverBlocked ? IM_COL32(230, 50, 40, 70) : IM_COL32(255, 255, 255, 36));
         draw->AddRect(brushMin, brushMax, IM_COL32(0, 0, 0, 230), 0.0f, 0, 3.0f);
-        draw->AddRect(brushMin, brushMax, IM_COL32(255, 255, 255, 245), 0.0f, 0, 1.25f);
+        draw->AddRect(brushMin, brushMax, riverBlocked ? IM_COL32(255, 96, 84, 245) : IM_COL32(255, 255, 255, 245), 0.0f, 0, 1.25f);
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     } else if (hoverOverMap_) {
         const float cellX = static_cast<float>(pixelX & ~15);
@@ -3333,6 +3381,15 @@ void EditorApp::drawMap() {
             ImGui::SetTooltip("Click to paste %d features with their cell %d, %d as the top-left\nEsc cancels", static_cast<int>(featureClipboard_.size()), featureCellX, featureCellY);
         } else if (overMap) {
             ImGui::SetTooltip(featureSelectMode_ ? "Drag a box around features, or click one\nHeight %d" : "Choose a feature on the left to place it, or press Select to select features\nHeight %d", hoverHeight_);
+        }
+    } else if (hovered && riverTool) {
+        const char* what = brushName_.c_str();
+        if (riverBlocked) {
+            ImGui::SetTooltip("%s\nHeight %d", riverHover.reason.c_str(), hoverHeight_);
+        } else if (hoverOverMap_) {
+            ImGui::SetTooltip("%s\nClick to paint one 16 x 16 cell\nEsc cancels\nHeight %d", what, hoverHeight_);
+        } else {
+            ImGui::SetTooltip("%s\nClick to paint one 16 x 16 cell\nEsc cancels", what);
         }
     } else if (hovered && brushOwnsMap) {
         if (hoverOverMap_) {
@@ -5004,6 +5061,116 @@ void EditorApp::drawDeleteFavorite() {
     ImGui::EndPopup();
 }
 
+void EditorApp::requestRenameTile(std::size_t archiveIndex, const CachedSection& section) {
+    if (archiveIndex >= tilesets_.archives().size()) {
+        return;
+    }
+    const TilesetArchive& archive = tilesets_.archives()[archiveIndex];
+    for (const TilesetSection& listed : archive.sections) {
+        if (listed.world == section.world && listed.category == section.category && listed.name == section.name) {
+            renameArchive_ = archive.path;
+            renameArchiveLabel_ = archive.path.filename().string();
+            renameSectionPath_ = listed.archivePath;
+            renameWorld_ = listed.world;
+            renameCategory_ = listed.category;
+            renameOriginalName_ = listed.name;
+            copyText(renameFileName_, sizeof(renameFileName_), listed.name);
+            showRenameTile_ = true;
+            return;
+        }
+    }
+}
+
+void EditorApp::drawRenameTile() {
+    if (!showRenameTile_) {
+        return;
+    }
+    ImGui::OpenPopup("Rename File");
+    if (!ImGui::BeginPopupModal("Rename File", &showRenameTile_, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float scale = ImGui::GetFontSize() / 13.0f;
+    const float contentWidth = std::floor(380.0f * scale);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + contentWidth);
+    theme::helpText("Choose a new file name. The tile stays in the same category.");
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+
+    const float labelWidth = std::floor(78.0f * scale);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("File name:");
+    ImGui::SameLine(labelWidth);
+    ImGui::SetNextItemWidth(contentWidth - labelWidth);
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+    }
+    const bool returned = ImGui::InputText("##rename-tile", renameFileName_, sizeof(renameFileName_), ImGuiInputTextFlags_EnterReturnsTrue);
+
+    const std::string tileFileName = favoriteTileFileName(renameFileName_);
+    std::string problem = tileFileName.empty() && trimmed(renameFileName_).empty() ? std::string{} : favoritesNameProblem(tileFileName);
+    bool unchanged = false;
+    if (problem.empty()) {
+        unchanged = tileFileName == renameOriginalName_;
+        if (!unchanged) {
+            for (const TilesetArchive& archive : tilesets_.archives()) {
+                if (archive.path != renameArchive_) {
+                    continue;
+                }
+                for (const TilesetSection& section : archive.sections) {
+                    if (section.archivePath == renameSectionPath_) {
+                        continue;
+                    }
+                    if (sameName(section.world, renameWorld_) && sameName(section.category, renameCategory_) && sameName(section.name, tileFileName)) {
+                        problem = "A file named " + tileFileName + " is already in that category.";
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    ImGui::PushFont(theme::smallFont());
+    ImGui::Indent(labelWidth);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + contentWidth - labelWidth);
+    if (!problem.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.80f, 0.16f, 0.13f, 1.0f));
+        ImGui::TextWrapped("%s", problem.c_str());
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+        ImGui::TextWrapped("Saved as %s.sct in %s.", tileFileName.empty() ? renameOriginalName_.c_str() : tileFileName.c_str(), renameArchiveLabel_.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent(labelWidth);
+    ImGui::PopFont();
+
+    ImGui::Dummy(ImVec2(0.0f, 8.0f));
+    const bool canRename = !tileFileName.empty() && problem.empty() && !unchanged;
+    const float buttonWidth = theme::pushButtonWidth("Cancel");
+    theme::alignRight(buttonWidth * 2.0f + style.ItemSpacing.x);
+    if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        showRenameTile_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!canRename);
+    if (theme::defaultButton("Rename", ImVec2(buttonWidth, 0.0f), false) || (canRename && returned)) {
+        try {
+            const std::string renamed = renameTilesetSection(renameArchive_, renameSectionPath_, tileFileName);
+            refreshFavoritesArchive(renameArchive_);
+            statusNote_ = "Renamed " + renameOriginalName_ + " to " + renamed;
+            error_.clear();
+        } catch (const std::exception& ex) {
+            error_ = ex.what();
+        }
+        showRenameTile_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::EndPopup();
+}
+
 void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
     const std::size_t index = tilesets_.refreshArchive(path);
     const std::string prefix = std::to_string(index) + '\n';
@@ -5030,6 +5197,9 @@ void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
         std::remove_if(loadQueue_.begin(), loadQueue_.end(), [&](const CategoryRequest& job) { return job.archiveIndex == index; }),
         loadQueue_.end());
     tilesetIndexSections_ = -1;
+    // A rename keeps the section count, so the brush catalog has to be read again
+    // for the new file paths.
+    brushCatalogKey_.clear();
 }
 
 void EditorApp::drawGenerate() {
@@ -5374,7 +5544,7 @@ bool EditorApp::draw() {
         }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen("Error") && !ImGui::IsPopupOpen("Tile Limit") && !ImGui::IsPopupOpen("Generate Map") && !ImGui::IsPopupOpen("New Map") && !ImGui::IsPopupOpen("Resize Map") && !ImGui::IsPopupOpen("Modify Height") && !ImGui::IsPopupOpen("Unsaved Changes") && !hpiEditor_.focused()
-        && !showAddFavorite_ && !showCreateFavorites_ && !showDeleteFavorite_ && !selectionMenuOpen_) {
+        && !showAddFavorite_ && !showCreateFavorites_ && !showDeleteFavorite_ && !showRenameTile_ && !selectionMenuOpen_) {
         if (showMapSettings_ && !ImGui::GetIO().WantTextInput) {
             showMapSettings_ = false;
         } else if (pasteArmed_) {
@@ -5664,6 +5834,7 @@ bool EditorApp::draw() {
     drawModifyHeight();
     drawAddFavorite();
     drawDeleteFavorite();
+    drawRenameTile();
 
     ImGui::End();
     drawOptions();
@@ -5691,6 +5862,10 @@ void EditorApp::armBrush(const std::string& name) {
         return;
     }
     brushName_ = name;
+    if (lineBrushArmed()) {
+        // Reading every river, coast and base picture takes a moment, so it happens on the click that needs it.
+        ensureRiverCatalog();
+    }
     brushStroking_ = false;
     selectionMode_ = false;
     selecting_ = false;
@@ -5701,6 +5876,10 @@ void EditorApp::armBrush(const std::string& name) {
 
 void EditorApp::paintBrushStroke(int tileX, int tileY) {
     if (!map_ || brushName_.empty() || brushTilesetPath_.empty()) {
+        return;
+    }
+    if (lineBrushArmed()) {
+        paintRiver(tileX, tileY, armedBrushKind());
         return;
     }
     const int cell = kBrushCellTiles;
@@ -5749,7 +5928,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     // have pieces, such as Coast for Base-0 and Base-85.
     std::vector<const BrushPaint*> levels;
     for (const BrushPaint& paint : brushPaints_) {
-        if (trailingNumber(paint.name) >= 0) {
+        if (paint.kind == BrushKind::Base && trailingNumber(paint.name) >= 0) {
             levels.push_back(&paint);
         }
     }
@@ -5856,7 +6035,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                     continue;
                 }
                 const BrushPaint* upper = levels[static_cast<std::size_t>(ringCell.upper)];
-                const std::string piece = transitionPieceName(graph.style(ringCell.level, ringCell.upper), ringCell.mask);
+                const std::string piece = brushPieceName(graph, ringCell.corners);
                 if (piece.empty()) {
                     noteMissing("a piece joining " + lower->name + " to " + upper->name);
                     continue;
@@ -5916,6 +6095,187 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     }
 }
 
+BrushKind EditorApp::armedBrushKind() const {
+    for (const BrushPaint& paint : brushPaints_) {
+        if (paint.name == brushName_) {
+            return paint.kind;
+        }
+    }
+    return BrushKind::Base;
+}
+
+bool EditorApp::lineBrushArmed() const {
+    return armedBrushKind() != BrushKind::Base;
+}
+
+// The brush tells cells apart by their pictures. This reads the base strokes, the coast
+// pieces and the river pieces once, and keeps only their signatures.
+void EditorApp::ensureRiverCatalog() {
+    if (riverCatalogReady_ || brushTilesetPath_.empty()) {
+        return;
+    }
+    const TilesetArchive* source = nullptr;
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        if (archive.path == brushTilesetPath_) {
+            source = &archive;
+            break;
+        }
+    }
+    if (source == nullptr) {
+        return;
+    }
+    riverCatalog_.clear();
+    const auto addSection = [&](const std::string& archivePath, const std::string& label) {
+        try {
+            const HpiFile* file = source->archive().find(archivePath);
+            if (file != nullptr) {
+                riverCatalog_.add(loadSectionStamp(source->archive().extract(*file)), label);
+            }
+        } catch (const std::exception&) {
+        }
+    };
+    for (const RiverSection& river : riverSections_) {
+        addSection(river.sectionPath, river.name);
+    }
+    for (const BrushPiece& piece : brushPieces_) {
+        const std::string lowered = lowerText(piece.name);
+        if (lowered.starts_with("coast-") || lowered.starts_with("cliff-")) {
+            addSection(piece.sectionPath, piece.name);
+        }
+    }
+    for (const BrushStroke& stroke : brushStrokes_) {
+        for (const BrushPaint& paint : brushPaints_) {
+            if (paint.kind != BrushKind::Base) {
+                continue;
+            }
+            bool matched = false;
+            for (const int size : {16, 32, 64, 128}) {
+                if (brushStrokeVariation(stroke.name, paint.name, size) >= 0) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) {
+                addSection(stroke.sectionPath, paint.name);
+                break;
+            }
+        }
+    }
+    riverCatalogReady_ = true;
+}
+
+RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
+    RiverPlan none;
+    if (!map_) {
+        none.reason = "There is no map";
+        return none;
+    }
+    ensureRiverCatalog();
+    const RiverLookup lookup = [&](int cx, int cy) { return riverCatalog_.classify(*map_, cx, cy); };
+    switch (kind) {
+    case BrushKind::River: return planRiver(cellX, cellY, lookup);
+    case BrushKind::Bridge: return planRiverBridge(cellX, cellY, lookup);
+    case BrushKind::Ridge: return planRidge(cellX, cellY, lookup);
+    case BrushKind::Spacer: return planRidgeSpacer(cellX, cellY, lookup);
+    case BrushKind::Base: break;
+    }
+    none.reason = "This brush does not use river rules";
+    return none;
+}
+
+void EditorApp::paintRiver(int tileX, int tileY, BrushKind kind) {
+    if (!map_ || brushTilesetPath_.empty()) {
+        return;
+    }
+    const int cell = kBrushCellTiles;
+    if (tileX < 0 || tileY < 0 || tileX >= map_->tileWidth || tileY >= map_->tileHeight) {
+        statusNote_ = "The brush is outside the map";
+        return;
+    }
+    const RiverPlan plan = riverPlanAt(tileX / cell, tileY / cell, kind);
+    if (!plan.allowed()) {
+        // Nothing is painted. The tooltip over the map says the same thing.
+        statusNote_ = plan.reason.substr(0, plan.reason.find('\n'));
+        return;
+    }
+
+    static std::mt19937 rng{std::random_device{}()};
+    try {
+        const TilesetArchive* source = nullptr;
+        for (const TilesetArchive& archive : tilesets_.archives()) {
+            if (archive.path == brushTilesetPath_) {
+                source = &archive;
+                break;
+            }
+        }
+        if (source == nullptr) {
+            throw std::runtime_error("The random map tileset is not loaded.");
+        }
+
+        struct PlannedRiver {
+            const SectionStamp* stamp = nullptr;
+            int x = 0;
+            int y = 0;
+        };
+        std::vector<PlannedRiver> planned;
+        std::string firstName;
+        for (const RiverEdit& edit : plan.edits) {
+            std::vector<RiverSection*> matches;
+            for (RiverSection& section : riverSections_) {
+                if (sameRiverKey(section.key, edit.key)) {
+                    matches.push_back(&section);
+                }
+            }
+            if (matches.empty()) {
+                statusNote_ = "The tileset needs " + edit.key + " for " + brushName_;
+                error_.clear();
+                return;
+            }
+            std::uniform_int_distribution<int> pick(0, static_cast<int>(matches.size()) - 1);
+            RiverSection* chosen = matches[static_cast<std::size_t>(pick(rng))];
+            if (!chosen->stamp) {
+                const HpiFile* file = source->archive().find(chosen->sectionPath);
+                if (file == nullptr) {
+                    throw std::runtime_error(chosen->name + " is missing from the tileset.");
+                }
+                chosen->stamp = loadSectionStamp(source->archive().extract(*file));
+            }
+            if (firstName.empty()) {
+                firstName = chosen->name;
+            }
+            planned.push_back(PlannedRiver{&*chosen->stamp, edit.x * cell, edit.y * cell});
+        }
+
+        const int tileCountBefore = map_->tileCount;
+        std::vector<PlacementChange> changes;
+        for (const PlannedRiver& piece : planned) {
+            auto change = stampSectionChange(*map_, *piece.stamp, piece.x, piece.y, &deduper_, 100);
+            if (change) {
+                changes.push_back(std::move(*change));
+            }
+        }
+        if (changes.empty()) {
+            statusNote_ = "The brush is outside the map";
+        } else {
+            std::string note = "Placed " + firstName;
+            if (plan.edits.size() > 1) {
+                const std::size_t others = plan.edits.size() - 1;
+                note += " and redrew " + std::to_string(others) + (others == 1 ? " neighbor" : " neighbors");
+            }
+            if (changes.size() == 1) {
+                rememberPlacement(std::move(changes.front()));
+            } else {
+                rememberPlacements(std::move(changes));
+            }
+            statusNote_ = note;
+            warnIfPastVanillaTiles(tileCountBefore);
+        }
+        error_.clear();
+    } catch (const std::exception& ex) {
+        error_ = ex.what();
+    }
+}
+
 void EditorApp::ensureBrushPaints() {
     const TilesetArchive* source = nullptr;
     for (const TilesetArchive& archive : tilesets_.archives()) {
@@ -5939,6 +6299,9 @@ void EditorApp::ensureBrushPaints() {
     brushPaints_.clear();
     brushStrokes_.clear();
     brushPieces_.clear();
+    riverSections_.clear();
+    riverCatalog_.clear();
+    riverCatalogReady_ = false;
     brushTilesetPath_.clear();
     brushCatalogKey_ = key;
     if (source == nullptr) {
@@ -5958,6 +6321,12 @@ void EditorApp::ensureBrushPaints() {
             stroke.name = section.name;
             stroke.sectionPath = section.archivePath;
             brushStrokes_.push_back(std::move(stroke));
+        } else if (isRiverWorld(section.world)) {
+            RiverSection river;
+            river.name = section.name;
+            river.key = riverKeyOf(section.name);
+            river.sectionPath = section.archivePath;
+            riverSections_.push_back(std::move(river));
         } else if (isTransitionWorld(section.world)) {
             BrushPiece cliff;
             cliff.name = section.name;
@@ -5995,6 +6364,38 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
+    // Rivers and bridges get a button of their own after the base tiles. Their pictures
+    // are the first horizontal piece of each.
+    const auto addRiverButton = [&](const char* buttonName, const char* iconSection, BrushKind kind) {
+        for (const RiverSection& river : riverSections_) {
+            if (!sameRiverKey(river.name, iconSection)) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(river.sectionPath);
+                if (file == nullptr) {
+                    return;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                int width = 0;
+                int height = 0;
+                const std::vector<std::uint8_t> rgba = renderSectionRgba(stamp, 128, width, height);
+                BrushPaint paint;
+                paint.name = buttonName;
+                paint.kind = kind;
+                paint.preview = uploadTexture(rgba.data(), width, height, false);
+                if (paint.preview != 0) {
+                    brushPaints_.push_back(std::move(paint));
+                }
+            } catch (const std::exception&) {
+            }
+            return;
+        }
+    };
+    addRiverButton("River", "River-Horizontal-01", BrushKind::River);
+    addRiverButton("River Bridge", "RiverB-Horizontal-01", BrushKind::Bridge);
+    addRiverButton("Ridge", "Ridge-Horizontal-01", BrushKind::Ridge);
+    addRiverButton("Ridge Spacer", "Ridge-L_R-Spacer-01", BrushKind::Spacer);
     if (!brushName_.empty()) {
         bool found = false;
         for (const BrushPaint& paint : brushPaints_) {
@@ -6081,11 +6482,21 @@ void EditorApp::drawTileBrush() {
 
     const ImGuiStyle& style = ImGui::GetStyle();
     const float thumb = std::floor((kRowWidth - style.ItemSpacing.x - style.FramePadding.x * 4.0f) * 0.5f);
+    int column = 0;
     for (std::size_t index = 0; index < brushPaints_.size(); ++index) {
         const BrushPaint& paint = brushPaints_[index];
-        if (index > 0 && index % 2 != 0) {
+        const auto group = [](BrushKind kind) {
+            return kind == BrushKind::Base ? 0 : (kind == BrushKind::River || kind == BrushKind::Bridge ? 1 : 2);
+        };
+        if (index > 0 && group(paint.kind) != group(brushPaints_[index - 1].kind)) {
+            // Rivers and ridges each start on a row of their own, below the base tiles.
+            column = 0;
+            ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        }
+        if (column != 0) {
             ImGui::SameLine();
         }
+        column = (column + 1) % 2;
         ImGui::PushID(paint.name.c_str());
         ImGui::BeginGroup();
         const float groupX = ImGui::GetCursorPosX();
@@ -6118,7 +6529,20 @@ void EditorApp::drawTileBrush() {
             armBrush(paint.name);
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", selected ? "Click again or press Esc to leave the brush" : "Use this tile as the brush");
+            const char* hint = "Use this tile as the brush";
+            if (paint.kind == BrushKind::River) {
+                hint = "Paint rivers on Base-85 and straight coasts\nRivers join the rivers beside them";
+            } else if (paint.kind == BrushKind::Bridge) {
+                hint = "Place a bridge on a river\nBridges only go on rivers that are straight or bend";
+            } else if (paint.kind == BrushKind::Ridge) {
+                hint = "Paint ridges on Base-85 and straight cliff edges\nRidges join the ridges beside them";
+            } else if (paint.kind == BrushKind::Spacer) {
+                hint = "Open a gap in a ridge\nSpacers only go on straight ridges";
+            }
+            if (selected) {
+                hint = "Click again or press Esc to leave the brush";
+            }
+            ImGui::SetTooltip("%s", hint);
         }
         const float textWidth = ImGui::CalcTextSize(paint.name.c_str()).x;
         const float itemWidth = buttonMax.x - buttonMin.x;

@@ -1,4 +1,5 @@
 #include "ui/Splash.hpp"
+#include "core/Version.hpp"
 #include "ui/EmbeddedData.hpp"
 
 #if defined(__APPLE__)
@@ -18,6 +19,7 @@
 #include "ui/Theme.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 
@@ -27,6 +29,45 @@ namespace {
 
 ImU32 gray(int value, int alpha = 255) {
     return IM_COL32(value, value, value, alpha);
+}
+
+// The pale line under the gold logo. The big letters are yellow with almost no
+// blue, and this line is the light gold band in the middle of the picture.
+float measureTitleBottom(const SplashImage& image) {
+    constexpr float fallback = 341.0f / 475.0f;
+    const std::size_t pixels = static_cast<std::size_t>(image.width) * static_cast<std::size_t>(image.height);
+    if (!image.valid() || image.rgba.size() < pixels * 4) {
+        return fallback;
+    }
+    const int x0 = image.width * 35 / 100;
+    const int x1 = image.width * 65 / 100;
+    int bandEnd = -1;
+    int runStart = -1;
+    for (int y = image.height / 2; y < image.height; ++y) {
+        int count = 0;
+        const unsigned char* row = image.rgba.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(image.width) * 4;
+        for (int x = x0; x < x1; ++x) {
+            const unsigned char* pixel = row + static_cast<std::size_t>(x) * 4;
+            const int red = pixel[0];
+            const int green = pixel[1];
+            const int blue = pixel[2];
+            if (red > 170 && green > 170 && blue > 90 && std::abs(red - green) < 40) {
+                ++count;
+            }
+        }
+        if (count >= 20) {
+            if (runStart < 0) {
+                runStart = y;
+            }
+            bandEnd = y;
+        } else if (runStart >= 0) {
+            runStart = -1;
+        }
+    }
+    if (bandEnd < 0) {
+        return fallback;
+    }
+    return static_cast<float>(bandEnd + 1) / static_cast<float>(image.height);
 }
 
 }  // namespace
@@ -53,7 +94,7 @@ SplashImage decodeSplashImage() {
     return image;
 }
 
-SplashScreen::SplashScreen(SplashImage image) : image_(std::move(image)) {}
+SplashScreen::SplashScreen(SplashImage image) : image_(std::move(image)), titleBottom_(measureTitleBottom(image_)) {}
 
 SplashScreen::~SplashScreen() {
     if (texture_ != 0) {
@@ -97,6 +138,15 @@ void SplashScreen::draw(float progress, const std::string& status, const std::st
     if (texture_ != 0 && image_.width > 0) {
         const float imageHeight = size.x * static_cast<float>(image_.height) / static_cast<float>(image_.width);
         draw->AddImage(static_cast<ImTextureID>(static_cast<std::intptr_t>(texture_)), ImVec2(0.0f, 0.0f), ImVec2(size.x, imageHeight));
+
+        const std::string version = std::string("v") + versionString();
+        ImFont* versionFont = theme::smallFont();
+        const float versionSize = versionFont->FontSize * ImGui::GetIO().FontGlobalScale;
+        const ImVec2 versionWidth = versionFont->CalcTextSizeA(versionSize, 10000.0f, 0.0f, version.c_str());
+        const float versionX = (size.x - versionWidth.x) * 0.5f;
+        const float versionY = imageHeight * titleBottom_ + 5.0f * u;
+        draw->AddText(versionFont, versionSize, ImVec2(versionX + u, versionY + u), IM_COL32(0, 0, 0, 160), version.c_str());
+        draw->AddText(versionFont, versionSize, ImVec2(versionX, versionY), IM_COL32(214, 204, 148, 235), version.c_str());
     }
 
     const float margin = 28.0f * u;

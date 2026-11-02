@@ -17,12 +17,13 @@ namespace galaxy {
 // The tile brush works on a grid of 16 x 16 tile cells. Every cell corner sits on
 // one paint, and a cell picks its picture from its four corners. Two paints may
 // only touch through a transition piece, and only some pairs have pieces:
-// Base-0 and Base-85 join with Coast pieces, Base-68 and Base-85 join with
-// ShallowCoast pieces, Base-68 and Base-0 join with ShallowDeep pieces, and
-// Base-85 and Base-219 join with Cliff pieces. Paints that are not joined, such
-// as Base-0 and Base-219, keep a joined paint between them. A corner never
-// shares a cell with a paint it has no pieces for, and a cell never holds more
-// than two paints.
+// Base-0 and Base-85 join with Coast pieces, Base-68 and Base-85 with
+// ShallowCoast pieces, Base-68 and Base-0 with ShallowDeep pieces, Base-85 and
+// Base-219 with Cliff pieces, and Base-219 joins Base-0 and Base-68 with
+// CoastalCliff pieces. A cell holds one paint or two joined paints. Three paints
+// may share a cell when a section draws that layout of corners: Base-0, Base-68
+// and Base-85 use a CoastDSL piece, and Base-219 with Base-85 and either Base-0
+// or Base-68 uses a CoastalCliff piece.
 inline constexpr int kBrushCellTiles = 16;
 
 // Corner bits of a cell mask.
@@ -79,12 +80,77 @@ inline std::string_view coastPieceName(int mask) {
     }
 }
 
+// Name of a corner or an edge for the CoastDSL sections: one corner is TL, TR,
+// BL or BR, two corners on one side are T, B, L or R, and two corners on a
+// diagonal are written the way the sections are named.
+inline std::string_view cornerRegion(int mask) {
+    switch (mask) {
+    case kCornerTopLeft: return "TL";
+    case kCornerTopRight: return "TR";
+    case kCornerBottomLeft: return "BL";
+    case kCornerBottomRight: return "BR";
+    case kCornerTopLeft | kCornerTopRight: return "T";
+    case kCornerBottomLeft | kCornerBottomRight: return "B";
+    case kCornerTopLeft | kCornerBottomLeft: return "L";
+    case kCornerTopRight | kCornerBottomRight: return "R";
+    case kCornerTopLeft | kCornerBottomRight: return "TL_and_BR";
+    case kCornerTopRight | kCornerBottomLeft: return "BL_and_TR";
+    default: return {};
+    }
+}
+
+inline int cornerCount(int mask) {
+    return (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
+}
+
+// The CoastalCliff section for a cell with Base-219 and either Base-0 or
+// Base-68, written the way the sections are named. The masks mark the Base-219
+// corners and the Base-85 corners, and the rest are on lowHeight, which is 0 or
+// 68. Without Base-85 the layouts are Base-219 on one corner, on everything but
+// one corner, or on one side. With Base-85 they are Base-219 on one corner with
+// Base-85 on the corner beside it, or Base-219 on one side with Base-85 on one of
+// the other two corners. Any other layout returns an empty name.
+inline std::string coastalCliffName(int lowHeight, int highMask, int midMask) {
+    const int lowMask = kCornerAll & ~(highMask | midMask);
+    if ((highMask & midMask) != 0 || highMask == 0 || lowMask == 0 || (lowHeight != 0 && lowHeight != 68)) {
+        return {};
+    }
+    const auto diagonal = [](int mask) {
+        return mask == (kCornerTopLeft | kCornerBottomRight) || mask == (kCornerTopRight | kCornerBottomLeft);
+    };
+    const std::string low = std::to_string(lowHeight);
+    const int highs = cornerCount(highMask);
+    const int mids = cornerCount(midMask);
+    const int lows = cornerCount(lowMask);
+    if (mids == 0) {
+        if (highs == 1) {
+            return "CC-219-" + std::string(cornerRegion(highMask)) + "-" + low + "-ALL";
+        }
+        if (highs == 3) {
+            return "CC-219-ALL-" + low + "-" + std::string(cornerRegion(lowMask));
+        }
+        if (highs == 2 && !diagonal(highMask)) {
+            return "CC-219-" + std::string(cornerRegion(highMask)) + "-" + low + "-" + std::string(cornerRegion(lowMask));
+        }
+        return {};
+    }
+    if (highs == 1 && mids == 1 && lows == 2 && !diagonal(lowMask)) {
+        return "CC-219-" + std::string(cornerRegion(highMask)) + "-85-" + std::string(cornerRegion(midMask)) + "-" + low + "-" + std::string(cornerRegion(lowMask));
+    }
+    if (highs == 2 && mids == 1 && lows == 1 && !diagonal(highMask)) {
+        return "CC-219-" + std::string(cornerRegion(highMask)) + "-85-" + std::string(cornerRegion(midMask)) + "-" + low + "-" + std::string(cornerRegion(lowMask));
+    }
+    return {};
+}
+
 enum class TransitionStyle {
     None,
     Cliff,
     Coast,
     ShallowCoast,
     ShallowDeep,
+    CoastalCliffDeep,     // Base-219 beside Base-0
+    CoastalCliffShallow,  // Base-219 beside Base-68
 };
 
 // Which pair of paints a family of pieces joins. Paints are named by height, so
@@ -95,11 +161,13 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 4>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 4> rules = {{
+inline const std::array<BrushTransitionRule, 6>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 6> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
+        {0, 219, TransitionStyle::CoastalCliffDeep},
+        {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
     }};
     return rules;
@@ -128,6 +196,8 @@ inline std::string transitionPieceName(TransitionStyle style, int mask) {
         }
         return {};
     }
+    case TransitionStyle::CoastalCliffDeep: return coastalCliffName(0, mask, 0);
+    case TransitionStyle::CoastalCliffShallow: return coastalCliffName(68, mask, 0);
     default: return {};
     }
 }
@@ -208,6 +278,79 @@ inline bool cliffDiagonal(int mask) {
     return mask == (kCornerTopRight | kCornerBottomLeft) || mask == (kCornerTopLeft | kCornerBottomRight);
 }
 
+// The CoastDSL section for a cell with land, shallow water and deep water. The
+// masks mark the land corners and the shallow corners, and the rest is deep
+// water. Only some layouts have a section: land on one side with a shallow and a
+// deep corner, one land corner with a shallow corner beside it and deep water
+// along the next side, and one land corner opposite deep water with shallow
+// water on the other diagonal. Any other layout returns an empty name.
+inline std::string dslPieceName(int landMask, int shallowMask) {
+    const int deepMask = kCornerAll & ~(landMask | shallowMask);
+    if ((landMask & shallowMask) != 0 || landMask == 0 || shallowMask == 0 || deepMask == 0) {
+        return {};
+    }
+    const int lands = cornerCount(landMask);
+    const int shallows = cornerCount(shallowMask);
+    const int deeps = cornerCount(deepMask);
+    const auto diagonal = [](int mask) {
+        return mask == (kCornerTopLeft | kCornerBottomRight) || mask == (kCornerTopRight | kCornerBottomLeft);
+    };
+    bool fits = false;
+    if (lands == 2 && shallows == 1 && deeps == 1) {
+        fits = !diagonal(landMask);
+    } else if (lands == 1 && shallows == 1 && deeps == 2) {
+        fits = !diagonal(deepMask);
+    } else if (lands == 1 && shallows == 2 && deeps == 1) {
+        fits = diagonal(landMask | deepMask);
+    }
+    if (!fits) {
+        return {};
+    }
+    return "DSL-Land-" + std::string(cornerRegion(landMask)) + "-Shallow-" + std::string(cornerRegion(shallowMask)) + "-Water-" + std::string(cornerRegion(deepMask));
+}
+
+// The section a cell needs, from the level at each of its corners, without a
+// variation number. Empty for a flat cell and for a layout that has no section.
+// Two levels use the family that joins them. Base-0, Base-68 and Base-85
+// together use a CoastDSL section, and Base-219, Base-85 and Base-0 or Base-68
+// use a CoastalCliff section.
+inline std::string brushPieceName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    std::array<int, 4> sorted = corners;
+    std::sort(sorted.begin(), sorted.end());
+    const int distinct = static_cast<int>(std::unique(sorted.begin(), sorted.end()) - sorted.begin());
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    if (distinct == 2) {
+        return transitionPieceName(graph.style(sorted[0], sorted[1]), maskOf(sorted[1]));
+    }
+    if (distinct == 3) {
+        const int low = graph.height(sorted[0]);
+        const int middle = graph.height(sorted[1]);
+        const int high = graph.height(sorted[2]);
+        if (low == 0 && middle == 68 && high == 85) {
+            return dslPieceName(maskOf(sorted[2]), maskOf(sorted[1]));
+        }
+        if (middle == 85 && high == 219) {
+            return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
+        }
+    }
+    return {};
+}
+
+// True when a cell with these corners has a picture: one level, or a layout that
+// brushPieceName finds a section for.
+inline bool brushCellValid(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    if (corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3]) {
+        return true;
+    }
+    return !brushPieceName(graph, corners).empty();
+}
+
 // The number after "<prefix>" in a section name, where prefix ends with a dash.
 // Returns -1 when the name does not start with the prefix (ignoring case) or the
 // ending is not all digits. "01" is 1, and any number of digits is accepted so
@@ -272,6 +415,17 @@ inline int transitionVariation(std::string_view sectionName, std::string_view pi
     if (piece.empty()) {
         return -1;
     }
+    if (sectionName.size() == piece.size()) {
+        // A section named exactly like the piece, such as DSL-Land-L-Shallow-BR-Water-TR,
+        // is its only variation.
+        bool same = true;
+        for (std::size_t i = 0; i < piece.size() && same; ++i) {
+            same = std::tolower(static_cast<unsigned char>(sectionName[i])) == std::tolower(static_cast<unsigned char>(piece[i]));
+        }
+        if (same) {
+            return 0;
+        }
+    }
     std::string prefix(piece);
     prefix += '-';
     return numberedVariation(sectionName, prefix);
@@ -292,6 +446,8 @@ struct BrushCell {
     int level = 0;
     int upper = 0;
     int mask = 0;
+    // The level at each corner: top left, top right, bottom left, bottom right.
+    std::array<int, 4> corners = {0, 0, 0, 0};
 };
 
 struct BrushPlan {
@@ -329,6 +485,10 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
 
     const auto levelBefore = [&](int x, int y) {
         return inLattice(x, y) ? std::clamp(readNode(x, y), 0, graph.size() - 1) : 0;
+    };
+    // Corners of the painted block keep the painted level.
+    const auto isLocked = [&](int x, int y) {
+        return x >= blockX && x <= blockX + blockCells && y >= blockY && y <= blockY + blockCells;
     };
     const auto levelAfter = [&](int x, int y) {
         if (!inLattice(x, y)) {
@@ -410,33 +570,68 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                     mask |= value == highest ? (1 << corner) : 0;
                 }
                 if (!onlyTwo) {
-                    // Three paints in one cell have no piece. Pairs that are not joined are
-                    // settled by the corner rule above first, so this only handles cells
-                    // whose paints all join each other, such as 0, 68 and 85. Every other
-                    // corner moves a step toward the paint closest to the painted one.
+                    // Pairs that are not joined are settled by the corner rule above, so this
+                    // only handles cells whose paints all join each other, such as 0, 68 and
+                    // 85. Those are fine when a section draws their layout. Otherwise the
+                    // fewest corners change, each moving toward the painted paint.
                     bool allJoined = true;
                     for (const int first : corners) {
                         for (const int second : corners) {
                             allJoined = allJoined && graph.compatible(first, second);
                         }
                     }
-                    if (!allJoined) {
+                    if (!allJoined || brushCellValid(graph, corners)) {
                         continue;
                     }
-                    int keep = corners[0];
-                    for (const int value : corners) {
-                        const int distanceValue = graph.distance(level, value);
-                        const int distanceKeep = graph.distance(level, keep);
-                        if (distanceValue < distanceKeep || (distanceValue == distanceKeep && value < keep)) {
-                            keep = value;
+                    std::array<std::vector<int>, 4> options;
+                    for (int corner = 0; corner < 4; ++corner) {
+                        const int current = corners[static_cast<std::size_t>(corner)];
+                        options[static_cast<std::size_t>(corner)].push_back(current);
+                        if (!isLocked(cx + (corner & 1), cy + (corner >> 1))) {
+                            for (int candidate = 0; candidate < graph.size(); ++candidate) {
+                                if (candidate != current && graph.distance(level, candidate) < graph.distance(level, current)) {
+                                    options[static_cast<std::size_t>(corner)].push_back(candidate);
+                                }
+                            }
+                        }
+                    }
+                    bool found = false;
+                    int fewest = 5;
+                    int smallestMove = graph.kFar * 8;
+                    std::array<int, 4> best = corners;
+                    for (const int a : options[0]) {
+                        for (const int b : options[1]) {
+                            for (const int c : options[2]) {
+                                for (const int d : options[3]) {
+                                    const std::array<int, 4> trial = {a, b, c, d};
+                                    if (!brushCellValid(graph, trial)) {
+                                        continue;
+                                    }
+                                    int changes = 0;
+                                    int move = 0;
+                                    for (std::size_t i = 0; i < 4; ++i) {
+                                        if (trial[i] != corners[i]) {
+                                            ++changes;
+                                            move += graph.distance(level, corners[i]) - graph.distance(level, trial[i]);
+                                        }
+                                    }
+                                    if (changes < fewest || (changes == fewest && move < smallestMove)) {
+                                        found = true;
+                                        fewest = changes;
+                                        smallestMove = move;
+                                        best = trial;
+                                    }
+                                }
+                            }
                         }
                     }
                     for (int corner = 0; corner < 4; ++corner) {
-                        const int current = corners[static_cast<std::size_t>(corner)];
-                        if (current != keep) {
-                            const int x = cx + (corner & 1);
-                            const int y = cy + (corner >> 1);
-                            setLevel(x, y, graph.stepToward(current, keep));
+                        const std::size_t slot = static_cast<std::size_t>(corner);
+                        const int x = cx + (corner & 1);
+                        const int y = cy + (corner >> 1);
+                        const int target = found ? best[slot] : (isLocked(x, y) ? corners[slot] : level);
+                        if (target != corners[slot]) {
+                            setLevel(x, y, target);
                             work.emplace_back(x, y);
                         }
                     }
@@ -470,7 +665,7 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                 const int cy = node.y + dy;
                 const bool inBlock = cx >= blockX && cx < blockX + blockCells && cy >= blockY && cy < blockY + blockCells;
                 if (isCell(cx, cy) && !inBlock) {
-                    candidates.push_back(BrushCell{cx, cy, 0, 0, 0});
+                    candidates.push_back(BrushCell{cx, cy, 0, 0, 0, {0, 0, 0, 0}});
                 }
             }
         }
@@ -487,6 +682,7 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
         if (corners == before) {
             continue;
         }
+        cell.corners = corners;
         cell.level = *std::min_element(corners.begin(), corners.end());
         cell.upper = *std::max_element(corners.begin(), corners.end());
         cell.mask = 0;

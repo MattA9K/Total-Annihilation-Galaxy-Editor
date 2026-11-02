@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/OrbitCamera.hpp"
+#include "core/RiverBrush.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "format/MapFile.hpp"
 #include "format/SctSection.hpp"
@@ -22,6 +23,10 @@
 typedef unsigned int GLuint;
 
 namespace galaxy {
+
+// What a Tile Brush button paints. Base tiles use the brush strokes. The others place
+// one 16 x 16 piece chosen from the neighbouring cells.
+enum class BrushKind { Base, River, Bridge, Ridge, Spacer };
 
 class EditorApp {
 public:
@@ -177,6 +182,8 @@ private:
     void drawCreateFavorites();
     void drawDeleteFavorite();
     void requestDeleteFavorite(std::size_t archiveIndex, const CachedSection& section);
+    void requestRenameTile(std::size_t archiveIndex, const CachedSection& section);
+    void drawRenameTile();
     // Reads a favorites archive again after it changed and drops the pictures cached from it.
     void refreshFavoritesArchive(const std::filesystem::path& path);
     void createFavoritesArchiveNamed();
@@ -190,6 +197,12 @@ private:
     void armBrush(const std::string& name);
     // Stamps one random BaseTileBrushStrokes variation for the armed paint and size.
     void paintBrushStroke(int tileX, int tileY);
+    // River, bridge, ridge and spacer brushes work on one 16 x 16 cell and read the map to choose the piece.
+    void ensureRiverCatalog();
+    RiverPlan riverPlanAt(int cellX, int cellY, BrushKind kind);
+    void paintRiver(int tileX, int tileY, BrushKind kind);
+    BrushKind armedBrushKind() const;
+    bool lineBrushArmed() const;
     void pumpSectionLoads();
     void requestCategory(std::size_t archiveIndex, const std::string& world, const std::string& category);
     void ensureGhost();
@@ -320,6 +333,7 @@ private:
         std::string name;
         std::string category;
         GLuint preview = 0;
+        BrushKind kind = BrushKind::Base;
     };
     std::vector<BrushPaint> brushPaints_;
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
@@ -337,6 +351,16 @@ private:
         std::optional<SectionStamp> stamp;
     };
     std::vector<BrushPiece> brushPieces_;
+    // Sections from the Rivers folder, such as River-Horizontal-02 and RiverB-L-B-01. Loaded on first use.
+    struct RiverSection {
+        std::string name;
+        std::string key;
+        std::string sectionPath;
+        std::optional<SectionStamp> stamp;
+    };
+    std::vector<RiverSection> riverSections_;
+    RiverCatalog riverCatalog_;
+    bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;
     std::string brushCatalogKey_;
     std::string brushName_;
@@ -404,6 +428,14 @@ private:
     std::filesystem::path deleteFavoriteArchive_;
     std::string deleteFavoritePath_;
     std::string deleteFavoriteName_;
+    bool showRenameTile_ = false;
+    std::filesystem::path renameArchive_;
+    std::string renameArchiveLabel_;
+    std::string renameSectionPath_;
+    std::string renameWorld_;
+    std::string renameCategory_;
+    std::string renameOriginalName_;
+    char renameFileName_[128] = {};
     // Where Total Annihilation is installed. The tileset archives come from here.
     std::filesystem::path gameFolder_;
     bool gameFolderAsked_ = false;
