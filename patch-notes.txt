@@ -1,0 +1,116 @@
+Galaxy Editor
+Changes from October 27 to November 1, 2026
+
+These are the changes committed after 1.0.2, for the next release build.
+
+On macOS, Command takes the place of Ctrl.
+
+
+New
+
+HPI Editor
+File menu, or the HPI Editor button at the right end of the toolbar, opens a
+browser for .hpi, .ufo, .ccx, .gp3, and .gpf archives. Open one, or start an
+empty archive with New. When the map you have open is itself an archive, the
+empty window offers it in one click.
+
+A folder tree runs down the left, the contents fill the middle as a list or as
+icons, and a path bar and an item count run along the bottom. Click a folder
+in the tree or a segment of the path bar to go there. Double-click a folder to
+open it. Back and Forward retrace your steps.
+
+Export copies the selected files and folders to a folder you choose. Import
+adds files, or whole folders, to the folder you are viewing. You can also drop
+files and folders from the desktop onto the window. Drag items from one folder
+to another to move them. Rename with F2 or the right-click menu. New Folder
+and Delete are on the toolbar and the keyboard. Every change can be undone.
+
+Nothing is written to disk until you press Save. Save replaces the old file in
+one step, so a failure leaves the original alone. An archive cannot store an
+empty folder, and it cannot be saved with nothing in it. Closing the window,
+opening another archive, or quitting asks about unsaved changes first.
+
+While the HPI Editor has the keyboard: Ctrl+O opens an archive, Ctrl+N starts
+a new one, Ctrl+S and Ctrl+Shift+S save, Ctrl+Z and Ctrl+Shift+Z undo and redo,
+Ctrl+A selects everything, Ctrl+I imports, Ctrl+Shift+N makes a folder, Ctrl+[
+and Ctrl+] go back and forward, F2 renames, and Delete removes the selection.
+
+Copy and paste features
+On the Features tab, Select works on features instead of tiles. Drag a box
+around them, or click one. Shift adds to the selection. Hold Space and drag to
+pan. Ctrl+A selects every feature on the map.
+
+Cut, Copy, and Paste then work on those features: trees, rocks, metal veins,
+and the rest. Paste keeps their positions relative to each other. Click the
+map to place them. Esc cancels. Delete or Backspace removes the selected
+features. The same commands are in the Edit menu, and the usual Ctrl+X, Ctrl+C,
+and Ctrl+V shortcuts apply while the Features tab is open. Undo covers these
+edits.
+
+Resize Map
+Map menu, Resize Map, changes the size of the map you have open. Arrows on
+each edge of a preview add or remove one tile. Hold an arrow to keep going.
+New ground continues the tiles and heights already on that edge. Features and
+start positions that fall on a removed edge are deleted. The ones that remain
+move with the map. Apply Resize writes the new size. The map stays between 1
+and 2048 tiles on each side. This edit clears the undo history.
+
+Favorite tile names
+Add to Favorites asks for a category, a subcategory, and a file name. The file
+name is filled in with the next free name in that folder. Change it, or leave
+it. A name already used there is refused.
+
+On the Favorites tab and the Tilesets tab, right-click a tile to copy its file
+name, or to rename the file. Rename keeps the pictures and writes the archive.
+A name already used in that folder is refused.
+
+Tile Brush
+View menu, Tile Brush, opens a window of the base tiles from the random-map
+tileset. Click one to arm it. Click it again, press Esc, or right-click the
+map to put the brush down.
+
+The brush paints squares of 16, 32, 64, or 128 tiles, snapped to a grid of
+16 by 16. Drag across the map to paint each new cell. Each click is one undo.
+
+Different bases do not sit against each other. The cells between them are
+filled with the piece that joins those two: coasts between Base-0 and Base-85,
+shallow coasts between Base-68 and Base-85, shallow-deep pieces between
+Base-68 and Base-0, cliffs between Base-85 and Base-219, and coastal cliffs
+between Base-219 and Base-0 or Base-68. Where three of those meet in one cell,
+the brush uses the piece drawn for that layout. A layout with no piece is
+never painted. If the tileset is missing a piece the click needs, nothing is
+written and the status line names the piece.
+
+River and River Bridge have their own buttons. A river goes on Base-85, or on
+a straight coast edge, where it becomes a river mouth. Neighbouring rivers
+join into a line, a bend, a three-way, or a four-way, and the cells beside the
+new one are redrawn to match. A bridge goes only on a straight river or a
+bend, and it keeps that shape. Base-0, Base-68, Base-219, and cliff tiles take
+neither.
+
+Ridge and Ridge Spacer sit on the row below. A ridge goes on Base-85, or on a
+straight cliff edge, where it becomes a ridge mouth. Ridges join the ridges
+beside them, and a ridge that stops uses an end piece. A spacer goes only on a
+straight ridge. Rivers and ridges do not join each other.
+
+Hover a cell the armed brush will not paint and its square turns red. The
+tooltip says why. Rivers, bridges, ridges, and spacers always fill one
+16 by 16 cell, so the size box is fixed for them.
+
+Launch screen
+While the editor is starting, the version number is shown in small text under
+GALAXY EDITOR.
+
+
+Fixed
+
+Minimap in the game
+Saved maps drew a minimap that did not line up in Total Annihilation. The game
+draws that picture from its top-left corner and ignores the 32 pixels at the
+right of the map and the 128 pixels at the bottom. Galaxy Editor was centering
+the whole map in the 252 pixel square, so the game showed it in the wrong
+place.
+
+A save now builds the minimap from the playable area, scaled to fit 252 pixels
+on its longer side and anchored at the top-left, the way the original maps are
+laid out. It is rebuilt from the tiles every time you save.

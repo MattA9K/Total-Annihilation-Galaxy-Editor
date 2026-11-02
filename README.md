@@ -12,10 +12,10 @@ Paint tiles, place trees and metal, set player starts, and shape the height of t
 
 | Platform | Download |
 | --- | --- |
-| macOS | [Install Galaxy Editor.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/macOS/Install.Galaxy.Editor.dmg) |
-| Windows | [GalaxyEditor-1.0.1-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.0.1/GalaxyEditor-1.0.1-windows-x64.zip) |
+| macOS | [GalaxyEditor-1.1.0-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.0/GalaxyEditor-1.1.0-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.0-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.0/GalaxyEditor-1.1.0-windows-x64.zip) |
 
-On macOS, open the disk image and drag Galaxy Editor to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. Both downloads include `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app` or `GalaxyEditor.exe`. `GreenWorld.hpi` is included the same way. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">

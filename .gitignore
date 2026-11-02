@@ -1,6 +1,7 @@
 # Local CMake build. This also holds fetched dependencies, the compiled
 # editor, and the tileset archives used while running Galaxy Editor.
 /build/
+/build-windows/
 
 # macOS Finder metadata
 .DS_Store
