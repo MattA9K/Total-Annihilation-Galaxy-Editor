@@ -796,7 +796,7 @@ void EditorApp::drawToolbar() {
         ImGui::EndGroup();
         usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
-            ImGui::SetTooltip(fixedSize ? "Rivers, ridges and slopes fill one 16 x 16 tile cell" : "Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells");
+            ImGui::SetTooltip(fixedSize ? "Rivers, ridges and slopes fill one 16 x 16 tile cell" : "Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells\n[ smaller    ] larger");
         }
     }
 
@@ -3408,9 +3408,9 @@ void EditorApp::drawMap() {
         }
     } else if (hovered && brushOwnsMap) {
         if (hoverOverMap_) {
-            ImGui::SetTooltip("%s\nBrush %s\nClick to paint. Cliffs and coasts keep the bases from touching\nEsc cancels\nHeight %d", brushName_.c_str(), brushSizeLabel(brushSize_).c_str(), hoverHeight_);
+            ImGui::SetTooltip("%s\nBrush %s\nClick to paint. Cliffs and coasts keep the bases from touching\n[ smaller    ] larger\nEsc cancels\nHeight %d", brushName_.c_str(), brushSizeLabel(brushSize_).c_str(), hoverHeight_);
         } else {
-            ImGui::SetTooltip("%s\nBrush %s\nClick to paint. Cliffs and coasts keep the bases from touching\nEsc cancels", brushName_.c_str(), brushSizeLabel(brushSize_).c_str());
+            ImGui::SetTooltip("%s\nBrush %s\nClick to paint. Cliffs and coasts keep the bases from touching\n[ smaller    ] larger\nEsc cancels", brushName_.c_str(), brushSizeLabel(brushSize_).c_str());
         }
     } else if (hovered && pasteArmed_ && clipboard_) {
         if (clipboard_->heightsOnly) {
@@ -5555,6 +5555,26 @@ bool EditorApp::draw() {
             }
             if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
                 adjustPlaceOffset(0, 1);
+            }
+        }
+        // [ and ] step the base brush the way Photoshop does. Rivers, ridges and slopes stay one cell.
+        if (!brushName_.empty() && !lineBrushArmed() && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
+            const int sizes[] = {16, 32, 64, 128};
+            int index = 0;
+            for (int i = 0; i < 4; ++i) {
+                if (sizes[i] == brushSize_) {
+                    index = i;
+                }
+            }
+            int next = index;
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket) && index > 0) {
+                next = index - 1;
+            } else if (ImGui::IsKeyPressed(ImGuiKey_RightBracket) && index < 3) {
+                next = index + 1;
+            }
+            if (next != index) {
+                brushSize_ = sizes[next];
+                statusNote_ = "Brush " + brushSizeLabel(brushSize_);
             }
         }
     }
