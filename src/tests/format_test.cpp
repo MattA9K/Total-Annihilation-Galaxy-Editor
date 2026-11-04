@@ -2452,6 +2452,11 @@ struct BrushTestLattice {
         return plan;
     }
 
+    // An 8 x 8 stamp sets one corner, the point shared by four cells.
+    galaxy::BrushPlan paintCorner(int nodeX, int nodeY, int level) {
+        return paint(nodeX, nodeY, 0, level);
+    }
+
     // The picture a cell ends up with, named like the tileset names it.
     std::string piece(int cx, int cy) const {
         const std::array<int, 4> corners = {read(cx, cy), read(cx + 1, cy), read(cx, cy + 1), read(cx + 1, cy + 1)};
@@ -2812,6 +2817,20 @@ void testBrushCells() {
             expect(name.rfind("Cliff", 0) != 0, "water never makes cliffs");
         }
     }
+
+    // An 8 x 8 stamp in open water is the four corner tiles around one meeting point, not a full cell and its ring.
+    int cornerX = -1;
+    int cornerY = -1;
+    expect(galaxy::brushCornerNode(0, 0, 8, 8, cornerX, cornerY) && cornerX == 1 && cornerY == 1, "the top-left of the map snaps to the first meeting of four cells");
+    expect(galaxy::brushCornerNode(15, 23, 8, 8, cornerX, cornerY) && cornerX == 1 && cornerY == 1, "tiles around that meeting stay on it");
+    expect(galaxy::brushCornerNode(24, 40, 8, 8, cornerX, cornerY) && cornerX == 2 && cornerY == 3, "the next meetings are one cell apart");
+    expect(galaxy::brushCornerNode(200, 4, 8, 8, cornerX, cornerY) && cornerX == 7 && cornerY == 1, "a click past the last meeting stays on a point shared by four cells");
+    const BrushGraph coast(std::vector<int>{0, 85, 219});
+    BrushTestLattice dot(6, 6, 0, coast);
+    const BrushPlan corners = dot.paintCorner(3, 3, 1);
+    expect(corners.cells.size() == 4, "an 8 x 8 stamp changes four cells");
+    expect(dot.piece(2, 2) == "Coast-Land-BR" && dot.piece(3, 2) == "Coast-Land-BL" && dot.piece(2, 3) == "Coast-Land-TR" && dot.piece(3, 3) == "Coast-Land-TL", "those cells are the four land corners");
+    expect(dot.piece(1, 1) == "Base-0" && dot.piece(4, 4) == "Base-0" && !dot.steep(), "the water around the corners stays water");
 
     // Lava is Base-45 on land and Base-0 on the lava, joined by the same coast shapes as GreenWorld.
     const BrushGraph lava(std::vector<int>{0, 45});

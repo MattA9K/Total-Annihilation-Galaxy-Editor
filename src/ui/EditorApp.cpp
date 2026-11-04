@@ -317,6 +317,10 @@ std::string brushSizeLabel(int size) {
     return std::to_string(size) + "x" + std::to_string(size);
 }
 
+// Map tiles on a side. 8 paints one corner. The others fill whole 16 x 16 cells.
+constexpr int kBrushSizes[] = {8, 16, 32, 64, 128};
+constexpr int kBrushSizeCount = static_cast<int>(sizeof(kBrushSizes) / sizeof(kBrushSizes[0]));
+
 std::string fitLabel(const std::string& text, float width) {
     if (ImGui::CalcTextSize(text.c_str()).x <= width) {
         return text;
@@ -777,7 +781,7 @@ void EditorApp::drawToolbar() {
             ImGui::BeginDisabled();
         }
         if (ImGui::BeginCombo("##brush-size", currentSize.c_str())) {
-            for (const int size : {16, 32, 64, 128}) {
+            for (const int size : kBrushSizes) {
                 const std::string label = brushSizeLabel(size);
                 if (ImGui::Selectable(label.c_str(), brushSize_ == size)) {
                     brushSize_ = size;
@@ -796,7 +800,7 @@ void EditorApp::drawToolbar() {
         ImGui::EndGroup();
         usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
-            ImGui::SetTooltip(fixedSize ? "Rivers, ridges and slopes fill one 16 x 16 tile cell" : "Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells\n[ smaller    ] larger");
+            ImGui::SetTooltip(fixedSize ? "Rivers, ridges and slopes fill one 16 x 16 tile cell" : "Brush size, in map tiles\n8 x 8 snaps to where four cells meet and paints those corners\n[ smaller    ] larger");
         }
     }
 
@@ -2844,15 +2848,28 @@ void EditorApp::drawMap() {
             statusNote_ = "Brush cancelled";
         } else if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             paintBrushStroke(tileX, tileY);
-            brushStrokeX_ = tileX / kBrushCellTiles;
-            brushStrokeY_ = tileY / kBrushCellTiles;
-            brushStroking_ = true;
-        } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            // The brush works on 16 x 16 tile cells, so a drag paints again on each new cell.
-            if (tileX / kBrushCellTiles != brushStrokeX_ || tileY / kBrushCellTiles != brushStrokeY_) {
-                paintBrushStroke(tileX, tileY);
+            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
+            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+            if (brushSize_ < kBrushCellTiles) {
+                brushCornerNode(tileX, tileY, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_);
+            } else {
                 brushStrokeX_ = tileX / kBrushCellTiles;
                 brushStrokeY_ = tileY / kBrushCellTiles;
+            }
+            brushStroking_ = true;
+        } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            // A drag paints again when the snap point changes. The 8 x 8 brush follows the meeting of four cells.
+            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
+            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+            int stepX = tileX / kBrushCellTiles;
+            int stepY = tileY / kBrushCellTiles;
+            if (brushSize_ < kBrushCellTiles) {
+                brushCornerNode(tileX, tileY, cellsAcross, cellsDown, stepX, stepY);
+            }
+            if (stepX != brushStrokeX_ || stepY != brushStrokeY_) {
+                paintBrushStroke(tileX, tileY);
+                brushStrokeX_ = stepX;
+                brushStrokeY_ = stepY;
             }
         }
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -3359,10 +3376,24 @@ void EditorApp::drawMap() {
     }
     const bool riverBlocked = riverTool && hoverOverMap_ && !riverHover.allowed();
     if (brushOwnsMap && hoverOverMap_) {
-        // The square sits on the 16 x 16 tile cell under the pointer.
-        const int brushTiles = riverTool ? kBrushCellTiles : std::max(kBrushCellTiles, brushSize_);
-        const float x0 = static_cast<float>(tileX / kBrushCellTiles * kBrushCellTiles * 32);
-        const float y0 = static_cast<float>(tileY / kBrushCellTiles * kBrushCellTiles * 32);
+        // Larger brushes sit on the 16 x 16 cell under the pointer. 8 x 8 is centered
+        // on the point where four of those cells meet.
+        const int brushTiles = riverTool ? kBrushCellTiles : std::max(kBrushCellTiles / 2, brushSize_);
+        float x0 = 0.0f;
+        float y0 = 0.0f;
+        if (!riverTool && brushTiles < kBrushCellTiles) {
+            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
+            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+            int nodeX = 0;
+            int nodeY = 0;
+            brushCornerNode(tileX, tileY, cellsAcross, cellsDown, nodeX, nodeY);
+            const float halfPx = static_cast<float>(brushTiles / 2 * 32);
+            x0 = static_cast<float>(nodeX * kBrushCellTiles * 32) - halfPx;
+            y0 = static_cast<float>(nodeY * kBrushCellTiles * 32) - halfPx;
+        } else {
+            x0 = static_cast<float>(tileX / kBrushCellTiles * kBrushCellTiles * 32);
+            y0 = static_cast<float>(tileY / kBrushCellTiles * kBrushCellTiles * 32);
+        }
         const float x1 = x0 + static_cast<float>(brushTiles * 32);
         const float y1 = y0 + static_cast<float>(brushTiles * 32);
         const ImVec2 brushMin = toScreen(x0, y0);
@@ -5559,21 +5590,20 @@ bool EditorApp::draw() {
         }
         // [ and ] step the base brush the way Photoshop does. Rivers, ridges and slopes stay one cell.
         if (!brushName_.empty() && !lineBrushArmed() && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
-            const int sizes[] = {16, 32, 64, 128};
             int index = 0;
-            for (int i = 0; i < 4; ++i) {
-                if (sizes[i] == brushSize_) {
+            for (int i = 0; i < kBrushSizeCount; ++i) {
+                if (kBrushSizes[i] == brushSize_) {
                     index = i;
                 }
             }
             int next = index;
             if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket) && index > 0) {
                 next = index - 1;
-            } else if (ImGui::IsKeyPressed(ImGuiKey_RightBracket) && index < 3) {
+            } else if (ImGui::IsKeyPressed(ImGuiKey_RightBracket) && index + 1 < kBrushSizeCount) {
                 next = index + 1;
             }
             if (next != index) {
-                brushSize_ = sizes[next];
+                brushSize_ = kBrushSizes[next];
                 statusNote_ = "Brush " + brushSizeLabel(brushSize_);
             }
         }
@@ -5918,13 +5948,19 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         return;
     }
     const int cell = kBrushCellTiles;
-    const int size = std::max(cell, brushSize_ / cell * cell);
-    const int blockCells = size / cell;
+    // 8 x 8 sets one corner. Larger brushes fill whole 16 x 16 cells.
+    const bool cornerBrush = brushSize_ < cell;
+    const int size = cornerBrush ? brushSize_ : std::max(cell, brushSize_ / cell * cell);
+    const int blockCells = cornerBrush ? 0 : size / cell;
     const int blockX = tileX / cell;
     const int blockY = tileY / cell;
     const int cellsX = (map_->tileWidth + cell - 1) / cell;
     const int cellsY = (map_->tileHeight + cell - 1) / cell;
-    if (tileX < 0 || tileY < 0 || blockX >= cellsX || blockY >= cellsY) {
+    int nodeX = 0;
+    int nodeY = 0;
+    if (tileX < 0 || tileY < 0 || tileX >= map_->tileWidth || tileY >= map_->tileHeight
+        || (cornerBrush && !brushCornerNode(tileX, tileY, cellsX, cellsY, nodeX, nodeY))
+        || (!cornerBrush && (blockX >= cellsX || blockY >= cellsY))) {
         statusNote_ = "The brush is outside the map";
         return;
     }
@@ -5953,15 +5989,19 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         return matches[static_cast<std::size_t>(pick(rng))];
     };
 
-    std::vector<BrushStroke*> blockStrokes = strokesFor(brushName_, size);
-    // A tileset with only a 16 x 16 base, such as Lava, repeats that cell across a larger brush.
-    const bool repeatCell = blockStrokes.empty() && size > cell;
-    if (repeatCell) {
-        blockStrokes = strokesFor(brushName_, cell);
-    }
-    if (blockStrokes.empty()) {
-        statusNote_ = "No " + brushName_ + " " + brushSizeLabel(repeatCell ? cell : size) + " brush stroke";
-        return;
+    std::vector<BrushStroke*> blockStrokes;
+    bool repeatCell = false;
+    if (!cornerBrush) {
+        blockStrokes = strokesFor(brushName_, size);
+        // A tileset with only a 16 x 16 base, such as Lava, repeats that cell across a larger brush.
+        repeatCell = blockStrokes.empty() && size > cell;
+        if (repeatCell) {
+            blockStrokes = strokesFor(brushName_, cell);
+        }
+        if (blockStrokes.empty()) {
+            statusNote_ = "No " + brushName_ + " " + brushSizeLabel(repeatCell ? cell : size) + " brush stroke";
+            return;
+        }
     }
 
     // The paints, lowest to highest, are the levels. The graph says which pairs
@@ -6018,16 +6058,19 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         std::vector<PlannedStamp> planned;
         int transitionPieces = 0;
 
-        BrushStroke* chosen = pickOne(blockStrokes);
-        loadStamp(chosen->stamp, chosen->sectionPath, chosen->name);
-        if (repeatCell) {
-            for (int cy = std::max(0, blockY); cy < std::min(cellsY, blockY + blockCells); ++cy) {
-                for (int cx = std::max(0, blockX); cx < std::min(cellsX, blockX + blockCells); ++cx) {
-                    planned.push_back(PlannedStamp{&*chosen->stamp, cx * cell, cy * cell});
+        BrushStroke* chosen = nullptr;
+        if (!cornerBrush) {
+            chosen = pickOne(blockStrokes);
+            loadStamp(chosen->stamp, chosen->sectionPath, chosen->name);
+            if (repeatCell) {
+                for (int cy = std::max(0, blockY); cy < std::min(cellsY, blockY + blockCells); ++cy) {
+                    for (int cx = std::max(0, blockX); cx < std::min(cellsX, blockX + blockCells); ++cx) {
+                        planned.push_back(PlannedStamp{&*chosen->stamp, cx * cell, cy * cell});
+                    }
                 }
+            } else {
+                planned.push_back(PlannedStamp{&*chosen->stamp, blockX * cell, blockY * cell});
             }
-        } else {
-            planned.push_back(PlannedStamp{&*chosen->stamp, blockX * cell, blockY * cell});
         }
 
         if (transitions) {
@@ -6061,7 +6104,9 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                 }
                 return static_cast<int>(winner);
             };
-            const BrushPlan plan = planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readCorner);
+            const BrushPlan plan = cornerBrush
+                ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readCorner)
+                : planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readCorner);
             std::vector<std::string> missing;
             const auto noteMissing = [&](const std::string& what) {
                 if (std::find(missing.begin(), missing.end(), what) == missing.end()) {
@@ -6123,10 +6168,12 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
             }
         }
         if (changes.empty()) {
-            statusNote_ = "The brush is outside the map";
+            statusNote_ = cornerBrush ? "The brush is already here" : "The brush is outside the map";
         } else {
-            std::string note = "Placed " + chosen->name;
-            if (transitionPieces > 0) {
+            std::string note = cornerBrush
+                ? "Placed " + std::to_string(static_cast<int>(changes.size())) + (changes.size() == 1 ? " corner tile" : " corner tiles")
+                : "Placed " + chosen->name;
+            if (!cornerBrush && transitionPieces > 0) {
                 note += " with " + std::to_string(transitionPieces) + (transitionPieces == 1 ? " transition piece" : " transition pieces");
             }
             if (changes.size() == 1) {

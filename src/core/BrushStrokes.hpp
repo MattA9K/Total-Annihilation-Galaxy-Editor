@@ -471,6 +471,26 @@ struct BrushPlan {
     std::vector<BrushCell> cells;
 };
 
+// The 8 x 8 brush paints the point where four 16 x 16 cells meet. The cursor
+// snaps to the nearest such point, and a map large enough to have one keeps the
+// snap off the outer edge so four cells always share it. nodeX and nodeY are
+// that point, in the same coordinates planBrush uses.
+inline bool brushCornerNode(int tileX, int tileY, int cellsX, int cellsY, int& nodeX, int& nodeY) {
+    if (tileX < 0 || tileY < 0 || cellsX < 0 || cellsY < 0) {
+        return false;
+    }
+    const int half = kBrushCellTiles / 2;
+    nodeX = (tileX + half) / kBrushCellTiles;
+    nodeY = (tileY + half) / kBrushCellTiles;
+    if (cellsX > 1) {
+        nodeX = std::clamp(nodeX, 1, cellsX - 1);
+    }
+    if (cellsY > 1) {
+        nodeY = std::clamp(nodeY, 1, cellsY - 1);
+    }
+    return nodeX >= 0 && nodeY >= 0 && nodeX <= cellsX && nodeY <= cellsY;
+}
+
 // Plans a stroke over a square block of cells. The painted cells become flat on
 // `level`. Corners that would end up in a cell with a paint they are not joined
 // to move one step along the chain of joined paints toward the painted one,
@@ -478,11 +498,16 @@ struct BrushPlan {
 // corner's level before the stroke. Corners run from 0 to cellsX across and 0 to
 // cellsY down, and the cell at (x, y) owns corners (x, y), (x + 1, y), (x, y + 1)
 // and (x + 1, y + 1).
+//
+// blockCells of 0 paints one corner instead of a block. blockX and blockY are
+// that corner. The cells that share it become corner pieces, and no cell is
+// filled flat by the stroke itself.
 using BrushNodeReader = std::function<int(int nodeX, int nodeY)>;
 
 inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int blockCells, int level, const BrushGraph& graph, const BrushNodeReader& readNode) {
     BrushPlan plan;
-    if (cellsX <= 0 || cellsY <= 0 || blockCells <= 0 || !readNode || level < 0 || level >= graph.size()) {
+    const bool corner = blockCells == 0;
+    if (cellsX <= 0 || cellsY <= 0 || blockCells < 0 || !readNode || level < 0 || level >= graph.size()) {
         return plan;
     }
     const auto inLattice = [&](int x, int y) {
@@ -499,8 +524,11 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
     const auto levelBefore = [&](int x, int y) {
         return inLattice(x, y) ? std::clamp(readNode(x, y), 0, graph.size() - 1) : 0;
     };
-    // Corners of the painted block keep the painted level.
+    // Corners of the painted block keep the painted level. A corner stroke locks its one corner.
     const auto isLocked = [&](int x, int y) {
+        if (corner) {
+            return x == blockX && y == blockY;
+        }
         return x >= blockX && x <= blockX + blockCells && y >= blockY && y <= blockY + blockCells;
     };
     const auto levelAfter = [&](int x, int y) {
@@ -525,17 +553,24 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
     };
 
     std::vector<std::pair<int, int>> work;
-    for (int cy = blockY; cy < blockY + blockCells; ++cy) {
-        for (int cx = blockX; cx < blockX + blockCells; ++cx) {
-            if (!isCell(cx, cy)) {
-                continue;
-            }
-            for (int corner = 0; corner < 4; ++corner) {
-                const int x = cx + (corner & 1);
-                const int y = cy + (corner >> 1);
-                if (slots.find(keyOf(x, y)) == slots.end()) {
-                    setLevel(x, y, level);
-                    work.emplace_back(x, y);
+    if (corner) {
+        setLevel(blockX, blockY, level);
+        if (inLattice(blockX, blockY)) {
+            work.emplace_back(blockX, blockY);
+        }
+    } else {
+        for (int cy = blockY; cy < blockY + blockCells; ++cy) {
+            for (int cx = blockX; cx < blockX + blockCells; ++cx) {
+                if (!isCell(cx, cy)) {
+                    continue;
+                }
+                for (int cornerIndex = 0; cornerIndex < 4; ++cornerIndex) {
+                    const int x = cx + (cornerIndex & 1);
+                    const int y = cy + (cornerIndex >> 1);
+                    if (slots.find(keyOf(x, y)) == slots.end()) {
+                        setLevel(x, y, level);
+                        work.emplace_back(x, y);
+                    }
                 }
             }
         }
@@ -676,7 +711,7 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
             for (int dx = -1; dx <= 0; ++dx) {
                 const int cx = node.x + dx;
                 const int cy = node.y + dy;
-                const bool inBlock = cx >= blockX && cx < blockX + blockCells && cy >= blockY && cy < blockY + blockCells;
+                const bool inBlock = !corner && cx >= blockX && cx < blockX + blockCells && cy >= blockY && cy < blockY + blockCells;
                 if (isCell(cx, cy) && !inBlock) {
                     candidates.push_back(BrushCell{cx, cy, 0, 0, 0, {0, 0, 0, 0}});
                 }
