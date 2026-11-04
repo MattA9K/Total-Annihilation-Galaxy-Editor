@@ -26,7 +26,7 @@ namespace galaxy {
 
 // What a Tile Brush button paints. Base tiles use the brush strokes. The others place
 // one 16 x 16 piece chosen from the neighbouring cells.
-enum class BrushKind { Base, River, Bridge, Ridge, Spacer };
+enum class BrushKind { Base, River, Bridge, Ridge, Spacer, Slope };
 
 class EditorApp {
 public:

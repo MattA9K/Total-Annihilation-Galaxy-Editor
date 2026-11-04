@@ -2,6 +2,7 @@
 
 #include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
+#include "core/SlopeBrush.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
 #include "core/Version.hpp"
@@ -278,10 +279,10 @@ bool isTransitionWorld(std::string_view world) {
     return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles" || name == "coastdsl" || name == "coastalcliff";
 }
 
-// River and ridge sections: pieces, mouths, bridges and spacers.
+// River, ridge and slope sections. Slopes are the walkable cliff pieces.
 bool isRiverWorld(std::string_view world) {
     const std::string name = lowerText(world);
-    return name == "rivers" || name == "ridges";
+    return name == "rivers" || name == "ridges" || name == "slopes";
 }
 
 int trailingNumber(std::string_view name) {
@@ -758,7 +759,7 @@ void EditorApp::drawToolbar() {
         ImGui::BeginGroup();
         ImGui::SetCursorPos(ImVec2(blockX, topY + std::floor((theme::toolbarItemHeight() - blockHeight) * 0.5f)));
         ImGui::SetNextItemWidth(comboWidth);
-        // Rivers and ridges always fill one 16 x 16 cell, so the size is fixed for them.
+        // Rivers, ridges and slopes always fill one 16 x 16 cell, so the size is fixed for them.
         const bool fixedSize = lineBrushArmed();
         const std::string currentSize = brushSizeLabel(fixedSize ? kBrushCellTiles : brushSize_);
         if (fixedSize) {
@@ -784,7 +785,7 @@ void EditorApp::drawToolbar() {
         ImGui::EndGroup();
         usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
-            ImGui::SetTooltip(fixedSize ? "Rivers and ridges fill one 16 x 16 tile cell" : "Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells");
+            ImGui::SetTooltip(fixedSize ? "Rivers, ridges and slopes fill one 16 x 16 tile cell" : "Brush size, in map tiles\nThe brush snaps to a grid of 16 x 16 tile cells");
         }
     }
 
@@ -3386,10 +3387,13 @@ void EditorApp::drawMap() {
         const char* what = brushName_.c_str();
         if (riverBlocked) {
             ImGui::SetTooltip("%s\nHeight %d", riverHover.reason.c_str(), hoverHeight_);
-        } else if (hoverOverMap_) {
-            ImGui::SetTooltip("%s\nClick to paint one 16 x 16 cell\nEsc cancels\nHeight %d", what, hoverHeight_);
         } else {
-            ImGui::SetTooltip("%s\nClick to paint one 16 x 16 cell\nEsc cancels", what);
+            const char* action = armedBrushKind() == BrushKind::Slope ? "Click a cliff to turn it into a slope" : "Click to paint one 16 x 16 cell";
+            if (hoverOverMap_) {
+                ImGui::SetTooltip("%s\n%s\nEsc cancels\nHeight %d", what, action, hoverHeight_);
+            } else {
+                ImGui::SetTooltip("%s\n%s\nEsc cancels", what, action);
+            }
         }
     } else if (hovered && brushOwnsMap) {
         if (hoverOverMap_) {
@@ -6177,6 +6181,7 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
     case BrushKind::Bridge: return planRiverBridge(cellX, cellY, lookup);
     case BrushKind::Ridge: return planRidge(cellX, cellY, lookup);
     case BrushKind::Spacer: return planRidgeSpacer(cellX, cellY, lookup);
+    case BrushKind::Slope: return planSlope(cellX, cellY, lookup);
     case BrushKind::Base: break;
     }
     none.reason = "This brush does not use river rules";
@@ -6396,6 +6401,7 @@ void EditorApp::ensureBrushPaints() {
     addRiverButton("River Bridge", "RiverB-Horizontal-01", BrushKind::Bridge);
     addRiverButton("Ridge", "Ridge-Horizontal-01", BrushKind::Ridge);
     addRiverButton("Ridge Spacer", "Ridge-L_R-Spacer-01", BrushKind::Spacer);
+    addRiverButton("Slope", "Slope-High-B-01", BrushKind::Slope);
     if (!brushName_.empty()) {
         bool found = false;
         for (const BrushPaint& paint : brushPaints_) {
@@ -6486,10 +6492,19 @@ void EditorApp::drawTileBrush() {
     for (std::size_t index = 0; index < brushPaints_.size(); ++index) {
         const BrushPaint& paint = brushPaints_[index];
         const auto group = [](BrushKind kind) {
-            return kind == BrushKind::Base ? 0 : (kind == BrushKind::River || kind == BrushKind::Bridge ? 1 : 2);
+            if (kind == BrushKind::Base) {
+                return 0;
+            }
+            if (kind == BrushKind::River || kind == BrushKind::Bridge) {
+                return 1;
+            }
+            if (kind == BrushKind::Ridge || kind == BrushKind::Spacer) {
+                return 2;
+            }
+            return 3;
         };
         if (index > 0 && group(paint.kind) != group(brushPaints_[index - 1].kind)) {
-            // Rivers and ridges each start on a row of their own, below the base tiles.
+            // Rivers, ridges and slopes each start on a row of their own, below the base tiles.
             column = 0;
             ImGui::Dummy(ImVec2(0.0f, 2.0f));
         }
@@ -6538,6 +6553,8 @@ void EditorApp::drawTileBrush() {
                 hint = "Paint ridges on Base-85 and straight cliff edges\nRidges join the ridges beside them";
             } else if (paint.kind == BrushKind::Spacer) {
                 hint = "Open a gap in a ridge\nSpacers only go on straight ridges";
+            } else if (paint.kind == BrushKind::Slope) {
+                hint = "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
             }
             if (selected) {
                 hint = "Click again or press Esc to leave the brush";

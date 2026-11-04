@@ -5,6 +5,7 @@
 #include "core/MapGenerator.hpp"
 #include "core/OrbitCamera.hpp"
 #include "core/RiverBrush.hpp"
+#include "core/SlopeBrush.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
@@ -23,6 +24,7 @@
 #include <system_error>
 #include <iostream>
 #include <iterator>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -3198,11 +3200,185 @@ void testRidges() {
     expect(!wall.spacer(1, 0).allowed() && !wall.spacer(0, 0).allowed(), "spacers refuse mouths and base tiles");
 }
 
+// A small grid of cliff and slope labels. Clicking applies a slope plan.
+struct SlopeTestGrid {
+    int width = 0;
+    int height = 0;
+    std::vector<std::string> labels;
+
+    SlopeTestGrid(int w, int h, const std::string& fill) : width(w), height(h), labels(static_cast<std::size_t>(w * h), fill) {}
+
+    std::string& at(int x, int y) { return labels[static_cast<std::size_t>(y * width + x)]; }
+
+    galaxy::RiverCell look(int x, int y) const {
+        if (x < 0 || y < 0 || x >= width || y >= height) {
+            return galaxy::RiverCell{};
+        }
+        return galaxy::classifyRiverLabel(labels[static_cast<std::size_t>(y * width + x)]);
+    }
+
+    galaxy::RiverPlan slope(int x, int y) {
+        const galaxy::RiverPlan plan = galaxy::planSlope(x, y, [&](int cx, int cy) { return look(cx, cy); });
+        if (plan.allowed()) {
+            for (const galaxy::RiverEdit& edit : plan.edits) {
+                at(edit.x, edit.y) = edit.key;
+            }
+        }
+        return plan;
+    }
+};
+
+void testSlopes() {
+    using galaxy::kCornerAll;
+    using galaxy::kCornerBottomLeft;
+    using galaxy::kCornerBottomRight;
+    using galaxy::kCornerTopLeft;
+    using galaxy::kCornerTopRight;
+
+    const galaxy::SlopeShape corner = galaxy::parseSlopeShape("Cliff-High-BL-02");
+    expect(corner.valid && !corner.slope && corner.mask == kCornerBottomLeft, "Cliff-High-BL is the bottom-left high corner");
+    const galaxy::SlopeShape ramp = galaxy::parseSlopeShape("Slope-High-B-TransitionL-01");
+    expect(ramp.valid && ramp.slope && ramp.mask == (kCornerBottomLeft | kCornerBottomRight), "a bottom transition is still a bottom cliff");
+    const galaxy::SlopeShape low = galaxy::parseSlopeShape("Slope-Low-TL");
+    expect(low.valid && low.slope && low.mask == (kCornerAll & ~kCornerTopLeft), "Slope-Low-TL is high ground everywhere except the top left");
+    const galaxy::SlopeShape single = galaxy::parseSlopeShape("Single-High-TR");
+    expect(single.valid && single.slope && single.mask == kCornerTopRight, "Single-High-TR is the top-right high corner");
+    expect(!galaxy::parseSlopeShape("Base-85").valid && !galaxy::parseSlopeShape("Coast-Water-T").valid && !galaxy::parseSlopeShape("Cliff-High-TL_and_BR").valid, "bases, coasts and diagonals are not slopes");
+
+    // Every cliff shape, with every way its sides can already be slopes, names a real slope tile.
+    const int masks[] = {
+        kCornerTopLeft | kCornerTopRight,
+        kCornerBottomLeft | kCornerBottomRight,
+        kCornerTopLeft | kCornerBottomLeft,
+        kCornerTopRight | kCornerBottomRight,
+        kCornerTopLeft,
+        kCornerTopRight,
+        kCornerBottomLeft,
+        kCornerBottomRight,
+        kCornerAll & ~kCornerTopLeft,
+        kCornerAll & ~kCornerTopRight,
+        kCornerAll & ~kCornerBottomLeft,
+        kCornerAll & ~kCornerBottomRight,
+    };
+    const std::set<std::string> archive = {
+        "Slope-High-T", "Slope-High-B", "Slope-High-L", "Slope-High-R",
+        "Slope-High-T-TransitionL", "Slope-High-T-TransitionR",
+        "Slope-High-B-TransitionL", "Slope-High-B-TransitionR",
+        "Slope-High-L-TransitionT", "Slope-High-L-TransitionB",
+        "Slope-High-R-TransitionT", "Slope-High-R-TransitionB",
+        "Slope-High-TL", "Slope-High-TR", "Slope-High-BL", "Slope-High-BR",
+        "Slope-Low-TL", "Slope-Low-TR", "Slope-Low-BL", "Slope-Low-BR",
+        "Slope-Low-TL-TransitionL", "Slope-Low-TL-TransitionT",
+        "Slope-Low-TR-TransitionT", "Slope-Low-TR-TransitionR",
+        "Slope-Low-BL-TransitionB", "Slope-Low-BL-TransitionL",
+        "Slope-Low-BR-TransitionR", "Slope-Low-BR-TransitionB",
+        "Single-High-T", "Single-High-B", "Single-High-L", "Single-High-R",
+        "Single-High-TL", "Single-High-TR", "Single-High-BL", "Single-High-BR",
+    };
+    std::set<std::string> made;
+    bool roundTrip = true;
+    for (const int mask : masks) {
+        std::vector<int> arms;
+        for (int bit = 1; bit <= galaxy::kRiverAllSides; bit <<= 1) {
+            if ((galaxy::slopeCliffSides(mask) & bit) != 0) {
+                arms.push_back(bit);
+            }
+        }
+        std::vector<int> subsets{0};
+        for (const int bit : arms) {
+            subsets.push_back(bit);
+        }
+        if (arms.size() == 2) {
+            subsets.push_back(arms[0] | arms[1]);
+        }
+        for (const int continuing : subsets) {
+            const std::string name = galaxy::slopePieceName(mask, continuing);
+            made.insert(name);
+            const galaxy::SlopeShape parsed = galaxy::parseSlopeShape(name);
+            roundTrip = roundTrip && parsed.valid && parsed.slope && parsed.mask == mask && archive.count(name) == 1;
+        }
+    }
+    expect(roundTrip && made == archive, "every slope the brush can ask for is one of the slope tiles");
+
+    SlopeTestGrid alone(3, 3, "Base-85");
+    alone.at(1, 1) = "Cliff-High-BL";
+    expect(alone.slope(1, 1).allowed() && alone.at(1, 1) == "Single-High-BL", "an isolated Cliff-High-BL becomes Single-High-BL, got " + alone.at(1, 1));
+    SlopeTestGrid straight(3, 3, "Base-85");
+    straight.at(1, 1) = "Cliff-High-B";
+    expect(straight.slope(1, 1).allowed() && straight.at(1, 1) == "Single-High-B", "an isolated Cliff-High-B becomes Single-High-B, got " + straight.at(1, 1));
+    SlopeTestGrid topRight(3, 3, "Base-85");
+    topRight.at(1, 1) = "Cliff-High-TR";
+    expect(topRight.slope(1, 1).allowed() && topRight.at(1, 1) == "Single-High-TR", "an isolated Cliff-High-TR becomes Single-High-TR");
+    SlopeTestGrid pit(3, 3, "Base-219");
+    pit.at(1, 1) = "Cliff-Low-TL";
+    expect(pit.slope(1, 1).allowed() && pit.at(1, 1) == "Slope-Low-TL", "an isolated Cliff-Low-TL becomes Slope-Low-TL, got " + pit.at(1, 1));
+
+    // Two bottom cliffs, clicked one after the other. The gentle sides face each other.
+    SlopeTestGrid pair(5, 3, "Base-85");
+    pair.at(1, 1) = "Cliff-High-B";
+    pair.at(2, 1) = "Cliff-High-B";
+    pair.at(3, 1) = "Cliff-High-B";
+    expect(pair.slope(1, 1).allowed() && pair.at(1, 1) == "Single-High-B" && pair.at(2, 1) == "Cliff-High-B", "the first click converts only that cliff");
+    expect(pair.slope(2, 1).allowed() && pair.at(1, 1) == "Slope-High-B-TransitionR" && pair.at(2, 1) == "Slope-High-B-TransitionL", "two slopes meet gently, got " + pair.at(1, 1) + " and " + pair.at(2, 1));
+    expect(pair.at(3, 1) == "Cliff-High-B", "a cliff that was not clicked stays a cliff");
+    expect(pair.slope(3, 1).allowed() && pair.at(1, 1) == "Slope-High-B-TransitionR" && pair.at(2, 1) == "Slope-High-B" && pair.at(3, 1) == "Slope-High-B-TransitionL", "three slopes are a transition, a ramp and a transition, got " + pair.at(1, 1) + " " + pair.at(2, 1) + " " + pair.at(3, 1));
+    const galaxy::RiverPlan again = pair.slope(2, 1);
+    expect(!again.allowed() && again.reason.find("already") != std::string::npos && pair.at(2, 1) == "Slope-High-B", "clicking a finished slope changes nothing");
+
+    // A plateau corner becomes Slope-High-BL only once both arms are slopes.
+    SlopeTestGrid plateau(4, 5, "Base-85");
+    plateau.at(1, 2) = "Cliff-High-B";
+    plateau.at(2, 2) = "Cliff-High-BL";
+    plateau.at(2, 3) = "Cliff-High-L";
+    expect(plateau.slope(2, 2).allowed() && plateau.at(2, 2) == "Single-High-BL" && plateau.at(1, 2) == "Cliff-High-B" && plateau.at(2, 3) == "Cliff-High-L", "clicking only the corner leaves the cliff arms alone");
+    plateau.slope(1, 2);
+    plateau.slope(2, 3);
+    expect(plateau.at(2, 2) == "Slope-High-BL" && plateau.at(1, 2) == "Slope-High-B-TransitionR" && plateau.at(2, 3) == "Slope-High-L-TransitionT", "both arms make Slope-High-BL, got " + plateau.at(2, 2) + " " + plateau.at(1, 2) + " " + plateau.at(2, 3));
+
+    // High-TR becomes Slope-High-TR once both arms are slopes, the same as the other high corners.
+    SlopeTestGrid topRightCorner(5, 3, "Base-85");
+    topRightCorner.at(2, 1) = "Cliff-High-TR";
+    topRightCorner.at(3, 1) = "Cliff-High-T";
+    topRightCorner.at(2, 0) = "Cliff-High-R";
+    expect(topRightCorner.slope(2, 1).allowed() && topRightCorner.at(2, 1) == "Single-High-TR" && topRightCorner.at(3, 1) == "Cliff-High-T" && topRightCorner.at(2, 0) == "Cliff-High-R", "clicking only High-TR leaves its cliff arms alone");
+    topRightCorner.slope(3, 1);
+    topRightCorner.slope(2, 0);
+    expect(topRightCorner.at(2, 1) == "Slope-High-TR" && topRightCorner.at(3, 1) == "Slope-High-T-TransitionL" && topRightCorner.at(2, 0) == "Slope-High-R-TransitionB", "both arms make Slope-High-TR, got " + topRightCorner.at(2, 1) + " " + topRightCorner.at(3, 1) + " " + topRightCorner.at(2, 0));
+
+    // A low corner with one arm keeps that arm gentle and the other side steep.
+    SlopeTestGrid lowArm(4, 4, "Base-219");
+    lowArm.at(2, 2) = "Cliff-Low-TL";
+    lowArm.at(1, 2) = "Cliff-High-B";
+    lowArm.slope(2, 2);
+    lowArm.slope(1, 2);
+    expect(lowArm.at(2, 2) == "Slope-Low-TL-TransitionL" && lowArm.at(1, 2) == "Slope-High-B-TransitionR", "one arm of a low corner is a transition, got " + lowArm.at(2, 2) + " " + lowArm.at(1, 2));
+    lowArm.at(2, 1) = "Cliff-High-R";
+    lowArm.slope(2, 1);
+    expect(lowArm.at(2, 2) == "Slope-Low-TL" && lowArm.at(1, 2) == "Slope-High-B-TransitionR" && lowArm.at(2, 1) == "Slope-High-R-TransitionB", "both arms of a low corner make Slope-Low, got " + lowArm.at(2, 2) + " " + lowArm.at(2, 1));
+
+    SlopeTestGrid refused(3, 3, "Base-85");
+    refused.at(0, 0) = "Base-219";
+    refused.at(1, 0) = "Base-68";
+    refused.at(2, 0) = "Base-0";
+    refused.at(0, 1) = "Coast-Water-T";
+    refused.at(1, 1) = "Ridge-Horizontal";
+    const galaxy::RiverPlan land = refused.slope(1, 2);
+    const galaxy::RiverPlan high = refused.slope(0, 0);
+    const galaxy::RiverPlan shallow = refused.slope(1, 0);
+    const galaxy::RiverPlan coast = refused.slope(0, 1);
+    expect(!land.allowed() && land.reason.find("Base-85") != std::string::npos, "slopes refuse Base-85");
+    expect(!high.allowed() && high.reason.find("Base-219") != std::string::npos, "slopes refuse Base-219");
+    expect(!shallow.allowed() && shallow.reason.find("Base-68") != std::string::npos, "slopes refuse Base-68");
+    expect(!coast.allowed() && coast.reason.find("Coast-Water-T") != std::string::npos, "slopes refuse a coast");
+    expect(!refused.slope(1, 1).allowed() && refused.at(1, 1) == "Ridge-Horizontal" && refused.at(1, 2) == "Base-85", "a refused click leaves the cells alone");
+}
+
 int main() {
     testBrushStrokeNames();
     testBrushCells();
     testRivers();
     testRidges();
+    testSlopes();
     testFavorites();
     testArchiveDocument();
     testBlankMap();
