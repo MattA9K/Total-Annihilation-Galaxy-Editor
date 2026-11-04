@@ -20,7 +20,9 @@ namespace galaxy {
 // Base-0 and Base-85 join with Coast pieces, Base-68 and Base-85 with
 // ShallowCoast pieces, Base-68 and Base-0 with ShallowDeep pieces, Base-85 and
 // Base-219 with Cliff pieces, and Base-219 joins Base-0 and Base-68 with
-// CoastalCliff pieces. A cell holds one paint or two joined paints. Three paints
+// CoastalCliff pieces. Base-45 and Base-0 join the same way, with Base-45 on the
+// land side of a coast and Base-0 on the lava side. A cell holds one paint or two
+// joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
 // and Base-85 use a CoastDSL piece, and Base-219 with Base-85 and either Base-0
 // or Base-68 uses a CoastalCliff piece.
@@ -161,9 +163,10 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 6>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 6> rules = {{
+inline const std::array<BrushTransitionRule, 7>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 7> rules = {{
         {0, 85, TransitionStyle::Coast},
+        {0, 45, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
         {0, 219, TransitionStyle::CoastalCliffDeep},
@@ -173,12 +176,22 @@ inline const std::array<BrushTransitionRule, 6>& brushTransitionRules() {
     return rules;
 }
 
+// Coast-Water-T is the usual name. A tileset can use another word for the same
+// shape, such as Coast-Lava-T, while Coast-Land stays Coast-Land.
+inline std::string coastNamed(std::string_view name, std::string_view liquid) {
+    constexpr std::string_view water = "Coast-Water-";
+    if (liquid != "Water" && name.size() >= water.size() && name.substr(0, water.size()) == water) {
+        return "Coast-" + std::string(liquid) + "-" + std::string(name.substr(water.size()));
+    }
+    return std::string(name);
+}
+
 // The section a mask needs for a family of pieces, without its variation number.
 // Empty for flat cells and the two diagonal masks.
-inline std::string transitionPieceName(TransitionStyle style, int mask) {
+inline std::string transitionPieceName(TransitionStyle style, int mask, std::string_view coastLiquid = "Water") {
     switch (style) {
     case TransitionStyle::Cliff: return std::string(cliffPieceName(mask));
-    case TransitionStyle::Coast: return std::string(coastPieceName(mask));
+    case TransitionStyle::Coast: return coastNamed(coastPieceName(mask), coastLiquid);
     case TransitionStyle::ShallowCoast: {
         const std::string_view coast = coastPieceName(mask);
         return coast.empty() ? std::string() : "Shallow" + std::string(coast);
@@ -314,7 +327,7 @@ inline std::string dslPieceName(int landMask, int shallowMask) {
 // Two levels use the family that joins them. Base-0, Base-68 and Base-85
 // together use a CoastDSL section, and Base-219, Base-85 and Base-0 or Base-68
 // use a CoastalCliff section.
-inline std::string brushPieceName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+inline std::string brushPieceName(const BrushGraph& graph, const std::array<int, 4>& corners, std::string_view coastLiquid = "Water") {
     std::array<int, 4> sorted = corners;
     std::sort(sorted.begin(), sorted.end());
     const int distinct = static_cast<int>(std::unique(sorted.begin(), sorted.end()) - sorted.begin());
@@ -326,7 +339,7 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         return mask;
     };
     if (distinct == 2) {
-        return transitionPieceName(graph.style(sorted[0], sorted[1]), maskOf(sorted[1]));
+        return transitionPieceName(graph.style(sorted[0], sorted[1]), maskOf(sorted[1]), coastLiquid);
     }
     if (distinct == 3) {
         const int low = graph.height(sorted[0]);

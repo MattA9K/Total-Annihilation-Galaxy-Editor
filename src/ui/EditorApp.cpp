@@ -269,6 +269,17 @@ bool isBaseBrushTile(std::string_view world, std::string_view name) {
     return lowerText(world) == "basetiles" && lowerText(name).starts_with("base");
 }
 
+// Pieces for one tileset live in a category such as GreenWorld or Lava. River
+// pieces are filed under GreenLand and still belong to the GreenWorld brush.
+bool brushCategoryMatches(std::string_view category, std::string_view world) {
+    const std::string left = lowerText(category);
+    const std::string right = lowerText(world);
+    if (left == right) {
+        return true;
+    }
+    return right == "greenworld" && left == "greenland";
+}
+
 bool isBrushStrokeWorld(std::string_view world) {
     return lowerText(world) == "basetilebrushstrokes";
 }
@@ -5922,9 +5933,14 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         return matches[static_cast<std::size_t>(pick(rng))];
     };
 
-    const std::vector<BrushStroke*> blockStrokes = strokesFor(brushName_, size);
+    std::vector<BrushStroke*> blockStrokes = strokesFor(brushName_, size);
+    // A tileset with only a 16 x 16 base, such as Lava, repeats that cell across a larger brush.
+    const bool repeatCell = blockStrokes.empty() && size > cell;
+    if (repeatCell) {
+        blockStrokes = strokesFor(brushName_, cell);
+    }
     if (blockStrokes.empty()) {
-        statusNote_ = "No " + brushName_ + " " + brushSizeLabel(size) + " brush stroke";
+        statusNote_ = "No " + brushName_ + " " + brushSizeLabel(repeatCell ? cell : size) + " brush stroke";
         return;
     }
 
@@ -5984,7 +6000,15 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
 
         BrushStroke* chosen = pickOne(blockStrokes);
         loadStamp(chosen->stamp, chosen->sectionPath, chosen->name);
-        planned.push_back(PlannedStamp{&*chosen->stamp, blockX * cell, blockY * cell});
+        if (repeatCell) {
+            for (int cy = std::max(0, blockY); cy < std::min(cellsY, blockY + blockCells); ++cy) {
+                for (int cx = std::max(0, blockX); cx < std::min(cellsX, blockX + blockCells); ++cx) {
+                    planned.push_back(PlannedStamp{&*chosen->stamp, cx * cell, cy * cell});
+                }
+            }
+        } else {
+            planned.push_back(PlannedStamp{&*chosen->stamp, blockX * cell, blockY * cell});
+        }
 
         if (transitions) {
             // A corner sits on the level whose paint height is closest to the
@@ -6039,7 +6063,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                     continue;
                 }
                 const BrushPaint* upper = levels[static_cast<std::size_t>(ringCell.upper)];
-                const std::string piece = brushPieceName(graph, ringCell.corners);
+                const std::string piece = brushPieceName(graph, ringCell.corners, brushCoastLiquid_);
                 if (piece.empty()) {
                     noteMissing("a piece joining " + lower->name + " to " + upper->name);
                     continue;
@@ -6291,7 +6315,7 @@ void EditorApp::ensureBrushPaints() {
     }
     std::string key = "missing";
     if (source != nullptr) {
-        key = source->path.string() + "\n" + std::to_string(source->sections.size());
+        key = source->path.string() + "\n" + std::to_string(source->sections.size()) + "\n" + brushWorld_;
     } else if (loadingTilesets()) {
         key = "loading";
     }
@@ -6308,6 +6332,7 @@ void EditorApp::ensureBrushPaints() {
     riverCatalog_.clear();
     riverCatalogReady_ = false;
     brushTilesetPath_.clear();
+    brushCoastLiquid_ = "Water";
     brushCatalogKey_ = key;
     if (source == nullptr) {
         if (!loadingTilesets()) {
@@ -6319,6 +6344,9 @@ void EditorApp::ensureBrushPaints() {
 
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
+        if (!brushCategoryMatches(section.category, brushWorld_)) {
+            continue;
+        }
         if (isBaseBrushTile(section.world, section.name)) {
             chosen.push_back(&section);
         } else if (isBrushStrokeWorld(section.world)) {
@@ -6366,7 +6394,35 @@ void EditorApp::ensureBrushPaints() {
                 continue;
             }
             brushPaints_.push_back(std::move(paint));
+            // Lava bases have no brush-stroke variations, so the base section itself is the 16 x 16 stroke.
+            if (stamp.tileWidth == kBrushCellTiles && stamp.tileHeight == kBrushCellTiles) {
+                bool hasCell = false;
+                for (const BrushStroke& stroke : brushStrokes_) {
+                    if (brushStrokeVariation(stroke.name, section->name, kBrushCellTiles) >= 0) {
+                        hasCell = true;
+                        break;
+                    }
+                }
+                if (!hasCell) {
+                    BrushStroke stroke;
+                    stroke.name = section->name + "-" + std::to_string(kBrushCellTiles) + "x" + std::to_string(kBrushCellTiles) + "-01";
+                    stroke.sectionPath = section->archivePath;
+                    brushStrokes_.push_back(std::move(stroke));
+                }
+            }
         } catch (const std::exception&) {
+        }
+    }
+    for (const BrushPiece& piece : brushPieces_) {
+        const std::string lowered = lowerText(piece.name);
+        constexpr std::string_view prefix = "coast-";
+        if (!lowered.starts_with(prefix) || lowered.starts_with("coast-land-") || lowered.starts_with("coast-water-")) {
+            continue;
+        }
+        const std::size_t dash = piece.name.find('-', prefix.size());
+        if (dash != std::string::npos && dash > prefix.size()) {
+            brushCoastLiquid_ = piece.name.substr(prefix.size(), dash - prefix.size());
+            break;
         }
     }
     // Rivers and bridges get a button of their own after the base tiles. Their pictures
@@ -6471,6 +6527,22 @@ void EditorApp::drawTileBrush() {
         titleDraw->AddLine(ImVec2(center.x - arm, center.y + arm), ImVec2(center.x + arm, center.y - arm), xColor, 1.5f);
         ImGui::PopFont();
         ImGui::Dummy(ImVec2(0.0f, 1.0f));
+    }
+
+    ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
+    if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
+        for (const char* world : {"GreenWorld", "Lava"}) {
+            const bool selected = brushWorld_ == world;
+            if (ImGui::Selectable(world, selected) && !selected) {
+                brushWorld_ = world;
+                brushCatalogKey_.clear();
+                ensureBrushPaints();
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
     }
 
     if (brushPaints_.empty()) {

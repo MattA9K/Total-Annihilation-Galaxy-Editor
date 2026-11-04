@@ -363,6 +363,10 @@ private:
     bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;
     std::string brushCatalogKey_;
+    // GreenWorld or Lava. The Tile Brush window shows the pieces of this one.
+    std::string brushWorld_ = "GreenWorld";
+    // "Water" names Coast-Water. Lava names the same shapes Coast-Lava.
+    std::string brushCoastLiquid_ = "Water";
     std::string brushName_;
     int brushSize_ = 16;
     bool brushStroking_ = false;

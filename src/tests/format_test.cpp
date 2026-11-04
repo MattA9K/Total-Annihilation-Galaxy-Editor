@@ -2437,6 +2437,9 @@ struct BrushTestLattice {
     galaxy::BrushGraph graph;
     std::vector<std::vector<int>> levels;
 
+    // "Water" names Coast-Water. "Lava" names the same shapes Coast-Lava.
+    std::string coastLiquid = "Water";
+
     BrushTestLattice(int cx, int cy, int start, const galaxy::BrushGraph& paints) : cellsX(cx), cellsY(cy), graph(paints), levels(static_cast<std::size_t>(cy + 1), std::vector<int>(static_cast<std::size_t>(cx + 1), start)) {}
 
     int read(int x, int y) const { return levels[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)]; }
@@ -2455,7 +2458,7 @@ struct BrushTestLattice {
         if (corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3]) {
             return "Base-" + std::to_string(graph.height(corners[0]));
         }
-        const std::string name = galaxy::brushPieceName(graph, corners);
+        const std::string name = galaxy::brushPieceName(graph, corners, coastLiquid);
         return name.empty() ? "Unjoined" : name;
     }
 
@@ -2809,6 +2812,22 @@ void testBrushCells() {
             expect(name.rfind("Cliff", 0) != 0, "water never makes cliffs");
         }
     }
+
+    // Lava is Base-45 on land and Base-0 on the lava, joined by the same coast shapes as GreenWorld.
+    const BrushGraph lava(std::vector<int>{0, 45});
+    expect(lava.style(0, 1) == TransitionStyle::Coast && lava.compatible(0, 1), "Base-0 and Base-45 join with coast pieces");
+    BrushTestLattice lavaShore(5, 5, 0, lava);
+    lavaShore.coastLiquid = "Lava";
+    lavaShore.paint(2, 2, 1, 1);
+    expect(lavaShore.piece(2, 2) == "Base-45", "the painted cell is land");
+    expect(lavaShore.piece(2, 1) == "Coast-Lava-T" && lavaShore.piece(2, 3) == "Coast-Lava-B", "lava runs along the top and bottom of the land");
+    expect(lavaShore.piece(1, 2) == "Coast-Lava-L" && lavaShore.piece(3, 2) == "Coast-Lava-R", "lava runs along the left and right of the land");
+    expect(lavaShore.piece(1, 1) == "Coast-Land-BR" && lavaShore.piece(3, 1) == "Coast-Land-BL" && lavaShore.piece(1, 3) == "Coast-Land-TR" && lavaShore.piece(3, 3) == "Coast-Land-TL", "each corner of the land keeps a Coast-Land piece");
+    expect(lavaShore.piece(0, 0) == "Base-0" && !lavaShore.steep(), "the lava farther away stays lava and every cell has a picture");
+    BrushTestLattice pool(5, 5, 1, lava);
+    pool.coastLiquid = "Lava";
+    pool.paint(2, 2, 1, 0);
+    expect(pool.piece(2, 2) == "Base-0" && pool.piece(2, 1) == "Coast-Lava-B" && pool.piece(1, 1) == "Coast-Lava-BR" && !pool.steep(), "a lava pool in the land uses Coast-Lava pieces");
 }
 
 // A small grid of cells for the river rules. Each cell holds a label such as "Base-85".
