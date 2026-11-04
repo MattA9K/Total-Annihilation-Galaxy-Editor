@@ -136,9 +136,13 @@ private:
         int texH = 0;
     };
     bool updateGlass(GlassPanel& panel, float left, float top, float width, float height);
-    // Paints the glass over a screen rectangle in the current window. Returns false
-    // when there is no glass to paint, so the caller can draw a flat color instead.
+    // Paints the glass over a screen rectangle. Returns false when there is no glass
+    // to paint, so the caller can draw a flat color instead.
+    bool drawGlass(GlassPanel& panel, ImDrawList* draw, float left, float top, float right, float bottom, float rounding);
     bool drawGlass(GlassPanel& panel, float left, float top, float right, float bottom, float rounding);
+    // The tooltip ImGui opens for a hovered control. Its flat fill stays when glass
+    // cannot be made (the 3D view, the Frosted Glass menu off, or no map).
+    void drawTooltipGlass();
     void drawStartLocations();
     void drawFeatures();
     void setStartPosition(int player, int x, int y);
@@ -373,6 +377,7 @@ private:
     int brushStrokeX_ = -1;
     int brushStrokeY_ = -1;
     GlassPanel tileBrushGlass_;
+    GlassPanel tooltipGlass_;
     bool miniDirty_ = true;
     bool heightDirty_ = true;
     bool quit_ = false;

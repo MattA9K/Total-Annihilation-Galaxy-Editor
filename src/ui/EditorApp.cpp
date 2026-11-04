@@ -23,6 +23,7 @@
 #endif
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cctype>
@@ -1798,10 +1799,14 @@ bool EditorApp::updateGlass(GlassPanel& panel, float left, float top, float widt
 }
 
 bool EditorApp::drawGlass(GlassPanel& panel, float left, float top, float right, float bottom, float rounding) {
+    return drawGlass(panel, ImGui::GetWindowDrawList(), left, top, right, bottom, rounding);
+}
+
+bool EditorApp::drawGlass(GlassPanel& panel, ImDrawList* draw, float left, float top, float right, float bottom, float rounding) {
     constexpr float kEdgeStrip = 48.0f;
     const float width = right - left;
     const float height = bottom - top;
-    if (!updateGlass(panel, left, top, width, height)) {
+    if (draw == nullptr || !updateGlass(panel, left, top, width, height)) {
         return false;
     }
     // Show only the middle of the picture; the strip around it was there for the blur.
@@ -1809,13 +1814,69 @@ bool EditorApp::drawGlass(GlassPanel& panel, float left, float top, float right,
     const float regionH = height + kEdgeStrip * 2.0f;
     const ImVec2 uv0(kEdgeStrip / regionW, kEdgeStrip / regionH);
     const ImVec2 uv1((kEdgeStrip + width) / regionW, (kEdgeStrip + height) / regionH);
-    ImDrawList* draw = ImGui::GetWindowDrawList();
     if (rounding > 0.0f) {
         draw->AddImageRounded(textureId(panel.blur.texture()), ImVec2(left, top), ImVec2(right, bottom), uv0, uv1, IM_COL32_WHITE, rounding);
     } else {
         draw->AddImage(textureId(panel.blur.texture()), ImVec2(left, top), ImVec2(right, bottom), uv0, uv1);
     }
     return true;
+}
+
+void EditorApp::drawTooltipGlass() {
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    ImGuiWindow* tooltip = nullptr;
+    for (ImGuiWindow* window : g.Windows) {
+        if (window == nullptr || (window->Flags & ImGuiWindowFlags_Tooltip) == 0 || window->DrawList == nullptr) {
+            continue;
+        }
+        if (!window->Active || window->Hidden || window->Size.x < 8.0f || window->Size.y < 8.0f) {
+            continue;
+        }
+        tooltip = window;
+    }
+    if (tooltip == nullptr) {
+        return;
+    }
+
+    const ImVec2 pos = tooltip->Pos;
+    const ImVec2 max(pos.x + tooltip->Size.x, pos.y + tooltip->Size.y);
+    ImDrawList* draw = tooltip->DrawList;
+    const int indexBefore = draw->IdxBuffer.Size;
+    if (!drawGlass(tooltipGlass_, draw, pos.x, pos.y, max.x, max.y, tooltip->WindowRounding)) {
+        return;
+    }
+    draw->AddRect(pos, max, theme::glassStyle().outline, tooltip->WindowRounding);
+
+    // ImGui already filled the tooltip with the flat popup color, and that fill
+    // sits in front of anything drawn now. Drop that fill and its border, then
+    // move the glass to the front of the list so the words stay on top of it.
+    const ImRect& content = tooltip->InnerClipRect;
+    for (const ImDrawCmd& command : draw->CmdBuffer) {
+        if (command.UserCallback != nullptr || command.ElemCount == 0 || command.IdxOffset >= static_cast<unsigned>(indexBefore)) {
+            continue;
+        }
+        const bool outsideContent = command.ClipRect.x < content.Min.x - 0.5f || command.ClipRect.y < content.Min.y - 0.5f
+            || command.ClipRect.z > content.Max.x + 0.5f || command.ClipRect.w > content.Max.y + 0.5f;
+        if (!outsideContent) {
+            break;
+        }
+        for (unsigned element = 0; element < command.ElemCount; ++element) {
+            const ImDrawIdx index = draw->IdxBuffer[command.IdxOffset + element];
+            draw->VtxBuffer[command.VtxOffset + index].col &= ~IM_COL32_A_MASK;
+        }
+    }
+
+    ImVector<ImDrawCmd> glassCommands;
+    for (int i = draw->CmdBuffer.Size - 1; i >= 0; --i) {
+        const ImDrawCmd& command = draw->CmdBuffer[i];
+        if (command.UserCallback == nullptr && command.ElemCount > 0 && command.IdxOffset >= static_cast<unsigned>(indexBefore)) {
+            glassCommands.push_back(command);
+            draw->CmdBuffer.erase(draw->CmdBuffer.Data + i);
+        }
+    }
+    for (const ImDrawCmd& command : glassCommands) {
+        draw->CmdBuffer.push_front(command);
+    }
 }
 
 void EditorApp::drawSidebarBackground() {
@@ -5907,6 +5968,7 @@ bool EditorApp::draw() {
     drawMinimap();
     drawTileBrush();
     hpiEditor_.draw();
+    drawTooltipGlass();
     if (featureDelete_ && featuresTab_) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
         ImDrawList* overlay = ImGui::GetForegroundDrawList();
