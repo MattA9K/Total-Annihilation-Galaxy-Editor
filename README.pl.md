@@ -72,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Aby zbudować Windows `.exe` na komputerze Mac lub Linux, zainstaluj MinGW-w64 (`brew install mingw-w64` lub `apt install g++-mingw-w64-x86-64-posix`), następnie:

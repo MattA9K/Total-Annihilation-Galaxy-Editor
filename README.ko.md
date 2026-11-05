@@ -72,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Mac 또는 Linux 컴퓨터에서 Windows `.exe`를 빌드하려면 MinGW-w64(`brew install mingw-w64` 또는 `apt install g++-mingw-w64-x86-64-posix`)를 설치한 다음:

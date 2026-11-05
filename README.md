@@ -18,7 +18,7 @@ Paint tiles, place trees and metal, set player starts, and shape the height of t
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. On Linux, unpack the archive and run `GalaxyEditor`. The v1.1.2 downloads include `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app`, `GalaxyEditor.exe`, or the Linux `GalaxyEditor` from the archive. `GreenWorld.hpi` is included the same way. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. On Linux, unpack the v1.1.2 archive and run `GalaxyEditor`. Later Linux builds name that program `galaxy-editor`. The v1.1.2 downloads include `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app`, `GalaxyEditor.exe`, or the Linux program from the archive. `GreenWorld.hpi` is included the same way. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Linux
 
@@ -37,7 +37,7 @@ Debian and Ubuntu packages are not on the v1.1.2 release, so there is no `.deb` 
 sudo apt install ./galaxy-editor_1.1.2_amd64.deb
 ```
 
-`apt` installs the editor as `GalaxyEditor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `GalaxyEditor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files stay in the `.tar.gz`, beside the binary.
+`apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The same lowercase name is what you run inside a Linux archive built after this change. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files stay in the `.tar.gz`, beside the program.
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -65,12 +65,12 @@ cmake --build build
 open build/GalaxyEditor.app
 ```
 
-Linux:
+Linux builds `build/galaxy-editor`:
 
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 To build the Windows `.exe` on a Mac or Linux machine, install MinGW-w64 (`brew install mingw-w64`, or `apt install g++-mingw-w64-x86-64-posix`), then:
@@ -104,7 +104,7 @@ Galaxy Editor loads game archives from your Total Annihilation install folder. T
 
 Change the folder at any time in Options, under Total Annihilation. Choose Folder reloads the archives right away, and Clear forgets the folder, so the next launch asks for it again, as on a first launch. The folder is saved in the per-user `settings.json`.
 
-Galaxy Editor reads `.hpi`, `.ccx`, `.gp3`, and `.gpf` files directly inside that folder, and then in the folder that holds the `GalaxyEditor` executable. On macOS that is the folder that holds `GalaxyEditor.app`, so a folder named Galaxy Editor with the app and your own `.hpi` files side by side works, the way Photoshop is laid out. Put your own tileset archives beside the executable (or the `.app`). If a file there has the same name as one in the Total Annihilation folder, such as `worlds.hpi` or `totala1.hpi`, it is skipped, so nothing loads twice. A world archive such as `worlds.hpi` fills the Tilesets tab. `totala1.hpi`, `rev31.gp3`, or `ccdata.ccx` supply the feature list and the feature pictures.
+Galaxy Editor reads `.hpi`, `.ccx`, `.gp3`, and `.gpf` files directly inside that folder, and then in the folder that holds the program: `GalaxyEditor.app` on macOS, `GalaxyEditor.exe` on Windows, and `galaxy-editor` on Linux. On macOS that folder is the one that holds `GalaxyEditor.app`, so a folder named Galaxy Editor with the app and your own `.hpi` files side by side works, the way Photoshop is laid out. Put your own tileset archives beside the executable (or the `.app`). If a file there has the same name as one in the Total Annihilation folder, such as `worlds.hpi` or `totala1.hpi`, it is skipped, so nothing loads twice. A world archive such as `worlds.hpi` fills the Tilesets tab. `totala1.hpi`, `rev31.gp3`, or `ccdata.ccx` supply the feature list and the feature pictures.
 
 These archives are game data. They are not part of this repository.
 
@@ -114,7 +114,7 @@ Open Map reads `.ufo`, `.hpi`, and `.tnt`. Save writes a `.ufo`.
 
 The Favorites tab, between Tilesets and Features, holds tiles you save yourself. In Select Tiles mode, select some tiles and right-click. The menu offers Cut, Copy, Copy Heights, Modify Height, Blend, and Add to Favorites. In the Tilesets tab, pointing at a picture shows a star button in its corner that adds that tile instead. In the Favorites tab, the same corner holds a trash button that deletes the tile after you confirm.
 
-Add to Favorites asks for three things: a favorites archive, a category, and a subcategory. Type new names or choose existing ones. The names work the way they do in the game's own tilesets: in `Acid_New_1.hpi` the category is Acid_New_1, and Rivers and Sm Lakes are its subcategories. Create Favorites Archive asks for a name such as FirstOne and writes `GE-Favorites-FirstOne.hpi` next to the `GalaxyEditor` executable (next to the `.app` on macOS).
+Add to Favorites asks for three things: a favorites archive, a category, and a subcategory. Type new names or choose existing ones. The names work the way they do in the game's own tilesets: in `Acid_New_1.hpi` the category is Acid_New_1, and Rivers and Sm Lakes are its subcategories. Create Favorites Archive asks for a name such as FirstOne and writes `GE-Favorites-FirstOne.hpi` next to the program (`galaxy-editor` on Linux, and next to the `.app` on macOS).
 
 Only archives named `GE-Favorites-<name>.hpi` appear on the Favorites tab, and they are kept off the Tilesets tab. Inside, a tile is `sections/<category>/<subcategory>/<tile>.sct`, so the archive is an ordinary tileset that you can share by copying the file into someone else's folder. A saved tile is a full rectangle. When the selection has gaps, the tiles between the selected ones are saved too, because a section file has no room for holes. A tile can be at most 512 tiles on each side.
 

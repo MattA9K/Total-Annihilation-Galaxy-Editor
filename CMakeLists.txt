@@ -251,6 +251,9 @@ elseif(WIN32)
     target_sources(GalaxyEditor PRIVATE "${WIN_RC}")
 else()
     target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_posix.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_posix.cpp)
+    # The CMake target stays GalaxyEditor. The file people run is galaxy-editor,
+    # the usual lowercase command name on Linux.
+    set_target_properties(GalaxyEditor PROPERTIES OUTPUT_NAME galaxy-editor)
     # Desktop environments take the launcher icon from an installed desktop entry.
     install(TARGETS GalaxyEditor RUNTIME DESTINATION bin)
     install(FILES assets/linux/galaxy-editor.desktop DESTINATION share/applications)

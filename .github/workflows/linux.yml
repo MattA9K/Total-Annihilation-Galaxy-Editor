@@ -46,7 +46,7 @@ jobs:
         run: |
           VERSION=$(cat VERSION)
           mkdir -p "GalaxyEditor-${VERSION}-linux-x64"
-          cp build/GalaxyEditor "GalaxyEditor-${VERSION}-linux-x64/"
+          cp build/galaxy-editor "GalaxyEditor-${VERSION}-linux-x64/"
           if [ -f "GE-Favorites-RandomMapGeneratorTiles.hpi" ]; then
             cp GE-Favorites-RandomMapGeneratorTiles.hpi "GalaxyEditor-${VERSION}-linux-x64/"
           fi
