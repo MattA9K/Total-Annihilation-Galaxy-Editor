@@ -18,7 +18,7 @@ Cat jubin, letakkan pokok dan logam, tetapkan permulaan pemain, dan bentuk ketin
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applications anda. Pada Windows, nyahzip arkib dan jalankan `GalaxyEditor.exe`. Pada Linux, anda boleh menggunakan pakej `.deb` atau nyahpak arkib `.tar.gz`. Setiap muat turun termasuk `GE-Favorites-RandomMapGeneratorTiles.hpi` di sebelah aplikasi. Berus jubin membaca set jubin tersebut, jadi simpan fail di sebelah `GalaxyEditor.app`, `GalaxyEditor.exe`, atau Linux `GalaxyEditor`. `GreenWorld.hpi` disertakan dengan cara yang sama. Kali pertama ia bermula, Galaxy Editor bertanya di mana Total Annihilation dipasang. Setiap keluaran disenaraikan di [halaman Keluaran](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applications anda. Pada Windows, nyahzip arkib dan jalankan `GalaxyEditor.exe`. Pada Linux, anda boleh menggunakan pakej `.deb` atau nyahpak arkib `.tar.gz`. Setiap muat turun termasuk `GE-Favorites-RandomMapGeneratorTiles.hpi` di sebelah aplikasi. Berus jubin membaca set jubin tersebut, jadi simpan fail di sebelah `GalaxyEditor.app`, `GalaxyEditor.exe`, atau Linux `GalaxyEditor`. `GreenWorld.hpi` disertakan dengan cara yang sama. Kali pertama ia bermula, Galaxy Editor bertanya bahasa dahulu, kemudian di mana Total Annihilation dipasang. Setiap keluaran disenaraikan di [halaman Keluaran](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Pemasangan Linux
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Set Jubin
 
-Galaxy Editor memuatkan arkib permainan dari folder pemasangan Total Annihilation anda. Kali pertama ia bermula, ia bertanya untuk folder tersebut sebelum skrin percikan muncul. Pilih Batal untuk memulakan tanpanya. Editor masih berjalan, tetapi tab Set Jubin dan Ciri kekal kosong, dan ia tidak bertanya lagi pada pelancaran seterusnya.
+Galaxy Editor memuatkan arkib permainan dari folder pemasangan Total Annihilation anda. Pada pelancaran yang paling pertama, sebelum skrin percikan, ia bertanya bahasa dahulu, kemudian folder tersebut. Pilih Batal untuk memulakan tanpanya. Editor masih berjalan, tetapi tab Set Jubin dan Ciri kekal kosong, dan ia tidak bertanya lagi pada pelancaran seterusnya.
 
-Tukar folder pada bila-bila masa dalam Pilihan, di bawah Total Annihilation. Pilih Folder memuatkan semula arkib dengan segera, dan Kosongkan melupakan folder, jadi pelancaran seterusnya bertanya untuk ia lagi, seperti pada pelancaran pertama. Folder disimpan dalam `settings.json` setiap pengguna.
+Tukar folder pada bila-bila masa dalam Pilihan, di bawah Total Annihilation. Pilih Folder memuatkan semula arkib dengan segera, dan Kosongkan melupakan folder, jadi pelancaran seterusnya bertanya untuk ia lagi, seperti pada pelancaran pertama. Folder dan bahasa yang dipilih disimpan dalam `settings.json` setiap pengguna. Bahasa ditukar kemudian dalam Pilihan, di bawah Bahasa, dan tetingkap bertukar serta-merta.
 
 Galaxy Editor membaca fail `.hpi`, `.ccx`, `.gp3`, dan `.gpf` terus di dalam folder tersebut, dan kemudian dalam folder yang mengandungi fail boleh laku `GalaxyEditor`. Pada macOS itu adalah folder yang mengandungi `GalaxyEditor.app`, jadi folder bernama Galaxy Editor dengan aplikasi dan fail `.hpi` anda sendiri bersebelahan berfungsi, cara Photoshop disusun. Letakkan arkib set jubin anda sendiri di sebelah fail boleh laku (atau `.app`). Jika fail di sana mempunyai nama yang sama dengan satu dalam folder Total Annihilation, seperti `worlds.hpi` atau `totala1.hpi`, ia dilangkau, jadi tiada apa yang dimuatkan dua kali. Arkib dunia seperti `worlds.hpi` mengisi tab Set Jubin. `totala1.hpi`, `rev31.gp3`, atau `ccdata.ccx` membekalkan senarai ciri dan gambar ciri.
 

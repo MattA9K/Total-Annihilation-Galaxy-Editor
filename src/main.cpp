@@ -1,8 +1,11 @@
 #include "core/EditorSettings.hpp"
+#include "core/I18n.hpp"
 #include "core/Version.hpp"
 #include "platform/AppIcon.hpp"
 #include "platform/FileDialog.hpp"
+#include "platform/SystemAppearance.hpp"
 #include "ui/EditorApp.hpp"
+#include "ui/LanguagePicker.hpp"
 #include "ui/Splash.hpp"
 #include "ui/Theme.hpp"
 
@@ -91,18 +94,17 @@ void askForGameFolder() {
     if (!settings.gameFolder.empty() && std::filesystem::is_directory(settings.gameFolder.parent_path(), error)) {
         start = settings.gameFolder.parent_path();
     }
-    std::string detail = "Click Find TA Installation to get setup.";
-    if (!settings.gameFolder.empty()) {
-        detail = "The saved folder was not found:\n" + galaxy::pathToUtf8(settings.gameFolder) + "\n\n" + detail;
-    }
+    const std::string detail = settings.gameFolder.empty()
+        ? galaxy::text(galaxy::Text::GameFolderDetail)
+        : galaxy::formatText(galaxy::Text::GameFolderMissing, {galaxy::pathToUtf8(settings.gameFolder)});
     settings.gameFolderAsked = true;
     std::optional<std::filesystem::path> chosen;
     if (galaxy::alertDialog(
-            "For the best experience, Galaxy Editor needs to know the installation directory of Total Annihilation.",
+            galaxy::text(galaxy::Text::GameFolderMessage),
             detail,
-            "Cancel",
-            "Find TA Installation")) {
-        chosen = galaxy::chooseFolderDialog("Select the Total Annihilation install folder", start);
+            galaxy::text(galaxy::Text::Cancel),
+            galaxy::text(galaxy::Text::FindTaInstall))) {
+        chosen = galaxy::chooseFolderDialog(galaxy::text(galaxy::Text::SelectTaFolder), start);
     }
     if (chosen) {
         settings.gameFolder = *chosen;
@@ -140,12 +142,12 @@ bool runSplash(GLFWwindow* window, galaxy::SplashScreen& splash, galaxy::EditorA
         std::string status;
         std::string count;
         if (editor.loadingTilesets()) {
-            status = "Loading " + editor.tilesetLoadNextName();
-            count = std::to_string(done) + " of " + std::to_string(total);
+            status = galaxy::formatText(galaxy::Text::SplashLoading, {editor.tilesetLoadNextName()});
+            count = galaxy::formatText(galaxy::Text::SplashCount, {std::to_string(done), std::to_string(total)});
         } else {
-            status = "Ready";
+            status = galaxy::text(galaxy::Text::SplashReady);
             if (total > 0) {
-                count = std::to_string(total) + " of " + std::to_string(total);
+                count = galaxy::formatText(galaxy::Text::SplashCount, {std::to_string(total), std::to_string(total)});
             }
         }
 
@@ -166,6 +168,102 @@ bool runSplash(GLFWwindow* window, galaxy::SplashScreen& splash, galaxy::EditorA
             return true;
         }
     }
+}
+
+void initImGui(GLFWwindow* window) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // The Finder starts an app with / as its working directory, so window
+    // positions are kept beside settings.json instead of in a relative imgui.ini.
+    static std::string layoutFile;
+    const std::filesystem::path settingsFolder = galaxy::editorSettingsPath().parent_path();
+    std::error_code folderError;
+    std::filesystem::create_directories(settingsFolder, folderError);
+    layoutFile = galaxy::pathToUtf8(settingsFolder / "imgui.ini");
+    io.IniFilename = layoutFile.c_str();
+
+    float contentScale = 1.0f;
+    glfwGetWindowContentScale(window, &contentScale, nullptr);
+    galaxy::theme::setup(contentScale);
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 150");
+}
+
+void shutdownGraphics(GLFWwindow* window, GLFWcursor* crosshair, bool imguiReady) {
+    if (imguiReady) {
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+    }
+    if (crosshair != nullptr) {
+        glfwDestroyCursor(crosshair);
+    }
+    if (window != nullptr) {
+        glfwDestroyWindow(window);
+    }
+    glfwTerminate();
+}
+
+// The language list is its own window, shown before the splash picture is decoded
+// and before any archive is opened. Closing it without a choice leaves no language
+// saved, so the next launch asks again.
+bool runLanguagePicker(GLFWwindow* window) {
+    ImGuiIO& io = ImGui::GetIO();
+    const ImGuiConfigFlags navigation = io.ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+
+    galaxy::LanguagePickerState state;
+    bool open = true;
+    while (open && !state.confirm) {
+        glfwPollEvents();
+        if (glfwWindowShouldClose(window)) {
+            open = false;
+            break;
+        }
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        galaxy::drawLanguagePicker(state);
+        const ImVec4 background = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+        presentFrame(window, background.x, background.y, background.z);
+    }
+    io.ConfigFlags |= navigation;
+    if (!state.confirm) {
+        return false;
+    }
+    const galaxy::Language& chosen = galaxy::languageAt(state.selected);
+    galaxy::EditorSettings settings = galaxy::loadEditorSettings(galaxy::editorSettingsPath());
+    settings.language = chosen.id;
+    galaxy::saveEditorSettings(galaxy::editorSettingsPath(), settings);
+    galaxy::setActiveLanguage(chosen.id);
+    return true;
+}
+
+GLFWwindow* createLanguageWindow() {
+    const float scale = splashWindowScale();
+    int width = static_cast<int>(480.0f * scale);
+    int height = static_cast<int>(640.0f * scale);
+    if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
+        int x = 0;
+        int y = 0;
+        int areaWidth = 0;
+        int areaHeight = 0;
+        glfwGetMonitorWorkarea(monitor, &x, &y, &areaWidth, &areaHeight);
+        if (areaWidth > 0 && areaHeight > 0) {
+            width = std::clamp(width, 360, std::max(360, areaWidth - 48));
+            height = std::clamp(height, 420, std::max(420, areaHeight - 48));
+        }
+    }
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    GLFWwindow* window = glfwCreateWindow(width, height, galaxy::applicationTitle().c_str(), nullptr, nullptr);
+    if (window != nullptr) {
+        centerOnPrimaryMonitor(window, width, height, 0);
+    }
+    return window;
 }
 
 // Turns the borderless splash window into the editor window.
@@ -209,11 +307,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Decoding the splash picture needs no window, so it is ready as soon as the window is.
-    galaxy::SplashImage splashImage = galaxy::decodeSplashImage();
-    const bool useSplash = splashImage.valid();
-    auto splash = std::make_unique<galaxy::SplashScreen>(std::move(splashImage));
-
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -226,56 +319,83 @@ int main(int argc, char** argv) {
     glfwWindowHintString(GLFW_WAYLAND_APP_ID, "galaxy-editor");
 #endif
 
-    int windowWidth = kMainWidth;
-    int windowHeight = kMainHeight;
-    if (useSplash) {
-        const float scale = splashWindowScale();
-        windowWidth = static_cast<int>(galaxy::SplashScreen::kWidth * scale);
-        windowHeight = static_cast<int>(splash->windowHeight() * scale);
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    const galaxy::EditorSettings saved = galaxy::loadEditorSettings(galaxy::editorSettingsPath());
+    const bool needLanguage = !galaxy::isKnownLanguage(saved.language);
+    if (!needLanguage) {
+        galaxy::setActiveLanguage(saved.language);
     }
 
-    const std::string title = galaxy::applicationTitle();
-    GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, title.c_str(), nullptr, nullptr);
-    GLFWcursor* crosshair = glfwCreateStandardCursor(GLFW_CROSSHAIR_CURSOR);
-    if (window == nullptr) {
-        std::fprintf(stderr, "Could not create a window\n");
-        glfwTerminate();
-        return 1;
+    GLFWwindow* window = nullptr;
+    bool imguiReady = false;
+    if (needLanguage) {
+        window = createLanguageWindow();
+        if (window == nullptr) {
+            std::fprintf(stderr, "Could not create a window\n");
+            glfwTerminate();
+            return 1;
+        }
+        galaxy::applyApplicationIcon(window);
+        glfwMakeContextCurrent(window);
+        glfwSwapInterval(1);
+        initImGui(window);
+        imguiReady = true;
+        const bool dark = saved.appearance == 2 || (saved.appearance == 0 && galaxy::systemPrefersDarkMode());
+        galaxy::theme::setDark(dark);
+        galaxy::applyNativeAppearance(saved.appearance);
+        if (!runLanguagePicker(window)) {
+            shutdownGraphics(window, nullptr, true);
+            return 0;
+        }
+        glfwHideWindow(window);
     }
-    galaxy::applyApplicationIcon(window);
-    if (useSplash) {
-        centerOnPrimaryMonitor(window, windowWidth, windowHeight, 0);
-    }
-    // The splash window is still hidden here, so the question comes first.
+
+    // The install folder is asked after the language, still before any archive opens.
     askForGameFolder();
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    // The Finder starts an app with / as its working directory, so window
-    // positions are kept beside settings.json instead of in a relative imgui.ini.
-    static std::string layoutFile;
-    {
-        const std::filesystem::path settingsFolder = galaxy::editorSettingsPath().parent_path();
-        std::error_code folderError;
-        std::filesystem::create_directories(settingsFolder, folderError);
-        layoutFile = galaxy::pathToUtf8(settingsFolder / "imgui.ini");
-        io.IniFilename = layoutFile.c_str();
+    // The splash picture and the HPI archives wait until a language is chosen.
+    galaxy::SplashImage splashImage = galaxy::decodeSplashImage();
+    const bool useSplash = splashImage.valid();
+    auto splash = std::make_unique<galaxy::SplashScreen>(std::move(splashImage));
+
+    if (window == nullptr) {
+        int windowWidth = kMainWidth;
+        int windowHeight = kMainHeight;
+        if (useSplash) {
+            const float scale = splashWindowScale();
+            windowWidth = static_cast<int>(galaxy::SplashScreen::kWidth * scale);
+            windowHeight = static_cast<int>(splash->windowHeight() * scale);
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+            glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+            glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        }
+        window = glfwCreateWindow(windowWidth, windowHeight, galaxy::applicationTitle().c_str(), nullptr, nullptr);
+        if (window == nullptr) {
+            std::fprintf(stderr, "Could not create a window\n");
+            glfwTerminate();
+            return 1;
+        }
+        galaxy::applyApplicationIcon(window);
+        if (useSplash) {
+            centerOnPrimaryMonitor(window, windowWidth, windowHeight, 0);
+        }
+        glfwMakeContextCurrent(window);
+        glfwSwapInterval(1);
+        initImGui(window);
+        imguiReady = true;
+    } else if (useSplash) {
+        const float scale = splashWindowScale();
+        const int windowWidth = static_cast<int>(galaxy::SplashScreen::kWidth * scale);
+        const int windowHeight = static_cast<int>(splash->windowHeight() * scale);
+        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+        glfwSetWindowAttrib(window, GLFW_RESIZABLE, GLFW_FALSE);
+        glfwSetWindowSize(window, windowWidth, windowHeight);
+        centerOnPrimaryMonitor(window, windowWidth, windowHeight, 0);
+    } else {
+        becomeEditorWindow(window);
+        glfwShowWindow(window);
     }
 
-    float contentScale = 1.0f;
-    glfwGetWindowContentScale(window, &contentScale, nullptr);
-    galaxy::theme::setup(contentScale);
-
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 150");
-
+    GLFWcursor* crosshair = glfwCreateStandardCursor(GLFW_CROSSHAIR_CURSOR);
     galaxy::EditorApp editor;
     gDropTarget = &editor;
     glfwSetDropCallback(window, [](GLFWwindow*, int count, const char** paths) {
@@ -329,13 +449,6 @@ int main(int argc, char** argv) {
         presentFrame(window, background.x, background.y, background.z);
     }
 
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    if (crosshair != nullptr) {
-        glfwDestroyCursor(crosshair);
-    }
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    shutdownGraphics(window, crosshair, imguiReady);
     return 0;
 }

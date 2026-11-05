@@ -18,7 +18,7 @@ macOS, Windows, Linux용 [Total Annihilation](https://en.wikipedia.org/wiki/Tota
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (아카이브) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-macOS에서는 디스크 이미지를 열고 Galaxy Editor 폴더를 응용 프로그램 폴더로 드래그하세요. Windows에서는 아카이브의 압축을 풀고 `GalaxyEditor.exe`를 실행하세요. Linux에서는 `.deb` 패키지를 사용하거나 `.tar.gz` 아카이브의 압축을 풀 수 있습니다. 각 다운로드에는 앱 옆에 `GE-Favorites-RandomMapGeneratorTiles.hpi`가 포함되어 있습니다. 타일 브러시는 해당 타일셋을 읽으므로 `GalaxyEditor.app`, `GalaxyEditor.exe` 또는 Linux `GalaxyEditor` 옆에 파일을 보관하세요. `GreenWorld.hpi`도 같은 방식으로 포함되어 있습니다. 처음 시작할 때 Galaxy Editor는 Total Annihilation이 설치된 위치를 묻습니다. 모든 릴리스는 [릴리스 페이지](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)에 나열되어 있습니다.
+macOS에서는 디스크 이미지를 열고 Galaxy Editor 폴더를 응용 프로그램 폴더로 드래그하세요. Windows에서는 아카이브의 압축을 풀고 `GalaxyEditor.exe`를 실행하세요. Linux에서는 `.deb` 패키지를 사용하거나 `.tar.gz` 아카이브의 압축을 풀 수 있습니다. 각 다운로드에는 앱 옆에 `GE-Favorites-RandomMapGeneratorTiles.hpi`가 포함되어 있습니다. 타일 브러시는 해당 타일셋을 읽으므로 `GalaxyEditor.app`, `GalaxyEditor.exe` 또는 Linux `GalaxyEditor` 옆에 파일을 보관하세요. `GreenWorld.hpi`도 같은 방식으로 포함되어 있습니다. 처음 시작할 때 Galaxy Editor는 먼저 언어를 묻고, 그다음 Total Annihilation이 설치된 위치를 묻습니다. 모든 릴리스는 [릴리스 페이지](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)에 나열되어 있습니다.
 
 ### Linux 설치
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## 타일셋
 
-Galaxy Editor는 Total Annihilation 설치 폴더에서 게임 아카이브를 로드합니다. 처음 시작할 때 시작 화면이 나타나기 전에 해당 폴더를 묻습니다. 취소를 선택하면 없이 시작합니다. 에디터는 여전히 실행되지만 타일셋과 특징 탭이 비어 있고 다음 실행 시 다시 묻지 않습니다.
+Galaxy Editor는 Total Annihilation 설치 폴더에서 게임 아카이브를 로드합니다. 맨 처음 시작할 때는 시작 화면보다 먼저 언어를 묻고, 그다음 해당 폴더를 묻습니다. 취소를 선택하면 없이 시작합니다. 에디터는 여전히 실행되지만 타일셋과 특징 탭이 비어 있고 다음 실행 시 다시 묻지 않습니다.
 
-옵션의 Total Annihilation에서 언제든지 폴더를 변경하세요. 폴더 선택은 즉시 아카이브를 다시 로드하고, 지우기는 폴더를 잊어버리므로 다음 실행 시 첫 실행처럼 다시 묻습니다. 폴더는 사용자별 `settings.json`에 저장됩니다.
+옵션의 Total Annihilation에서 언제든지 폴더를 변경하세요. 폴더 선택은 즉시 아카이브를 다시 로드하고, 지우기는 폴더를 잊어버리므로 다음 실행 시 첫 실행처럼 다시 묻습니다. 폴더와 선택한 언어는 사용자별 `settings.json`에 저장됩니다. 언어는 나중에 옵션의 언어에서 바꾸며, 창이 바로 전환됩니다.
 
 Galaxy Editor는 해당 폴더 내의 `.hpi`, `.ccx`, `.gp3` 및 `.gpf` 파일을 직접 읽은 다음 `GalaxyEditor` 실행 파일이 포함된 폴더에서 읽습니다. macOS에서는 `GalaxyEditor.app`이 포함된 폴더이므로 Galaxy Editor라는 폴더에 앱과 자체 `.hpi` 파일이 나란히 있는 것이 Photoshop이 배치된 방식처럼 작동합니다. 실행 파일(또는 `.app`) 옆에 자체 타일셋 아카이브를 배치하세요. 거기에 있는 파일이 Total Annihilation 폴더에 있는 파일과 같은 이름(예: `worlds.hpi` 또는 `totala1.hpi`)을 가지면 건너뛰므로 아무것도 두 번 로드되지 않습니다. `worlds.hpi`와 같은 월드 아카이브는 타일셋 탭을 채웁니다. `totala1.hpi`, `rev31.gp3` 또는 `ccdata.ccx`는 특징 목록과 특징 이미지를 제공합니다.
 

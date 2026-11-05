@@ -18,7 +18,7 @@ Mal fliser, plasser trær og metall, angi spillerstarter og form høyden på bak
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (arkiv) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-På macOS, åpne diskbildet og dra Galaxy Editor-mappen til Programmer-mappen din. På Windows, pakk ut arkivet og kjør `GalaxyEditor.exe`. På Linux kan du bruke `.deb`-pakken eller pakke ut `.tar.gz`-arkivet. Hver nedlasting inkluderer `GE-Favorites-RandomMapGeneratorTiles.hpi` ved siden av appen. Flispensel leser det flissettet, så hold filen ved siden av `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` er inkludert på samme måte. Første gang den starter, spør Galaxy Editor hvor Total Annihilation er installert. Hver utgivelse er oppført på [Utgivelser-siden](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+På macOS, åpne diskbildet og dra Galaxy Editor-mappen til Programmer-mappen din. På Windows, pakk ut arkivet og kjør `GalaxyEditor.exe`. På Linux kan du bruke `.deb`-pakken eller pakke ut `.tar.gz`-arkivet. Hver nedlasting inkluderer `GE-Favorites-RandomMapGeneratorTiles.hpi` ved siden av appen. Flispensel leser det flissettet, så hold filen ved siden av `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` er inkludert på samme måte. Første gang den starter, spør Galaxy Editor først om språket og deretter hvor Total Annihilation er installert. Hver utgivelse er oppført på [Utgivelser-siden](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Linux-installasjon
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Flissett
 
-Galaxy Editor laster spillarkiver fra Total Annihilation-installasjonsmappen din. Første gang den starter, spør den etter den mappen før oppstartsskjermen vises. Velg Avbryt for å starte uten den. Redigereren kjører fortsatt, men Flissett- og Funksjoner-fanene forblir tomme, og den spør ikke igjen ved neste oppstart.
+Galaxy Editor laster spillarkiver fra Total Annihilation-installasjonsmappen din. Helt første gang den starter, før oppstartsskjermen, spør den om språket og deretter om den mappen. Velg Avbryt for å starte uten den. Redigereren kjører fortsatt, men Flissett- og Funksjoner-fanene forblir tomme, og den spør ikke igjen ved neste oppstart.
 
-Endre mappen når som helst i Alternativer, under Total Annihilation. Velg Mappe laster arkivene på nytt med en gang, og Tøm glemmer mappen, så neste oppstart spør etter den igjen, som ved en første oppstart. Mappen lagres i per-bruker `settings.json`.
+Endre mappen når som helst i Alternativer, under Total Annihilation. Velg Mappe laster arkivene på nytt med en gang, og Tøm glemmer mappen, så neste oppstart spør etter den igjen, som ved en første oppstart. Mappen og det valgte språket lagres i per-bruker `settings.json`. Språket endres senere i Alternativer, under Språk, og vinduet bytter med en gang.
 
 Galaxy Editor leser `.hpi`-, `.ccx`-, `.gp3`- og `.gpf`-filer direkte inne i den mappen, og deretter i mappen som inneholder den kjørbare `GalaxyEditor`-filen. På macOS er det mappen som inneholder `GalaxyEditor.app`, så en mappe kalt Galaxy Editor med appen og dine egne `.hpi`-filer side om side fungerer, slik Photoshop er lagt ut. Plasser dine egne flissett-arkiver ved siden av den kjørbare filen (eller `.app`). Hvis en fil der har samme navn som en fil i Total Annihilation-mappen, for eksempel `worlds.hpi` eller `totala1.hpi`, hoppes den over, så ingenting lastes to ganger. Et verdensarkiv som `worlds.hpi` fyller Flissett-fanen. `totala1.hpi`, `rev31.gp3` eller `ccdata.ccx` leverer funksjonslisten og funksjonsbildene.
 

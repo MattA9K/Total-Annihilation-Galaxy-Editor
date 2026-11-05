@@ -18,7 +18,7 @@ Maľujte dlaždice, umiestňujte stromy a kov, nastavte štarty hráčov a tvaru
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (archív) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-V macOS otvorte obraz disku a presuňte priečinok Galaxy Editor do priečinka Aplikácie. Vo Windows rozbaľte archív a spustite `GalaxyEditor.exe`. V Linuxe môžete použiť balík `.deb` alebo rozbaliť archív `.tar.gz`. Každé stiahnutie obsahuje `GE-Favorites-RandomMapGeneratorTiles.hpi` vedľa aplikácie. Štetec dlaždíc číta túto sadu dlaždíc, takže súbor držte vedľa `GalaxyEditor.app`, `GalaxyEditor.exe` alebo Linux `GalaxyEditor`. `GreenWorld.hpi` je zahrnutý rovnakým způsobom. Pri prvom spustení Galaxy Editor opýta sa, kde je nainštalovaný Total Annihilation. Každé vydanie je uvedené na [stránke vydaní](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+V macOS otvorte obraz disku a presuňte priečinok Galaxy Editor do priečinka Aplikácie. Vo Windows rozbaľte archív a spustite `GalaxyEditor.exe`. V Linuxe môžete použiť balík `.deb` alebo rozbaliť archív `.tar.gz`. Každé stiahnutie obsahuje `GE-Favorites-RandomMapGeneratorTiles.hpi` vedľa aplikácie. Štetec dlaždíc číta túto sadu dlaždíc, takže súbor držte vedľa `GalaxyEditor.app`, `GalaxyEditor.exe` alebo Linux `GalaxyEditor`. `GreenWorld.hpi` je zahrnutý rovnakým způsobom. Pri prvom spustení sa Galaxy Editor najprv opýta na jazyk a potom na to, kde je nainštalovaný Total Annihilation. Každé vydanie je uvedené na [stránke vydaní](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Inštalácia Linuxu
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Sady dlaždíc
 
-Galaxy Editor načítava herné archívy z vášho inštalačného priečinka Total Annihilation. Pri prvom spustení sa opýta na tento priečinok pred zobrazením úvodnej obrazovky. Vyberte Zrušiť na spustenie bez neho. Editor stále beží, ale záložky Sady dlaždíc a Funkcie zostávajú prázdne a nepýta sa znovu pri ďalšom spustení.
+Galaxy Editor načítava herné archívy z vášho inštalačného priečinka Total Annihilation. Pri úplne prvom spustení, pred úvodnou obrazovkou, sa opýta na jazyk a potom na tento priečinok. Vyberte Zrušiť na spustenie bez neho. Editor stále beží, ale záložky Sady dlaždíc a Funkcie zostávajú prázdne a nepýta sa znovu pri ďalšom spustení.
 
-Zmeňte priečinok kedykoľvek v Možnostiach pod Total Annihilation. Vybrať priečinok znovu načíta archívy okamžite a Vymazať zabudne priečinok, takže ďalšie spustenie sa opýta na neho znovu, ako pri prvom spustení. Priečinok sa ukladá do `settings.json` pre každého používateľa.
+Zmeňte priečinok kedykoľvek v Možnostiach pod Total Annihilation. Vybrať priečinok znovu načíta archívy okamžite a Vymazať zabudne priečinok, takže ďalšie spustenie sa opýta na neho znovu, ako pri prvom spustení. Priečinok a zvolený jazyk sa ukladajú do `settings.json` pre každého používateľa. Jazyk sa neskôr mení v Možnostiach pod Jazyk a okno sa prepne hneď.
 
 Galaxy Editor číta súbory `.hpi`, `.ccx`, `.gp3` a `.gpf` priamo v tomto priečinku a potom v priečinku obsahujúcom spustiteľný súbor `GalaxyEditor`. V macOS je to priečinok obsahujúci `GalaxyEditor.app`, takže priečinok s názvom Galaxy Editor s aplikáciou a vašimi vlastnými súbormi `.hpi` vedľa seba funguje, ako je rozložený Photoshop. Umiestnite svoje vlastné archívy sád dlaždíc vedľa spustiteľného súboru (alebo `.app`). Ak má súbor tam rovnaký názov ako jeden v priečinku Total Annihilation, napríklad `worlds.hpi` alebo `totala1.hpi`, preskočí sa, takže sa nič nenačíta dvakrát. Svetový archív ako `worlds.hpi` vypĺňa záložku Sady dlaždíc. `totala1.hpi`, `rev31.gp3` alebo `ccdata.ccx` dodávajú zoznam funkcií a obrázky funkcií.
 

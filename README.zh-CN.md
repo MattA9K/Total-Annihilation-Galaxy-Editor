@@ -18,7 +18,7 @@
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (存档) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-在 macOS 上，打开磁盘映像并将 Galaxy Editor 文件夹拖到您的应用程序文件夹。在 Windows 上，解压缩存档并运行 `GalaxyEditor.exe`。在 Linux 上，您可以使用 `.deb` 软件包或解压 `.tar.gz` 存档。每个下载都包含应用程序旁边的 `GE-Favorites-RandomMapGeneratorTiles.hpi`。地块画笔会读取该图块集，因此请将文件保留在 `GalaxyEditor.app`、`GalaxyEditor.exe` 或 Linux `GalaxyEditor` 旁边。`GreenWorld.hpi` 也以同样的方式包含。首次启动时，Galaxy Editor 会询问 Total Annihilation 的安装位置。所有版本都列在[发布页面](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)上。
+在 macOS 上，打开磁盘映像并将 Galaxy Editor 文件夹拖到您的应用程序文件夹。在 Windows 上，解压缩存档并运行 `GalaxyEditor.exe`。在 Linux 上，您可以使用 `.deb` 软件包或解压 `.tar.gz` 存档。每个下载都包含应用程序旁边的 `GE-Favorites-RandomMapGeneratorTiles.hpi`。地块画笔会读取该图块集，因此请将文件保留在 `GalaxyEditor.app`、`GalaxyEditor.exe` 或 Linux `GalaxyEditor` 旁边。`GreenWorld.hpi` 也以同样的方式包含。首次启动时，Galaxy Editor 会先询问使用哪种语言，然后再询问 Total Annihilation 的安装位置。所有版本都列在[发布页面](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)上。
 
 ### Linux 安装
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## 图块集
 
-Galaxy Editor 从您的 Total Annihilation 安装文件夹加载游戏存档。首次启动时，它会在启动画面出现之前询问该文件夹。选择取消以在没有它的情况下启动。编辑器仍然运行，但图块集和特征选项卡保持空白，并且它不会在下次启动时再次询问。
+Galaxy Editor 从您的 Total Annihilation 安装文件夹加载游戏存档。真正的首次启动时，在启动画面之前，它会先询问语言，然后再询问该文件夹。选择取消以在没有它的情况下启动。编辑器仍然运行，但图块集和特征选项卡保持空白，并且它不会在下次启动时再次询问。
 
-随时在选项的 Total Annihilation 下更改文件夹。选择文件夹会立即重新加载存档，清除会忘记文件夹，因此下次启动会再次询问，就像首次启动一样。该文件夹保存在每个用户的 `settings.json` 中。
+随时在选项的 Total Annihilation 下更改文件夹。选择文件夹会立即重新加载存档，清除会忘记文件夹，因此下次启动会再次询问，就像首次启动一样。该文件夹和所选语言保存在每个用户的 `settings.json` 中。之后可在选项的“语言”中更改语言，窗口会立即切换。
 
 Galaxy Editor 直接读取该文件夹内的 `.hpi`、`.ccx`、`.gp3` 和 `.gpf` 文件，然后读取包含 `GalaxyEditor` 可执行文件的文件夹。在 macOS 上，这是包含 `GalaxyEditor.app` 的文件夹，因此名为 Galaxy Editor 的文件夹可以包含应用程序和您自己的 `.hpi` 文件，就像 Photoshop 的布局一样。将您自己的图块集存档放在可执行文件（或 `.app`）旁边。如果那里的文件与 Total Annihilation 文件夹中的文件同名，例如 `worlds.hpi` 或 `totala1.hpi`，它会被跳过，因此不会加载两次。像 `worlds.hpi` 这样的世界存档会填充图块集选项卡。`totala1.hpi`、`rev31.gp3` 或 `ccdata.ccx` 提供特征列表和特征图片。
 

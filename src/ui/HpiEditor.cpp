@@ -1,6 +1,7 @@
 #include "ui/HpiEditor.hpp"
 
 #include "core/EditorSettings.hpp"
+#include "core/I18n.hpp"
 #include "platform/FileDialog.hpp"
 #include "ui/Theme.hpp"
 
@@ -873,10 +874,13 @@ void HpiEditor::draw() {
     ImGui::SetNextWindowSize(ImVec2(std::floor(1140.0f * u), std::floor(700.0f * u)), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(ImVec2(std::floor(1000.0f * u), std::floor(480.0f * u)), ImVec2(FLT_MAX, FLT_MAX));
 
-    std::string title = "HPI Editor";
+    std::string title = text(Text::HpiEditor);
     if (hasDocument_) {
         title += " \xE2\x80\x94 " + document_.displayName();
-        if (document_.dirty()) title += " \xE2\x80\x94 Edited";
+        if (document_.dirty()) {
+            title += " \xE2\x80\x94 ";
+            title += text(Text::Edited);
+        }
     }
     title += "###hpi-editor";
 

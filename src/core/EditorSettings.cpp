@@ -276,6 +276,7 @@ EditorSettings loadEditorSettings(const std::filesystem::path& path) {
     settings.seaColor = jsonOr(text, "seaColor", settings.seaColor, 0, 0xFFFFFF);
     settings.gameFolder = pathFromUtf8(jsonString(text, "gameFolder"));
     settings.gameFolderAsked = jsonBoolOr(text, "gameFolderAsked", settings.gameFolderAsked);
+    settings.language = jsonString(text, "language");
     return settings;
 }
 
@@ -298,7 +299,8 @@ void saveEditorSettings(const std::filesystem::path& path, const EditorSettings&
     out << "  \"seaOpacity\": " << settings.seaOpacity << ",\n";
     out << "  \"seaColor\": " << settings.seaColor << ",\n";
     out << "  \"gameFolder\": " << jsonQuoted(pathToUtf8(settings.gameFolder)) << ",\n";
-    out << "  \"gameFolderAsked\": " << (settings.gameFolderAsked ? "true" : "false") << "\n";
+    out << "  \"gameFolderAsked\": " << (settings.gameFolderAsked ? "true" : "false") << ",\n";
+    out << "  \"language\": " << jsonQuoted(settings.language) << "\n";
     out << "}\n";
 }
 
