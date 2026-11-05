@@ -188,7 +188,7 @@ private:
     void requestDeleteFavorite(std::size_t archiveIndex, const CachedSection& section);
     void requestRenameTile(std::size_t archiveIndex, const CachedSection& section);
     void drawRenameTile();
-    // Reads a favorites archive again after it changed and drops the pictures cached from it.
+    // Reads one tileset archive from disk again and drops the pictures cached from it.
     void refreshFavoritesArchive(const std::filesystem::path& path);
     void createFavoritesArchiveNamed();
     void drawClosePrompt();
@@ -340,6 +340,17 @@ private:
         BrushKind kind = BrushKind::Base;
     };
     std::vector<BrushPaint> brushPaints_;
+    // The other lands this brush can blend into, such as Mars Base-85 and GreenWorld
+    // Base-85 while Lava is selected. They are not buttons.
+    std::vector<BrushPaint> brushPartners_;
+    // Tile pictures that identify a land when two paints share a height. Fringe
+    // pictures belong to a blend and still follow the height at that corner.
+    struct BrushPictureHint {
+        std::string category;
+        std::string name;
+        bool fringe = false;
+    };
+    std::unordered_map<std::uint64_t, BrushPictureHint> brushPictures_;
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
     struct BrushStroke {
         std::string name;
@@ -367,7 +378,7 @@ private:
     bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;
     std::string brushCatalogKey_;
-    // GreenWorld or Lava. The Tile Brush window shows the pieces of this one.
+    // GreenWorld, Lava, or Mars. The Tile Brush window shows the pieces of this one.
     std::string brushWorld_ = "GreenWorld";
     // "Water" names Coast-Water. Lava names the same shapes Coast-Lava.
     std::string brushCoastLiquid_ = "Water";

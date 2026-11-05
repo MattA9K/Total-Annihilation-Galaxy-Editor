@@ -288,13 +288,22 @@ bool isBrushStrokeWorld(std::string_view world) {
 // Cliff, coast and shallow coast sections are the pieces that join one base to the next.
 bool isTransitionWorld(std::string_view world) {
     const std::string name = lowerText(world);
-    return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles" || name == "coastdsl" || name == "coastalcliff";
+    return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles" || name == "coastdsl" || name == "coastalcliff" || name == "blendtiles";
 }
 
 // River, ridge and slope sections. Slopes are the walkable cliff pieces.
 bool isRiverWorld(std::string_view world) {
     const std::string name = lowerText(world);
     return name == "rivers" || name == "ridges" || name == "slopes";
+}
+
+std::uint64_t hashBrushTile(const std::uint8_t* bytes) {
+    std::uint64_t hash = 14695981039346656037ull;
+    for (int i = 0; i < 1024; ++i) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
 }
 
 int trailingNumber(std::string_view name) {
@@ -1987,7 +1996,18 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
         ++visibleArchives;
         const std::size_t archiveIndex = indexed.archiveIndex;
         ImGui::PushID(static_cast<int>(archiveIndex));
-        theme::sourceListTitle(indexed.title.c_str());
+        if (theme::sourceListHeading(indexed.title.c_str(), "reload")) {
+            try {
+                refreshFavoritesArchive(tilesets_.archives()[archiveIndex].path);
+                statusNote_ = "Reloaded " + indexed.filename;
+                error_.clear();
+            } catch (const std::exception& ex) {
+                error_ = ex.what();
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Reload\nRead %s from disk again", indexed.filename.c_str());
+        }
         if (indexed.worlds.empty()) {
             ImGui::TextDisabled("No tiles yet");
         }
@@ -5279,7 +5299,28 @@ void EditorApp::drawRenameTile() {
 }
 
 void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
+    const auto dropFeaturePictures = [this](const TilesetArchive& archive) {
+        for (const FeatureInfo& feature : archive.features) {
+            const auto found = featureSprites_.find(lowerText(feature.name));
+            if (found == featureSprites_.end()) {
+                continue;
+            }
+            destroyTexture(found->second.texture);
+            featureSprites_.erase(found);
+        }
+    };
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        std::error_code error;
+        if (std::filesystem::exists(archive.path, error) && std::filesystem::exists(path, error)
+            && std::filesystem::equivalent(archive.path, path, error)) {
+            dropFeaturePictures(archive);
+            break;
+        }
+    }
     const std::size_t index = tilesets_.refreshArchive(path);
+    if (index < tilesets_.archives().size()) {
+        dropFeaturePictures(tilesets_.archives()[index]);
+    }
     const std::string prefix = std::to_string(index) + '\n';
     for (auto it = categories_.begin(); it != categories_.end();) {
         if (it->first.compare(0, prefix.size(), prefix) != 0) {
@@ -6040,7 +6081,10 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     const auto piecesFor = [&](const std::string& category, std::string_view piece) {
         std::vector<BrushPiece*> matches;
         for (BrushPiece& candidate : brushPieces_) {
-            if (lowerText(candidate.category) == lowerText(category) && transitionVariation(candidate.name, piece) >= 0) {
+            const bool own = lowerText(candidate.category) == lowerText(category);
+            // Blend pieces are shared, so Lava, Mars and GreenWorld can place them.
+            const bool shared = lowerText(candidate.category) == "shared";
+            if ((own || shared) && transitionVariation(candidate.name, piece) >= 0) {
                 matches.push_back(&candidate);
             }
         }
@@ -6074,17 +6118,24 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
             levels.push_back(&paint);
         }
     }
+    for (const BrushPaint& partner : brushPartners_) {
+        if (trailingNumber(partner.name) >= 0) {
+            levels.push_back(&partner);
+        }
+    }
     std::stable_sort(levels.begin(), levels.end(), [](const BrushPaint* left, const BrushPaint* right) {
         return trailingNumber(left->name) < trailingNumber(right->name);
     });
     std::vector<int> levelHeights;
+    std::vector<std::string> levelWorlds;
     for (const BrushPaint* paint : levels) {
         levelHeights.push_back(trailingNumber(paint->name));
+        levelWorlds.push_back(blendWorldName(paint->category));
     }
-    const BrushGraph graph(levelHeights);
+    const BrushGraph graph(levelHeights, levelWorlds);
     int armedLevel = -1;
     for (std::size_t i = 0; i < levels.size(); ++i) {
-        if (lowerText(levels[i]->name) == lowerText(brushName_)) {
+        if (lowerText(levels[i]->name) == lowerText(brushName_) && brushCategoryMatches(levels[i]->category, brushWorld_)) {
             armedLevel = static_cast<int>(i);
         }
     }
@@ -6137,34 +6188,97 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
 
         if (transitions) {
             // A corner sits on the level whose paint height is closest to the
-            // tiles around it.
+            // tiles around it. Two lands can share a height, so a known picture
+            // names its land, and a blend fringe follows the height at that corner.
+            const bool pictures = !brushPictures_.empty();
+            const auto nearestLevel = [&](int height, bool abstainOnTie) {
+                std::size_t nearest = 0;
+                bool tie = false;
+                for (std::size_t i = 1; i < levelHeights.size(); ++i) {
+                    const int distance = std::abs(height - levelHeights[i]);
+                    const int best = std::abs(height - levelHeights[nearest]);
+                    if (distance < best) {
+                        nearest = i;
+                        tie = false;
+                    } else if (distance == best) {
+                        tie = true;
+                    }
+                }
+                if (tie && abstainOnTie) {
+                    return -1;
+                }
+                return static_cast<int>(nearest);
+            };
             const auto readCorner = [&](int nodeX, int nodeY) {
                 std::vector<int> votes(levels.size(), 0);
                 for (int dy = -1; dy <= 0; ++dy) {
                     for (int dx = -1; dx <= 0; ++dx) {
                         const int tx = std::clamp(nodeX * cell + dx, 0, map_->tileWidth - 1);
                         const int ty = std::clamp(nodeY * cell + dy, 0, map_->tileHeight - 1);
-                        const std::size_t index = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
-                        if (index >= map_->heights.size()) {
-                            continue;
-                        }
-                        const int height = map_->heights[index];
-                        std::size_t nearest = 0;
-                        for (std::size_t i = 1; i < levels.size(); ++i) {
-                            if (std::abs(height - levelHeights[i]) < std::abs(height - levelHeights[nearest])) {
-                                nearest = i;
+                        int voted = -1;
+                        if (pictures) {
+                            const std::size_t cellIndex = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
+                            if (cellIndex < map_->indices.size()) {
+                                const std::uint32_t image = map_->indices[cellIndex];
+                                const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                                if (bytes + 1024 <= map_->tileImages.size()) {
+                                    const auto found = brushPictures_.find(hashBrushTile(map_->tileImages.data() + bytes));
+                                    if (found != brushPictures_.end()) {
+                                        int matched = -1;
+                                        for (std::size_t i = 0; i < levels.size(); ++i) {
+                                            if (lowerText(levels[i]->category) == lowerText(found->second.category) && lowerText(levels[i]->name) == lowerText(found->second.name)) {
+                                                matched = static_cast<int>(i);
+                                                break;
+                                            }
+                                        }
+                                        if (matched >= 0 && !found->second.fringe) {
+                                            voted = matched;
+                                        } else if (matched >= 0) {
+                                            int lower = -1;
+                                            for (int i = 0; i < graph.size(); ++i) {
+                                                if (graph.style(i, matched) == TransitionStyle::WorldBlend) {
+                                                    lower = i;
+                                                }
+                                            }
+                                            const int sx = tx * 2 + (tx < nodeX * cell ? 1 : 0);
+                                            const int sy = ty * 2 + (ty < nodeY * cell ? 1 : 0);
+                                            const std::size_t heightIndex = static_cast<std::size_t>(sy) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(sx);
+                                            const int height = heightIndex < map_->heights.size() ? map_->heights[heightIndex] : levelHeights[static_cast<std::size_t>(matched)];
+                                            if (lower < 0) {
+                                                voted = matched;
+                                            } else {
+                                                const int upperDistance = std::abs(height - levelHeights[static_cast<std::size_t>(matched)]);
+                                                const int lowerDistance = std::abs(height - levelHeights[static_cast<std::size_t>(lower)]);
+                                                voted = lowerDistance < upperDistance ? lower : matched;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                        ++votes[nearest];
+                        if (voted < 0) {
+                            const std::size_t index = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
+                            if (index < map_->heights.size()) {
+                                voted = nearestLevel(map_->heights[index], pictures);
+                            }
+                        }
+                        if (voted >= 0) {
+                            ++votes[static_cast<std::size_t>(voted)];
+                        }
                     }
                 }
-                std::size_t winner = 0;
-                for (std::size_t i = 1; i < votes.size(); ++i) {
-                    if (votes[i] > votes[winner]) {
-                        winner = i;
+                int winner = -1;
+                int bestVotes = 0;
+                for (std::size_t i = 0; i < votes.size(); ++i) {
+                    if (votes[i] > bestVotes) {
+                        bestVotes = votes[i];
+                        winner = static_cast<int>(i);
                     }
                 }
-                return static_cast<int>(winner);
+                if (winner >= 0) {
+                    return winner;
+                }
+                return 0;
             };
             const BrushPlan plan = cornerBrush
                 ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readCorner)
@@ -6334,7 +6448,19 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
     case BrushKind::Bridge: return planRiverBridge(cellX, cellY, lookup);
     case BrushKind::Ridge: return planRidge(cellX, cellY, lookup);
     case BrushKind::Spacer: return planRidgeSpacer(cellX, cellY, lookup);
-    case BrushKind::Slope: return planSlope(cellX, cellY, lookup);
+    case BrushKind::Slope: {
+        // The plan only asks for slope pieces this world actually has. Mars keeps
+        // straight singles on neighbouring 16 x 16 cells and refuses corners.
+        const auto available = [&](std::string_view key) {
+            for (const RiverSection& section : riverSections_) {
+                if (sameRiverKey(section.key, key)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return planSlope(cellX, cellY, lookup, available);
+    }
     case BrushKind::Base: break;
     }
     none.reason = "This brush does not use river rules";
@@ -6455,6 +6581,8 @@ void EditorApp::ensureBrushPaints() {
         destroyTexture(paint.preview);
     }
     brushPaints_.clear();
+    brushPartners_.clear();
+    brushPictures_.clear();
     brushStrokes_.clear();
     brushPieces_.clear();
     riverSections_.clear();
@@ -6471,9 +6599,11 @@ void EditorApp::ensureBrushPaints() {
     }
     brushTilesetPath_ = source->path;
 
+    const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
-        if (!brushCategoryMatches(section.category, brushWorld_)) {
+        const bool blend = blendWorld && lowerText(section.world) == "blendtiles";
+        if (!brushCategoryMatches(section.category, brushWorld_) && !blend) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -6542,6 +6672,124 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
+    // Lava Base-45 blends into Mars Base-85 and GreenWorld Base-85. A partner is a
+    // paint the graph can see, and a stroke it can place, without becoming a button.
+    struct PartnerWant {
+        const char* world;
+        const char* name;
+    };
+    std::vector<PartnerWant> wanted;
+    if (lowerText(brushWorld_) == "lava") {
+        wanted.push_back(PartnerWant{"Mars", "Base-85"});
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+    } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
+        wanted.push_back(PartnerWant{"Lava", "Base-45"});
+    }
+    for (const PartnerWant& want : wanted) {
+        for (const TilesetSection& section : source->sections) {
+            if (!isBaseBrushTile(section.world, section.name) || lowerText(section.category) != lowerText(want.world)
+                || lowerText(section.name) != lowerText(want.name)) {
+                continue;
+            }
+            BrushPaint partner;
+            partner.name = section.name;
+            partner.category = section.category;
+            brushPartners_.push_back(std::move(partner));
+            bool haveStroke = false;
+            for (const BrushStroke& stroke : brushStrokes_) {
+                haveStroke = haveStroke || stroke.sectionPath == section.archivePath;
+            }
+            if (!haveStroke) {
+                BrushStroke stroke;
+                stroke.name = section.name + "-" + std::to_string(kBrushCellTiles) + "x" + std::to_string(kBrushCellTiles) + "-01";
+                stroke.sectionPath = section.archivePath;
+                brushStrokes_.push_back(std::move(stroke));
+            }
+            break;
+        }
+    }
+    std::vector<const BrushPaint*> pictured;
+    for (const BrushPaint& paint : brushPaints_) {
+        if (paint.kind == BrushKind::Base && trailingNumber(paint.name) >= 0) {
+            pictured.push_back(&paint);
+        }
+    }
+    for (const BrushPaint& partner : brushPartners_) {
+        pictured.push_back(&partner);
+    }
+    bool sharedHeight = false;
+    for (std::size_t i = 0; i < pictured.size() && !sharedHeight; ++i) {
+        for (std::size_t j = i + 1; j < pictured.size(); ++j) {
+            sharedHeight = trailingNumber(pictured[i]->name) == trailingNumber(pictured[j]->name);
+        }
+    }
+    if (sharedHeight) {
+        const auto rememberTiles = [&](const SectionStamp& stamp, const std::string& category, const std::string& name, bool fringe) {
+            const int tiles = stamp.tileWidth * stamp.tileHeight;
+            for (int tile = 0; tile < tiles; ++tile) {
+                const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                if (bytes + 1024 > stamp.tileImages.size()) {
+                    continue;
+                }
+                const std::uint64_t hash = hashBrushTile(stamp.tileImages.data() + bytes);
+                if (fringe && brushPictures_.find(hash) != brushPictures_.end()) {
+                    continue;
+                }
+                brushPictures_[hash] = BrushPictureHint{category, name, fringe};
+            }
+        };
+        const auto rememberPath = [&](const std::string& path, const std::string& category, const std::string& name, bool fringe) {
+            try {
+                const HpiFile* file = source->archive().find(path);
+                if (file == nullptr) {
+                    return;
+                }
+                rememberTiles(loadSectionStamp(source->archive().extract(*file)), category, name, fringe);
+            } catch (const std::exception&) {
+            }
+        };
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const char* family = nullptr;
+            if (lowered.starts_with("blend-green-")) {
+                family = "Green";
+            } else if (lowered.starts_with("blend-mars-")) {
+                family = "Mars";
+            }
+            if (family == nullptr) {
+                continue;
+            }
+            const BrushPaint* upper = nullptr;
+            for (const BrushPaint* paint : pictured) {
+                if (blendWorldName(paint->category) == family && trailingNumber(paint->name) == 85) {
+                    upper = paint;
+                    break;
+                }
+            }
+            if (upper != nullptr) {
+                rememberPath(piece.sectionPath, upper->category, upper->name, true);
+            }
+        }
+        for (const BrushPaint* paint : pictured) {
+            for (const TilesetSection& section : source->sections) {
+                if (lowerText(section.category) != lowerText(paint->category)) {
+                    continue;
+                }
+                const bool base = isBaseBrushTile(section.world, section.name) && lowerText(section.name) == lowerText(paint->name);
+                bool stroke = false;
+                if (isBrushStrokeWorld(section.world)) {
+                    constexpr int kStrokeSizes[] = {1, 2, 4, 8, 16, 32, 64, 128};
+                    for (const int size : kStrokeSizes) {
+                        stroke = stroke || brushStrokeVariation(section.name, paint->name, size) >= 0;
+                    }
+                }
+                if (base || stroke) {
+                    rememberPath(section.archivePath, paint->category, paint->name, false);
+                }
+            }
+        }
+    }
     for (const BrushPiece& piece : brushPieces_) {
         const std::string lowered = lowerText(piece.name);
         constexpr std::string_view prefix = "coast-";
@@ -6557,29 +6805,43 @@ void EditorApp::ensureBrushPaints() {
     // Rivers and bridges get a button of their own after the base tiles. Their pictures
     // are the first horizontal piece of each.
     const auto addRiverButton = [&](const char* buttonName, const char* iconSection, BrushKind kind) {
+        const RiverSection* chosen = nullptr;
         for (const RiverSection& river : riverSections_) {
-            if (!sameRiverKey(river.name, iconSection)) {
-                continue;
+            if (sameRiverKey(river.name, iconSection)) {
+                chosen = &river;
+                break;
             }
-            try {
-                const HpiFile* file = source->archive().find(river.sectionPath);
-                if (file == nullptr) {
-                    return;
+        }
+        // Mars has the four corner singles and no Slope-High-B, so that picture stands in for the button.
+        if (chosen == nullptr && kind == BrushKind::Slope) {
+            for (const RiverSection& river : riverSections_) {
+                const std::string key = lowerText(riverKeyOf(river.name));
+                if (key.starts_with("single-high-") || key.starts_with("slope-")) {
+                    chosen = &river;
+                    break;
                 }
-                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
-                int width = 0;
-                int height = 0;
-                const std::vector<std::uint8_t> rgba = renderSectionRgba(stamp, 128, width, height);
-                BrushPaint paint;
-                paint.name = buttonName;
-                paint.kind = kind;
-                paint.preview = uploadTexture(rgba.data(), width, height, false);
-                if (paint.preview != 0) {
-                    brushPaints_.push_back(std::move(paint));
-                }
-            } catch (const std::exception&) {
             }
+        }
+        if (chosen == nullptr) {
             return;
+        }
+        try {
+            const HpiFile* file = source->archive().find(chosen->sectionPath);
+            if (file == nullptr) {
+                return;
+            }
+            const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+            int width = 0;
+            int height = 0;
+            const std::vector<std::uint8_t> rgba = renderSectionRgba(stamp, 128, width, height);
+            BrushPaint paint;
+            paint.name = buttonName;
+            paint.kind = kind;
+            paint.preview = uploadTexture(rgba.data(), width, height, false);
+            if (paint.preview != 0) {
+                brushPaints_.push_back(std::move(paint));
+            }
+        } catch (const std::exception&) {
         }
     };
     addRiverButton("River", "River-Horizontal-01", BrushKind::River);
@@ -6660,7 +6922,7 @@ void EditorApp::drawTileBrush() {
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
     if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
-        for (const char* world : {"GreenWorld", "Lava"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars"}) {
             const bool selected = brushWorld_ == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;

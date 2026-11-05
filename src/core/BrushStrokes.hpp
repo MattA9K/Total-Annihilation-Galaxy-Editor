@@ -21,8 +21,10 @@ namespace galaxy {
 // ShallowCoast pieces, Base-68 and Base-0 with ShallowDeep pieces, Base-85 and
 // Base-219 with Cliff pieces, and Base-219 joins Base-0 and Base-68 with
 // CoastalCliff pieces. Base-45 and Base-0 join the same way, with Base-45 on the
-// land side of a coast and Base-0 on the lava side. A cell holds one paint or two
-// joined paints. Three paints
+// land side of a coast and Base-0 on the lava side. Base-85 and Base-255 join
+// with Cliff pieces. Mars uses that pair: its cliff flat is height 255. Lava
+// Base-45 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
+// holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
 // and Base-85 use a CoastDSL piece, and Base-219 with Base-85 and either Base-0
 // or Base-68 uses a CoastalCliff piece.
@@ -153,6 +155,7 @@ enum class TransitionStyle {
     ShallowDeep,
     CoastalCliffDeep,     // Base-219 beside Base-0
     CoastalCliffShallow,  // Base-219 beside Base-68
+    WorldBlend,           // Lava Base-45 beside Mars or GreenWorld Base-85
 };
 
 // Which pair of paints a family of pieces joins. Paints are named by height, so
@@ -163,8 +166,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 7>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 7> rules = {{
+inline const std::array<BrushTransitionRule, 9>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 9> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 45, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
@@ -172,6 +175,8 @@ inline const std::array<BrushTransitionRule, 7>& brushTransitionRules() {
         {0, 219, TransitionStyle::CoastalCliffDeep},
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
+        {85, 255, TransitionStyle::Cliff},
+        {45, 85, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -186,9 +191,29 @@ inline std::string coastNamed(std::string_view name, std::string_view liquid) {
     return std::string(name);
 }
 
+// "Mars" or "Green". The blend pieces are named for the higher land, so a mask
+// with grass on the right is Blend-Green-R.
+inline std::string blendWorldName(std::string_view category) {
+    std::string lower(category);
+    for (char& character : lower) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    if (lower.find("mars") != std::string::npos) {
+        return "Mars";
+    }
+    if (lower.find("green") != std::string::npos) {
+        return "Green";
+    }
+    if (lower.find("lava") != std::string::npos) {
+        return "Lava";
+    }
+    return {};
+}
+
 // The section a mask needs for a family of pieces, without its variation number.
-// Empty for flat cells and the two diagonal masks.
-inline std::string transitionPieceName(TransitionStyle style, int mask, std::string_view coastLiquid = "Water") {
+// Empty for flat cells and the two diagonal masks. blendWorld names the higher
+// land for a world blend, and an empty name means Mars.
+inline std::string transitionPieceName(TransitionStyle style, int mask, std::string_view coastLiquid = "Water", std::string_view blendWorld = "Mars") {
     switch (style) {
     case TransitionStyle::Cliff: return std::string(cliffPieceName(mask));
     case TransitionStyle::Coast: return coastNamed(coastPieceName(mask), coastLiquid);
@@ -211,6 +236,19 @@ inline std::string transitionPieceName(TransitionStyle style, int mask, std::str
     }
     case TransitionStyle::CoastalCliffDeep: return coastalCliffName(0, mask, 0);
     case TransitionStyle::CoastalCliffShallow: return coastalCliffName(68, mask, 0);
+    case TransitionStyle::WorldBlend: {
+        // The mask marks the higher land. Blend-Green-R has grass along the right,
+        // and Blend-Mars-Low-TL has Mars everywhere except the top left.
+        const std::string family = blendWorld.empty() ? std::string("Mars") : std::string(blendWorld);
+        const std::string cliff(cliffPieceName(mask));
+        if (cliff.rfind("Cliff-High-", 0) == 0) {
+            return "Blend-" + family + "-" + cliff.substr(11);
+        }
+        if (cliff.rfind("Cliff-Low-", 0) == 0) {
+            return "Blend-" + family + "-Low-" + cliff.substr(10);
+        }
+        return {};
+    }
     default: return {};
     }
 }
@@ -221,7 +259,12 @@ class BrushGraph {
 public:
     BrushGraph() = default;
 
-    explicit BrushGraph(const std::vector<int>& paintHeights) : heights_(paintHeights) {
+    explicit BrushGraph(const std::vector<int>& paintHeights) : BrushGraph(paintHeights, {}) {}
+
+    // worlds names each paint's land, such as "Green" or "Mars", so two paints at
+    // the same height can still pick different blend pieces.
+    BrushGraph(const std::vector<int>& paintHeights, const std::vector<std::string>& worlds)
+        : heights_(paintHeights), worlds_(worlds.size() == paintHeights.size() ? worlds : std::vector<std::string>(paintHeights.size())) {
         const int count = static_cast<int>(heights_.size());
         const std::size_t cells = static_cast<std::size_t>(count) * static_cast<std::size_t>(count);
         styles_.assign(cells, TransitionStyle::None);
@@ -257,6 +300,12 @@ public:
 
     int size() const { return static_cast<int>(heights_.size()); }
     int height(int level) const { return heights_[static_cast<std::size_t>(level)]; }
+    std::string_view world(int level) const {
+        if (level < 0 || static_cast<std::size_t>(level) >= worlds_.size()) {
+            return {};
+        }
+        return worlds_[static_cast<std::size_t>(level)];
+    }
     TransitionStyle style(int a, int b) const { return styles_[index(a, b)]; }
     // Steps along the shortest chain of joined paints, so 0 to 219 passes through 85.
     int distance(int a, int b) const { return distance_[index(a, b)]; }
@@ -280,6 +329,7 @@ private:
     std::size_t index(int a, int b) const { return static_cast<std::size_t>(a) * heights_.size() + static_cast<std::size_t>(b); }
 
     std::vector<int> heights_;
+    std::vector<std::string> worlds_;
     std::vector<TransitionStyle> styles_;
     std::vector<int> distance_;
     std::vector<int> hop_;
@@ -339,7 +389,11 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         return mask;
     };
     if (distinct == 2) {
-        return transitionPieceName(graph.style(sorted[0], sorted[1]), maskOf(sorted[1]), coastLiquid);
+        std::string_view family = graph.world(sorted[1]);
+        if (family.empty()) {
+            family = "Mars";
+        }
+        return transitionPieceName(graph.style(sorted[0], sorted[1]), maskOf(sorted[1]), coastLiquid, family);
     }
     if (distinct == 3) {
         const int low = graph.height(sorted[0]);

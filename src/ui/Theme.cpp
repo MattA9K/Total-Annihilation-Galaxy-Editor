@@ -735,6 +735,74 @@ void sourceListTitle(const char* text) {
     ImGui::PopFont();
 }
 
+bool sourceListHeading(const char* title, const char* reloadId) {
+    ImGui::PushFont(smallFont());
+    const float line = ImGui::GetTextLineHeight();
+    const float scale = ImGui::GetFontSize() / 13.0f;
+    // The hit target is a little larger than the title, the size of a small
+    // macOS accessory button, while the arrow itself stays inside that square.
+    const float size = std::floor(std::max(line + 6.0f * scale, 16.0f * scale));
+    const float gap = std::floor(4.0f * scale);
+    const float titleWidth = std::max(8.0f, ImGui::GetContentRegionAvail().x - size - gap);
+    std::string fitted = title != nullptr ? title : "";
+    if (ImGui::CalcTextSize(fitted.c_str()).x > titleWidth) {
+        while (fitted.size() > 1 && ImGui::CalcTextSize((fitted + "...").c_str()).x > titleWidth) {
+            fitted.pop_back();
+            while (!fitted.empty() && (static_cast<unsigned char>(fitted.back()) & 0xC0) == 0x80) {
+                fitted.pop_back();
+            }
+        }
+        fitted += "...";
+    }
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float textY = std::floor(origin.y + (size - line) * 0.5f);
+    ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x, textY), ImGui::GetColorU32(colors().sourceTitle), fitted.c_str());
+    ImGui::Dummy(ImVec2(titleWidth, size));
+    ImGui::SameLine(0.0f, gap);
+
+    const ImVec2 button = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(reloadId, ImVec2(size, size));
+    const bool hot = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    if (held || hot) {
+        const int shade = dark() ? 255 : 0;
+        draw->AddRectFilled(
+            button,
+            ImVec2(button.x + size, button.y + size),
+            IM_COL32(shade, shade, shade, held ? 44 : 16),
+            std::floor(4.0f * scale));
+    }
+
+    const ImU32 ink = hot || held ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(colors().sourceTitle);
+    const ImVec2 center(button.x + size * 0.5f, button.y + size * 0.5f);
+    const float radius = size * 0.28f;
+    const float thickness = std::max(1.25f, size * 0.085f);
+    // The gap sits just past 12 o'clock and the head ends there, pointing
+    // clockwise, which is the arrow.clockwise symbol.
+    constexpr float kPi = 3.14159265f;
+    const float start = -kPi * 0.5f + 0.70f;
+    const float end = start + kPi * 1.75f;
+    draw->PathArcTo(center, radius, start, end, 20);
+    draw->PathStroke(ink, 0, thickness);
+
+    const float tx = -std::sin(end);
+    const float ty = std::cos(end);
+    const float ex = center.x + radius * std::cos(end);
+    const float ey = center.y + radius * std::sin(end);
+    const float head = size * 0.16f;
+    const float half = size * 0.11f;
+    draw->AddTriangleFilled(
+        ImVec2(ex + tx * head, ey + ty * head),
+        ImVec2(ex - ty * half, ey + tx * half),
+        ImVec2(ex + ty * half, ey - tx * half),
+        ink);
+
+    ImGui::PopFont();
+    return pressed;
+}
+
 ImGuiWindowFlags alertFlags() {
     return ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 }

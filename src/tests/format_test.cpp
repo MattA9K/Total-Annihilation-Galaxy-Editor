@@ -2847,6 +2847,36 @@ void testBrushCells() {
     pool.coastLiquid = "Lava";
     pool.paint(2, 2, 1, 0);
     expect(pool.piece(2, 2) == "Base-0" && pool.piece(2, 1) == "Coast-Lava-B" && pool.piece(1, 1) == "Coast-Lava-BR" && !pool.steep(), "a lava pool in the land uses Coast-Lava pieces");
+
+    // Mars is Base-0 water, Base-85 land, and Base-255 cliff ground.
+    const BrushGraph mars(std::vector<int>{0, 85, 255});
+    expect(mars.style(0, 1) == TransitionStyle::Coast && mars.style(1, 2) == TransitionStyle::Cliff && mars.compatible(0, 1) && mars.compatible(1, 2), "Mars joins water to land with coasts and land to Base-255 with cliffs");
+    BrushTestLattice marsLand(5, 5, 0, mars);
+    marsLand.paint(2, 2, 1, 1);
+    expect(marsLand.piece(2, 2) == "Base-85" && marsLand.piece(2, 1) == "Coast-Water-T" && marsLand.piece(1, 1) == "Coast-Land-BR" && !marsLand.steep(), "Mars land in the water uses coast pieces");
+    BrushTestLattice marsCliff(5, 5, 1, mars);
+    marsCliff.paint(2, 2, 1, 2);
+    expect(marsCliff.piece(2, 2) == "Base-255" && marsCliff.piece(2, 1) == "Cliff-High-B" && marsCliff.piece(1, 1) == "Cliff-High-BR" && !marsCliff.steep(), "Mars cliff ground meets Base-85 with cliff pieces");
+
+    // Lava Base-45 and Mars Base-85 blend. The mask marks the Mars corners.
+    const BrushGraph marsLava(std::vector<int>{45, 85});
+    expect(marsLava.style(0, 1) == TransitionStyle::WorldBlend && marsLava.compatible(0, 1), "Lava Base-45 and Mars Base-85 join with blend pieces");
+    expect(transitionPieceName(TransitionStyle::WorldBlend, kCornerTopRight | kCornerBottomRight) == "Blend-Mars-R" && transitionPieceName(TransitionStyle::WorldBlend, kCornerAll & ~kCornerBottomRight) == "Blend-Mars-Low-BR", "blend pieces name the Mars side");
+    BrushTestLattice lavaOnMars(5, 5, 1, marsLava);
+    lavaOnMars.paint(2, 2, 1, 0);
+    expect(lavaOnMars.piece(2, 2) == "Base-45" && lavaOnMars.piece(2, 1) == "Blend-Mars-T" && lavaOnMars.piece(1, 2) == "Blend-Mars-L" && lavaOnMars.piece(1, 1) == "Blend-Mars-Low-BR" && !lavaOnMars.steep(), "lava painted on Mars is ringed by Mars blend pieces");
+    BrushTestLattice marsOnLava(5, 5, 0, marsLava);
+    marsOnLava.paint(2, 2, 1, 1);
+    expect(marsOnLava.piece(2, 2) == "Base-85" && marsOnLava.piece(2, 1) == "Blend-Mars-B" && marsOnLava.piece(1, 2) == "Blend-Mars-R" && marsOnLava.piece(1, 1) == "Blend-Mars-BR" && !marsOnLava.steep(), "Mars painted on lava is ringed by Mars blend pieces");
+    expect(transitionPieceName(TransitionStyle::WorldBlend, kCornerTopRight | kCornerBottomRight, "Water", "Green") == "Blend-Green-R" && transitionPieceName(TransitionStyle::WorldBlend, kCornerAll & ~kCornerBottomRight, "Water", "Green") == "Blend-Green-Low-BR", "green blend pieces name the grass side");
+    const BrushGraph greenLava(std::vector<int>{45, 85}, {"Lava", "Green"});
+    expect(greenLava.world(1) == "Green" && greenLava.style(0, 1) == TransitionStyle::WorldBlend, "GreenWorld Base-85 and Lava Base-45 join with blend pieces");
+    BrushTestLattice lavaOnGreen(5, 5, 1, greenLava);
+    lavaOnGreen.paint(2, 2, 1, 0);
+    expect(lavaOnGreen.piece(2, 2) == "Base-45" && lavaOnGreen.piece(2, 1) == "Blend-Green-T" && lavaOnGreen.piece(1, 2) == "Blend-Green-L" && lavaOnGreen.piece(1, 1) == "Blend-Green-Low-BR" && !lavaOnGreen.steep(), "lava painted on grass is ringed by green blend pieces");
+    BrushTestLattice greenOnLava(5, 5, 0, greenLava);
+    greenOnLava.paint(2, 2, 1, 1);
+    expect(greenOnLava.piece(2, 2) == "Base-85" && greenOnLava.piece(2, 1) == "Blend-Green-B" && greenOnLava.piece(1, 2) == "Blend-Green-R" && greenOnLava.piece(1, 1) == "Blend-Green-BR" && !greenOnLava.steep(), "grass painted on lava is ringed by green blend pieces");
 }
 
 // A small grid of cells for the river rules. Each cell holds a label such as "Base-85".
@@ -3255,8 +3285,8 @@ struct SlopeTestGrid {
         return galaxy::classifyRiverLabel(labels[static_cast<std::size_t>(y * width + x)]);
     }
 
-    galaxy::RiverPlan slope(int x, int y) {
-        const galaxy::RiverPlan plan = galaxy::planSlope(x, y, [&](int cx, int cy) { return look(cx, cy); });
+    galaxy::RiverPlan slope(int x, int y, const std::function<bool(std::string_view)>& available = {}) {
+        const galaxy::RiverPlan plan = galaxy::planSlope(x, y, [&](int cx, int cy) { return look(cx, cy); }, available);
         if (plan.allowed()) {
             for (const galaxy::RiverEdit& edit : plan.edits) {
                 at(edit.x, edit.y) = edit.key;
@@ -3409,6 +3439,32 @@ void testSlopes() {
     expect(!shallow.allowed() && shallow.reason.find("Base-68") != std::string::npos, "slopes refuse Base-68");
     expect(!coast.allowed() && coast.reason.find("Coast-Water-T") != std::string::npos, "slopes refuse a coast");
     expect(!refused.slope(1, 1).allowed() && refused.at(1, 1) == "Ridge-Horizontal" && refused.at(1, 2) == "Base-85", "a refused click leaves the cells alone");
+
+    // Mars has the straight singles and no run pieces, so neighbouring slopes stay
+    // singles on the 16 x 16 cells. A corner cliff is refused.
+    const auto marsSlope = [](std::string_view key) {
+        return key == "Single-High-B" || key == "Single-High-T" || key == "Single-High-L" || key == "Single-High-R"
+            || key == "Single-High-TL" || key == "Single-High-TR" || key == "Single-High-BL" || key == "Single-High-BR";
+    };
+    SlopeTestGrid marsPair(4, 3, "Base-85");
+    marsPair.at(1, 1) = "Cliff-High-B-01";
+    marsPair.at(2, 1) = "Cliff-High-B-01";
+    expect(marsPair.slope(1, 1, marsSlope).allowed() && marsPair.at(1, 1) == "Single-High-B" && marsPair.at(2, 1) == "Cliff-High-B-01", "the first Mars slope leaves the next cliff alone");
+    expect(marsPair.slope(2, 1, marsSlope).allowed() && marsPair.at(1, 1) == "Single-High-B" && marsPair.at(2, 1) == "Single-High-B", "Mars slopes sit beside each other as singles, got " + marsPair.at(1, 1) + " and " + marsPair.at(2, 1));
+    SlopeTestGrid marsCorner(3, 3, "Base-85");
+    marsCorner.at(1, 1) = "Cliff-Low-BR-01";
+    const galaxy::RiverPlan marsLow = marsCorner.slope(1, 1, marsSlope);
+    expect(!marsLow.allowed() && marsLow.reason.find("Cliff-Low-BR") != std::string::npos && marsLow.reason.find("straight") != std::string::npos, "a Mars low corner is refused, got " + marsLow.reason);
+    marsCorner.at(1, 1) = "Cliff-High-BL-01";
+    const galaxy::RiverPlan marsHigh = marsCorner.slope(1, 1, marsSlope);
+    expect(!marsHigh.allowed() && marsHigh.reason.find("Cliff-High-BL") != std::string::npos && marsCorner.at(1, 1) == "Cliff-High-BL-01", "a Mars high corner is refused");
+
+    const auto everySlope = [](std::string_view) { return true; };
+    SlopeTestGrid stillJoins(4, 3, "Base-85");
+    stillJoins.at(1, 1) = "Cliff-High-B";
+    stillJoins.at(2, 1) = "Cliff-High-B";
+    stillJoins.slope(1, 1, everySlope);
+    expect(stillJoins.slope(2, 1, everySlope).allowed() && stillJoins.at(1, 1) == "Slope-High-B-TransitionR" && stillJoins.at(2, 1) == "Slope-High-B-TransitionL", "a full slope set still joins neighbours");
 }
 
 int main() {

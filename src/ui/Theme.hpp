@@ -124,6 +124,11 @@ void bottomBarBackground();
 void sidebarBackground();
 // Small bold gray title inside the sidebar.
 void sourceListTitle(const char* text);
+// The same title, with a trailing reload button. The clockwise arrow is the
+// standard reload symbol: quiet until the pointer is over it, so a long list of
+// archives stays readable. Returns true when that button is clicked. The button
+// stays the current item, so the caller can add its tooltip.
+bool sourceListHeading(const char* title, const char* reloadId);
 // Window flags for an alert: no title bar, sized to the message.
 ImGuiWindowFlags alertFlags();
 // Bold message plus small informative text, wrapped to the alert width, then a gap before the buttons.

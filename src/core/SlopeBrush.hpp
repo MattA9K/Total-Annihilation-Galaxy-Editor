@@ -220,7 +220,11 @@ inline std::string slopePieceName(int mask, int continuing) {
 }
 
 // Converts the cliff under the brush, and redraws the slopes that join it.
-inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup) {
+// `available` names the slope pieces this tileset actually has. An empty function
+// plans as if every piece exists, which is how the GreenWorld slopes behave.
+// A tileset that only has the straight singles (Mars) keeps those singles beside
+// each other on the 16 x 16 cells, and refuses a cliff corner.
+inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
     RiverPlan plan;
     const SlopeShape here = parseSlopeShape(lookup(x, y).label);
     if (!here.valid) {
@@ -228,6 +232,18 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup) {
         std::string text = "Slopes cannot go on ";
         text += cell.label.empty() ? "this tile" : cell.label;
         text += "\nSlopes only go on cliffs between Base-85 and Base-219";
+        plan.reason = std::move(text);
+        return plan;
+    }
+
+    // No Slope-High or Slope-Low pieces means the run cannot bend or meet in the
+    // middle. Neighbouring straight slopes stay singles, one 16 x 16 cell each.
+    const bool straightOnly = static_cast<bool>(available) && !available("Slope-High-B") && !available("Slope-Low-TL");
+    if (straightOnly && !slopeStraight(here.mask)) {
+        const RiverCell cell = lookup(x, y);
+        std::string text = "Slopes cannot go on ";
+        text += cell.label.empty() ? "this corner" : cell.label;
+        text += "\nThese slopes only follow straight cliffs";
         plan.reason = std::move(text);
         return plan;
     }
@@ -240,26 +256,28 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup) {
         }
     };
     add(x, y, here.mask);
-    for (std::size_t index = 0; index < pending.size(); ++index) {
-        const int cx = pending[index].first;
-        const int cy = pending[index].second;
-        const int mask = slopes[{cx, cy}];
-        for (int direction = 1; direction <= kRiverAllSides; direction <<= 1) {
-            if ((slopeCliffSides(mask) & direction) == 0) {
-                continue;
+    if (!straightOnly) {
+        for (std::size_t index = 0; index < pending.size(); ++index) {
+            const int cx = pending[index].first;
+            const int cy = pending[index].second;
+            const int mask = slopes[{cx, cy}];
+            for (int direction = 1; direction <= kRiverAllSides; direction <<= 1) {
+                if ((slopeCliffSides(mask) & direction) == 0) {
+                    continue;
+                }
+                int nx = cx;
+                int ny = cy;
+                slopeStep(direction, nx, ny);
+                if (slopes.find({nx, ny}) != slopes.end()) {
+                    continue;
+                }
+                const SlopeShape next = parseSlopeShape(lookup(nx, ny).label);
+                // A cliff the brush did not click stays a cliff. Slopes already placed join the run.
+                if (!next.valid || !next.slope || !slopeEdgesMatch(mask, next.mask, direction)) {
+                    continue;
+                }
+                add(nx, ny, next.mask);
             }
-            int nx = cx;
-            int ny = cy;
-            slopeStep(direction, nx, ny);
-            if (slopes.find({nx, ny}) != slopes.end()) {
-                continue;
-            }
-            const SlopeShape next = parseSlopeShape(lookup(nx, ny).label);
-            // A cliff the brush did not click stays a cliff. Slopes already placed join the run.
-            if (!next.valid || !next.slope || !slopeEdgesMatch(mask, next.mask, direction)) {
-                continue;
-            }
-            add(nx, ny, next.mask);
         }
     }
 
@@ -327,6 +345,25 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup) {
         if (!sameRiverKey(current, wanted)) {
             plan.edits.push_back(RiverEdit{cell.first, cell.second, wanted});
         }
+    }
+    if (available) {
+        for (const RiverEdit& edit : plan.edits) {
+            if (available(edit.key)) {
+                continue;
+            }
+            if (edit.x == x && edit.y == y) {
+                const RiverCell cell = lookup(x, y);
+                plan.edits.clear();
+                std::string text = "Slopes cannot go on ";
+                text += cell.label.empty() ? "this tile" : cell.label;
+                text += "\nThese slopes only follow straight cliffs";
+                plan.reason = std::move(text);
+                return plan;
+            }
+        }
+        plan.edits.erase(
+            std::remove_if(plan.edits.begin(), plan.edits.end(), [&](const RiverEdit& edit) { return !available(edit.key); }),
+            plan.edits.end());
     }
     if (plan.edits.empty()) {
         plan.reason = "A slope is already here";
