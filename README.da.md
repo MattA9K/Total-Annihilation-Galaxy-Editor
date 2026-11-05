@@ -17,7 +17,6 @@ Mal fliser, placer træer og metal, indstil spillerstarter og form terrænet hø
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (arkiv) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 På macOS skal du åbne diskbilledet og trække Galaxy Editor-mappen til din Programmer-mappe. På Windows skal du udpakke arkivet og køre `GalaxyEditor.exe`. På Linux kan du bruge `.deb`-pakken eller udpakke `.tar.gz`-arkivet. Hver download inkluderer `GE-Favorites-RandomMapGeneratorTiles.hpi` ved siden af appen. Flisepenslen læser det flisesæt, så hold filen ved siden af `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` er inkluderet på samme måde. Første gang den starter, spørger Galaxy Editor, hvor Total Annihilation er installeret. Hver udgivelse er angivet på [Releases-siden](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,11 +24,13 @@ På macOS skal du åbne diskbilledet og trække Galaxy Editor-mappen til din Pro
 
 **Mulighed 1: Installer via .deb-pakke (Debian/Ubuntu/Mint)**
 
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
 ```bash
-# Replace VERSION with the actual version number (e.g., 1.1.3)
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
-sudo apt install ./galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
 ```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
 
 **Mulighed 2: Brug det bærbare arkiv**
 

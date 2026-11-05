@@ -17,7 +17,6 @@ Maľujte dlaždice, umiestňujte stromy a kov, nastavte štarty hráčov a tvaru
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (archív) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 V macOS otvorte obraz disku a presuňte priečinok Galaxy Editor do priečinka Aplikácie. Vo Windows rozbaľte archív a spustite `GalaxyEditor.exe`. V Linuxe môžete použiť balík `.deb` alebo rozbaliť archív `.tar.gz`. Každé stiahnutie obsahuje `GE-Favorites-RandomMapGeneratorTiles.hpi` vedľa aplikácie. Štetec dlaždíc číta túto sadu dlaždíc, takže súbor držte vedľa `GalaxyEditor.app`, `GalaxyEditor.exe` alebo Linux `GalaxyEditor`. `GreenWorld.hpi` je zahrnutý rovnakým způsobom. Pri prvom spustení Galaxy Editor opýta sa, kde je nainštalovaný Total Annihilation. Každé vydanie je uvedené na [stránke vydaní](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,11 +24,13 @@ V macOS otvorte obraz disku a presuňte priečinok Galaxy Editor do priečinka A
 
 **Možnosť 1: Inštalácia cez balík .deb (Debian/Ubuntu/Mint)**
 
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
 ```bash
-# Replace VERSION with the actual version number (e.g., 1.1.3)
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
-sudo apt install ./galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
 ```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
 
 **Možnosť 2: Použitie prenosného archívu**
 

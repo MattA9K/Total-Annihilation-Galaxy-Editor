@@ -24,11 +24,13 @@ Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applicatio
 
 **Pilihan 1: Pasang melalui pakej .deb (Debian/Ubuntu/Mint)**
 
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
 ```bash
-# Replace VERSION with the actual version number (e.g., 1.1.3)
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
-sudo apt install ./galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
 ```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
 
 **Pilihan 2: Gunakan arkib mudah alih**
 

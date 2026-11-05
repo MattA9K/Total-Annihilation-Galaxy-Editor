@@ -17,7 +17,6 @@
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (архив) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 В macOS откройте образ диска и перетащите папку Galaxy Editor в папку Программы. В Windows распакуйте архив и запустите `GalaxyEditor.exe`. В Linux вы можете использовать пакет `.deb` или распаковать архив `.tar.gz`. Каждая загрузка включает `GE-Favorites-RandomMapGeneratorTiles.hpi` рядом с приложением. Кисть плиток читает этот набор плиток, поэтому держите файл рядом с `GalaxyEditor.app`, `GalaxyEditor.exe` или Linux `GalaxyEditor`. `GreenWorld.hpi` включен таким же образом. При первом запуске Galaxy Editor спрашивает, где установлен Total Annihilation. Каждый выпуск перечислен на [странице выпусков](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,11 +24,13 @@
 
 **Вариант 1: Установка через пакет .deb (Debian/Ubuntu/Mint)**
 
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
 ```bash
-# Replace VERSION with the actual version number (e.g., 1.1.3)
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
-sudo apt install ./galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
 ```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
 
 **Вариант 2: Использование портативного архива**
 

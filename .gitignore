@@ -2,6 +2,7 @@
 # editor, and the tileset archives used while running Galaxy Editor.
 /build/
 /build-windows/
+*.deb
 
 # macOS Finder metadata
 .DS_Store

@@ -17,7 +17,6 @@ Maalaa laattoja, sijoita puita ja metallia, aseta pelaajien aloituskohdat ja muo
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (arkisto) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 MacOS:ssä avaa levykuva ja vedä Galaxy Editor -kansio Applications-kansioon. Windowsissa pura arkisto ja suorita `GalaxyEditor.exe`. Linuxissa voit käyttää `.deb`-pakettia tai purkaa `.tar.gz`-arkiston. Jokainen lataus sisältää `GE-Favorites-RandomMapGeneratorTiles.hpi` -tiedoston sovelluksen vieressä. Laattojen sivellin lukee kyseisen laattavalikoiman, joten pidä tiedosto `GalaxyEditor.app`:n, `GalaxyEditor.exe`:n tai Linux-version `GalaxyEditor`:n vieressä. `GreenWorld.hpi` on mukana samalla tavalla. Ensimmäisellä käynnistyskerralla Galaxy Editor kysyy, missä Total Annihilation on asennettu. Jokainen julkaisu on lueteltu [Julkaisut-sivulla](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,11 +24,13 @@ MacOS:ssä avaa levykuva ja vedä Galaxy Editor -kansio Applications-kansioon. W
 
 **Vaihtoehto 1: Asenna .deb-paketilla (Debian/Ubuntu/Mint)**
 
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
 ```bash
-# Replace VERSION with the actual version number (e.g., 1.1.3)
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
-sudo apt install ./galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
 ```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
 
 **Vaihtoehto 2: Käytä siirrettävää arkistoa**
 

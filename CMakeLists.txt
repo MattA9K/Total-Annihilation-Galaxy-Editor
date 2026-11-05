@@ -274,11 +274,12 @@ of the ground. Maps open and save as .ufo files the game can load.")
     
     set(CPACK_DEBIAN_PACKAGE_SECTION "graphics")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "zlib1g, libgl1, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxi6, libxext6, zenity")
+    # libOpenGL.so.0 is a direct dependency (libopengl0). GLFW then dlopens
+    # GLX and the X11 libraries listed here. EGL, GLES, OSMesa, and Vulkan are probed
+    # only when those backends are used, so they stay optional.
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "zlib1g, libopengl0, libgl1, libx11-6, libx11-xcb1, libxrandr2, libxinerama1, libxcursor1, libxi6, libxext6, libxrender1, zenity")
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
-    set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
-    
-    set(CPACK_PACKAGE_FILE_NAME "GalaxyEditor-${PROJECT_VERSION}-linux-x64")
+    set(CPACK_DEBIAN_FILE_NAME "galaxy-editor_${PROJECT_VERSION}_amd64.deb")
     
     include(CPack)
 endif()

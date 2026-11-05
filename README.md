@@ -16,30 +16,13 @@ Paint tiles, place trees and metal, set player starts, and shape the height of t
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux (archive) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
+| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. On Linux, you can either use the `.deb` package or unpack the `.tar.gz` archive. Each download includes `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app`, `GalaxyEditor.exe`, or the Linux `GalaxyEditor`. `GreenWorld.hpi` is included the same way. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. On Linux, unpack the archive and run `GalaxyEditor`. The v1.1.2 downloads include `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app`, `GalaxyEditor.exe`, or the Linux `GalaxyEditor` from the archive. `GreenWorld.hpi` is included the same way. The first time it starts, Galaxy Editor asks where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
-### Linux installation
+### Linux
 
-**Option 1: Install via .deb package (Debian/Ubuntu/Mint)**
-
-Download the `.deb` package from the [latest release](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest), then install it:
-
-```bash
-# Replace VERSION with the actual version number (e.g., 1.1.3)
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
-sudo apt install ./galaxy-editor_VERSION_amd64.deb
-```
-
-After installation, you can launch Galaxy Editor from your application menu or by running `GalaxyEditor` in the terminal.
-
-**Note:** The `.deb` package will be available starting with the next release after v1.1.2.
-
-**Option 2: Use the portable archive**
-
-Download and extract the `.tar.gz`:
+The v1.1.2 release ships the portable archive. These commands work today:
 
 ```bash
 wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
@@ -47,6 +30,14 @@ tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
 cd GalaxyEditor-1.1.2-linux-x64
 ./GalaxyEditor
 ```
+
+Debian and Ubuntu packages are not on the v1.1.2 release, so there is no `.deb` download URL yet. The next tagged release attaches `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. Once a release includes the file, download it from that release and install it:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+`apt` installs the editor as `GalaxyEditor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `GalaxyEditor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files stay in the `.tar.gz`, beside the binary.
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
