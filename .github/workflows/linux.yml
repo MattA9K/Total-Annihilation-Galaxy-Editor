@@ -2,6 +2,13 @@ name: Linux binary
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'assets/**'
+  push:
+    branches:
+      - main
 
 jobs:
   build:
