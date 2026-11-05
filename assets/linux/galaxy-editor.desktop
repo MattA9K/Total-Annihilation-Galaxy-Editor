@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Galaxy Editor
+Comment=A map editor for Total Annihilation
+Exec=galaxy-editor
+Icon=galaxy-editor
+Terminal=false
+Categories=Graphics;2DGraphics;
+Keywords=map;editor;game;total-annihilation;
+StartupNotify=true

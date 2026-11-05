@@ -16,9 +16,30 @@ Mal fliser, placer træer og metal, indstil spillerstarter og form terrænet hø
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (arkiv) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-På macOS skal du åbne diskbilledet og trække Galaxy Editor-mappen til din Programmer-mappe. På Windows skal du udpakke arkivet og køre `GalaxyEditor.exe`. På Linux skal du udpakke arkivet og køre `GalaxyEditor`. Hver download inkluderer `GE-Favorites-RandomMapGeneratorTiles.hpi` ved siden af appen. Flisepenslen læser det flisesæt, så hold filen ved siden af `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` er inkluderet på samme måde. Første gang den starter, spørger Galaxy Editor, hvor Total Annihilation er installeret. Hver udgivelse er angivet på [Releases-siden](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+På macOS skal du åbne diskbilledet og trække Galaxy Editor-mappen til din Programmer-mappe. På Windows skal du udpakke arkivet og køre `GalaxyEditor.exe`. På Linux kan du bruge `.deb`-pakken eller udpakke `.tar.gz`-arkivet. Hver download inkluderer `GE-Favorites-RandomMapGeneratorTiles.hpi` ved siden af appen. Flisepenslen læser det flisesæt, så hold filen ved siden af `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` er inkluderet på samme måde. Første gang den starter, spørger Galaxy Editor, hvor Total Annihilation er installeret. Hver udgivelse er angivet på [Releases-siden](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+
+### Linux-installation
+
+**Mulighed 1: Installer via .deb-pakke (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**Mulighed 2: Brug det bærbare arkiv**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 For at bygge Windows `.exe` på en Mac- eller Linux-maskine skal du installere MinGW-w64 (`brew install mingw-w64` eller `apt install g++-mingw-w64-x86-64-posix`) og derefter:

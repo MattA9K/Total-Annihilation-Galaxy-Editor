@@ -16,9 +16,30 @@ Maľujte dlaždice, umiestňujte stromy a kov, nastavte štarty hráčov a tvaru
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (archív) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-V macOS otvorte obraz disku a presuňte priečinok Galaxy Editor do priečinka Aplikácie. Vo Windows rozbaľte archív a spustite `GalaxyEditor.exe`. V Linuxe rozbaľte archív a spustite `GalaxyEditor`. Každé stiahnutie obsahuje `GE-Favorites-RandomMapGeneratorTiles.hpi` vedľa aplikácie. Štetec dlaždíc číta túto sadu dlaždíc, takže súbor držte vedľa `GalaxyEditor.app`, `GalaxyEditor.exe` alebo Linux `GalaxyEditor`. `GreenWorld.hpi` je zahrnutý rovnakým způsobom. Pri prvom spustení Galaxy Editor opýta sa, kde je nainštalovaný Total Annihilation. Každé vydanie je uvedené na [stránke vydaní](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+V macOS otvorte obraz disku a presuňte priečinok Galaxy Editor do priečinka Aplikácie. Vo Windows rozbaľte archív a spustite `GalaxyEditor.exe`. V Linuxe môžete použiť balík `.deb` alebo rozbaliť archív `.tar.gz`. Každé stiahnutie obsahuje `GE-Favorites-RandomMapGeneratorTiles.hpi` vedľa aplikácie. Štetec dlaždíc číta túto sadu dlaždíc, takže súbor držte vedľa `GalaxyEditor.app`, `GalaxyEditor.exe` alebo Linux `GalaxyEditor`. `GreenWorld.hpi` je zahrnutý rovnakým způsobom. Pri prvom spustení Galaxy Editor opýta sa, kde je nainštalovaný Total Annihilation. Každé vydanie je uvedené na [stránke vydaní](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+
+### Inštalácia Linuxu
+
+**Možnosť 1: Inštalácia cez balík .deb (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**Možnosť 2: Použitie prenosného archívu**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Na zostavenie Windows `.exe` na Mac alebo Linux stroji nainštalujte MinGW-w64 (`brew install mingw-w64` alebo `apt install g++-mingw-w64-x86-64-posix`), potom:

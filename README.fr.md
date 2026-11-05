@@ -16,9 +16,30 @@ Peignez des tuiles, placez des arbres et du métal, définissez les départs des
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (archive) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-Sur macOS, ouvrez l'image disque et faites glisser le dossier Galaxy Editor dans votre dossier Applications. Sur Windows, décompressez l'archive et exécutez `GalaxyEditor.exe`. Sur Linux, décompressez l'archive et exécutez `GalaxyEditor`. Chaque téléchargement inclut `GE-Favorites-RandomMapGeneratorTiles.hpi` à côté de l'application. Le pinceau de tuiles lit cet ensemble de tuiles, alors gardez le fichier à côté de `GalaxyEditor.app`, `GalaxyEditor.exe` ou de `GalaxyEditor` sous Linux. `GreenWorld.hpi` est inclus de la même manière. La première fois qu'il démarre, Galaxy Editor demande où Total Annihilation est installé. Chaque version est listée sur la [page des versions](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+Sur macOS, ouvrez l'image disque et faites glisser le dossier Galaxy Editor dans votre dossier Applications. Sur Windows, décompressez l'archive et exécutez `GalaxyEditor.exe`. Sur Linux, vous pouvez utiliser le paquet `.deb` ou décompresser l'archive `.tar.gz`. Chaque téléchargement inclut `GE-Favorites-RandomMapGeneratorTiles.hpi` à côté de l'application. Le pinceau de tuiles lit cet ensemble de tuiles, alors gardez le fichier à côté de `GalaxyEditor.app`, `GalaxyEditor.exe` ou de `GalaxyEditor` sous Linux. `GreenWorld.hpi` est inclus de la même manière. La première fois qu'il démarre, Galaxy Editor demande où Total Annihilation est installé. Chaque version est listée sur la [page des versions](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+
+### Installation Linux
+
+**Option 1 : Installer via le paquet .deb (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**Option 2 : Utiliser l'archive portable**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux :
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Pour compiler le `.exe` Windows sur une machine Mac ou Linux, installez MinGW-w64 (`brew install mingw-w64`, ou `apt install g++-mingw-w64-x86-64-posix`), puis :

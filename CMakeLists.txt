@@ -251,6 +251,9 @@ elseif(WIN32)
     target_sources(GalaxyEditor PRIVATE "${WIN_RC}")
 else()
     target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_posix.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_posix.cpp)
+    # The CMake target stays GalaxyEditor. The file people run is galaxy-editor,
+    # the usual lowercase command name on Linux.
+    set_target_properties(GalaxyEditor PROPERTIES OUTPUT_NAME galaxy-editor)
     # Desktop environments take the launcher icon from an installed desktop entry.
     install(TARGETS GalaxyEditor RUNTIME DESTINATION bin)
     install(FILES assets/linux/galaxy-editor.desktop DESTINATION share/applications)
@@ -259,3 +262,27 @@ endif()
 
 enable_testing()
 add_test(NAME format COMMAND galaxy_tests)
+
+# CPack configuration for DEB packaging
+if(UNIX AND NOT APPLE)
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_PACKAGE_NAME "galaxy-editor")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_VENDOR "Black Cat Software")
+    set(CPACK_PACKAGE_CONTACT "Matt Andrzejczuk")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A map editor for Total Annihilation")
+    set(CPACK_PACKAGE_DESCRIPTION "Galaxy Editor is a map editor for Total Annihilation.
+Paint tiles, place trees and metal, set player starts, and shape the height
+of the ground. Maps open and save as .ufo files the game can load.")
+    
+    set(CPACK_DEBIAN_PACKAGE_SECTION "graphics")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    # libOpenGL.so.0 is a direct dependency (libopengl0). GLFW then dlopens
+    # GLX and the X11 libraries listed here. EGL, GLES, OSMesa, and Vulkan are probed
+    # only when those backends are used, so they stay optional.
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "zlib1g, libopengl0, libgl1, libx11-6, libx11-xcb1, libxrandr2, libxinerama1, libxcursor1, libxi6, libxext6, libxrender1, zenity")
+    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    set(CPACK_DEBIAN_FILE_NAME "galaxy-editor_${PROJECT_VERSION}_amd64.deb")
+    
+    include(CPack)
+endif()

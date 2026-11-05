@@ -16,9 +16,30 @@
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (архив) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-В macOS откройте образ диска и перетащите папку Galaxy Editor в папку Программы. В Windows распакуйте архив и запустите `GalaxyEditor.exe`. В Linux распакуйте архив и запустите `GalaxyEditor`. Каждая загрузка включает `GE-Favorites-RandomMapGeneratorTiles.hpi` рядом с приложением. Кисть плиток читает этот набор плиток, поэтому держите файл рядом с `GalaxyEditor.app`, `GalaxyEditor.exe` или Linux `GalaxyEditor`. `GreenWorld.hpi` включен таким же образом. При первом запуске Galaxy Editor спрашивает, где установлен Total Annihilation. Каждый выпуск перечислен на [странице выпусков](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+В macOS откройте образ диска и перетащите папку Galaxy Editor в папку Программы. В Windows распакуйте архив и запустите `GalaxyEditor.exe`. В Linux вы можете использовать пакет `.deb` или распаковать архив `.tar.gz`. Каждая загрузка включает `GE-Favorites-RandomMapGeneratorTiles.hpi` рядом с приложением. Кисть плиток читает этот набор плиток, поэтому держите файл рядом с `GalaxyEditor.app`, `GalaxyEditor.exe` или Linux `GalaxyEditor`. `GreenWorld.hpi` включен таким же образом. При первом запуске Galaxy Editor спрашивает, где установлен Total Annihilation. Каждый выпуск перечислен на [странице выпусков](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+
+### Установка Linux
+
+**Вариант 1: Установка через пакет .deb (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**Вариант 2: Использование портативного архива**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Чтобы собрать Windows `.exe` на Mac или Linux машине, установите MinGW-w64 (`brew install mingw-w64` или `apt install g++-mingw-w64-x86-64-posix`), затем:

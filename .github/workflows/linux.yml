@@ -2,10 +2,21 @@ name: Linux binary
 
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -26,9 +37,56 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
           cmake --build build --target GalaxyEditor -j"$(nproc)"
 
-      - name: Upload the editor
+      - name: Build DEB package
+        run: |
+          cd build
+          cpack -G DEB
+
+      - name: Package tarball
+        run: |
+          VERSION=$(cat VERSION)
+          mkdir -p "GalaxyEditor-${VERSION}-linux-x64"
+          cp build/galaxy-editor "GalaxyEditor-${VERSION}-linux-x64/"
+          if [ -f "GE-Favorites-RandomMapGeneratorTiles.hpi" ]; then
+            cp GE-Favorites-RandomMapGeneratorTiles.hpi "GalaxyEditor-${VERSION}-linux-x64/"
+          fi
+          if [ -f "GreenWorld.hpi" ]; then
+            cp GreenWorld.hpi "GalaxyEditor-${VERSION}-linux-x64/"
+          fi
+          tar -czf "GalaxyEditor-${VERSION}-linux-x64.tar.gz" "GalaxyEditor-${VERSION}-linux-x64"
+
+      - name: Upload DEB package
         uses: actions/upload-artifact@v4
         with:
-          name: GalaxyEditor-linux-x64
-          path: build/GalaxyEditor
+          name: GalaxyEditor-linux-x64-deb
+          path: build/*.deb
           if-no-files-found: error
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyEditor-linux-x64-tarball
+          path: GalaxyEditor-*.tar.gz
+          if-no-files-found: error
+
+      # v1.1.2 is already published and does not get this package. The next
+      # v* tag attaches galaxy-editor_<version>_amd64.deb to that GitHub Release.
+      - name: Attach the .deb to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          deb="build/galaxy-editor_${version}_amd64.deb"
+          if [ ! -f "$deb" ]; then
+            echo "Expected ${deb}" >&2
+            ls -l build
+            exit 1
+          fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$deb" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$deb" \
+              --title "Galaxy Editor ${version}" \
+              --notes "Linux Debian package: \`galaxy-editor_${version}_amd64.deb\`."
+          fi

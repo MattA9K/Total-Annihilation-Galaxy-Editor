@@ -18,7 +18,28 @@ Cat jubin, letakkan pokok dan logam, tetapkan permulaan pemain, dan bentuk ketin
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applications anda. Pada Windows, nyahzip arkib dan jalankan `GalaxyEditor.exe`. Pada Linux, nyahpak arkib dan jalankan `GalaxyEditor`. Setiap muat turun termasuk `GE-Favorites-RandomMapGeneratorTiles.hpi` di sebelah aplikasi. Berus jubin membaca set jubin tersebut, jadi simpan fail di sebelah `GalaxyEditor.app`, `GalaxyEditor.exe`, atau Linux `GalaxyEditor`. `GreenWorld.hpi` disertakan dengan cara yang sama. Kali pertama ia bermula, Galaxy Editor bertanya di mana Total Annihilation dipasang. Setiap keluaran disenaraikan di [halaman Keluaran](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applications anda. Pada Windows, nyahzip arkib dan jalankan `GalaxyEditor.exe`. Pada Linux, anda boleh menggunakan pakej `.deb` atau nyahpak arkib `.tar.gz`. Setiap muat turun termasuk `GE-Favorites-RandomMapGeneratorTiles.hpi` di sebelah aplikasi. Berus jubin membaca set jubin tersebut, jadi simpan fail di sebelah `GalaxyEditor.app`, `GalaxyEditor.exe`, atau Linux `GalaxyEditor`. `GreenWorld.hpi` disertakan dengan cara yang sama. Kali pertama ia bermula, Galaxy Editor bertanya di mana Total Annihilation dipasang. Setiap keluaran disenaraikan di [halaman Keluaran](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+
+### Pemasangan Linux
+
+**Pilihan 1: Pasang melalui pakej .deb (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**Pilihan 2: Gunakan arkib mudah alih**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Untuk membina Windows `.exe` pada mesin Mac atau Linux, pasang MinGW-w64 (`brew install mingw-w64`, atau `apt install g++-mingw-w64-x86-64-posix`), kemudian:

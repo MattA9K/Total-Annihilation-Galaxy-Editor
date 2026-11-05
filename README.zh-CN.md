@@ -16,9 +16,30 @@
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (存档) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-在 macOS 上，打开磁盘映像并将 Galaxy Editor 文件夹拖到您的应用程序文件夹。在 Windows 上，解压缩存档并运行 `GalaxyEditor.exe`。在 Linux 上，解压存档并运行 `GalaxyEditor`。每个下载都包含应用程序旁边的 `GE-Favorites-RandomMapGeneratorTiles.hpi`。地块画笔会读取该图块集，因此请将文件保留在 `GalaxyEditor.app`、`GalaxyEditor.exe` 或 Linux `GalaxyEditor` 旁边。`GreenWorld.hpi` 也以同样的方式包含。首次启动时，Galaxy Editor 会询问 Total Annihilation 的安装位置。所有版本都列在[发布页面](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)上。
+在 macOS 上，打开磁盘映像并将 Galaxy Editor 文件夹拖到您的应用程序文件夹。在 Windows 上，解压缩存档并运行 `GalaxyEditor.exe`。在 Linux 上，您可以使用 `.deb` 软件包或解压 `.tar.gz` 存档。每个下载都包含应用程序旁边的 `GE-Favorites-RandomMapGeneratorTiles.hpi`。地块画笔会读取该图块集，因此请将文件保留在 `GalaxyEditor.app`、`GalaxyEditor.exe` 或 Linux `GalaxyEditor` 旁边。`GreenWorld.hpi` 也以同样的方式包含。首次启动时，Galaxy Editor 会询问 Total Annihilation 的安装位置。所有版本都列在[发布页面](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)上。
+
+### Linux 安装
+
+**选项 1：通过 .deb 软件包安装 (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**选项 2：使用便携式存档**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux：
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 要在 Mac 或 Linux 机器上构建 Windows `.exe`，请安装 MinGW-w64（`brew install mingw-w64`，或 `apt install g++-mingw-w64-x86-64-posix`），然后：

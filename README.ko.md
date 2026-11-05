@@ -16,9 +16,30 @@ macOS, Windows, Linux용 [Total Annihilation](https://en.wikipedia.org/wiki/Tota
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (아카이브) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-macOS에서는 디스크 이미지를 열고 Galaxy Editor 폴더를 응용 프로그램 폴더로 드래그하세요. Windows에서는 아카이브의 압축을 풀고 `GalaxyEditor.exe`를 실행하세요. Linux에서는 아카이브의 압축을 풀고 `GalaxyEditor`를 실행하세요. 각 다운로드에는 앱 옆에 `GE-Favorites-RandomMapGeneratorTiles.hpi`가 포함되어 있습니다. 타일 브러시는 해당 타일셋을 읽으므로 `GalaxyEditor.app`, `GalaxyEditor.exe` 또는 Linux `GalaxyEditor` 옆에 파일을 보관하세요. `GreenWorld.hpi`도 같은 방식으로 포함되어 있습니다. 처음 시작할 때 Galaxy Editor는 Total Annihilation이 설치된 위치를 묻습니다. 모든 릴리스는 [릴리스 페이지](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)에 나열되어 있습니다.
+macOS에서는 디스크 이미지를 열고 Galaxy Editor 폴더를 응용 프로그램 폴더로 드래그하세요. Windows에서는 아카이브의 압축을 풀고 `GalaxyEditor.exe`를 실행하세요. Linux에서는 `.deb` 패키지를 사용하거나 `.tar.gz` 아카이브의 압축을 풀 수 있습니다. 각 다운로드에는 앱 옆에 `GE-Favorites-RandomMapGeneratorTiles.hpi`가 포함되어 있습니다. 타일 브러시는 해당 타일셋을 읽으므로 `GalaxyEditor.app`, `GalaxyEditor.exe` 또는 Linux `GalaxyEditor` 옆에 파일을 보관하세요. `GreenWorld.hpi`도 같은 방식으로 포함되어 있습니다. 처음 시작할 때 Galaxy Editor는 Total Annihilation이 설치된 위치를 묻습니다. 모든 릴리스는 [릴리스 페이지](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)에 나열되어 있습니다.
+
+### Linux 설치
+
+**옵션 1: .deb 패키지로 설치 (Debian/Ubuntu/Mint)**
+
+The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+
+```bash
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+Until then, use the `.tar.gz` below. That archive is what works today.
+
+**옵션 2: 휴대용 아카이브 사용**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">
@@ -51,7 +72,7 @@ Linux:
 ```bash
 cmake --preset default
 cmake --build build
-./build/GalaxyEditor
+./build/galaxy-editor
 ```
 
 Mac 또는 Linux 컴퓨터에서 Windows `.exe`를 빌드하려면 MinGW-w64(`brew install mingw-w64` 또는 `apt install g++-mingw-w64-x86-64-posix`)를 설치한 다음:
