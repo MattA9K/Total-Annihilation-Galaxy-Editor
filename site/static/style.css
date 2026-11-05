@@ -1,0 +1,502 @@
+/* Galaxy Editor project site. Self-contained: no remote fonts and no tracking. */
+
+:root {
+  --bg: #080a09;
+  --bg-raise: #121613;
+  --bg-code: #0c1210;
+  --line: #31382c;
+  --text: #f3f0e6;
+  --muted: #c9c2b0;
+  --gold: #f0d48a;
+  --gold-deep: #e6c15a;
+  --ink: #1b1404;
+  --green: #8fd0a8;
+  --focus: #ffe7a3;
+  --wrap: 72rem;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(230, 193, 90, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(230, 193, 90, 0.045) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+  color: var(--text);
+  font-family: "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "WenQuanYi Micro Hei",
+    "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "Noto Sans KR", sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+body::before {
+  content: "";
+  display: block;
+  height: 4px;
+  background: linear-gradient(90deg, #9a2b24, var(--gold-deep) 46%, #1f8a4c);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--gold-deep);
+  color: var(--ink);
+}
+
+a {
+  color: var(--gold);
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: #fff6d4;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.skip {
+  position: absolute;
+  left: 0.75rem;
+  top: -5rem;
+  z-index: 20;
+  background: #000;
+  color: #fff;
+  padding: 0.6rem 0.9rem;
+}
+
+.skip:focus {
+  top: 0.6rem;
+}
+
+.wrap {
+  width: min(var(--wrap), calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(8, 10, 9, 0.94);
+  border-bottom: 1px solid var(--line);
+}
+
+.header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  width: min(var(--wrap), calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 0.7rem 0;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-right: auto;
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.brand img {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.55rem;
+}
+
+.site-nav ul,
+.lang-list,
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.9rem;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav a {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.site-nav a:hover {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+.language {
+  position: relative;
+}
+
+.language summary {
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-raise);
+  cursor: pointer;
+  list-style: none;
+}
+
+.language summary::-webkit-details-marker {
+  display: none;
+}
+
+.language[open] summary {
+  border-color: var(--gold-deep);
+}
+
+.language nav {
+  position: absolute;
+  right: 0;
+  z-index: 12;
+  width: min(36rem, 92vw);
+  margin-top: 0.4rem;
+  padding: 0.8rem;
+  background: #101410;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.45);
+}
+
+.lang-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.2rem 0.75rem;
+  border: 1px solid #3c4336;
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.lang-list a[aria-current="page"] {
+  background: var(--gold-deep);
+  border-color: var(--gold-deep);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.lang-list a:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.lang-list a[aria-current="page"]:hover {
+  color: var(--ink);
+}
+
+main {
+  padding-bottom: 3rem;
+}
+
+.hero {
+  padding: 2.2rem 0 1rem;
+}
+
+.version {
+  margin: 0 0 0.4rem;
+  color: var(--green);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.82rem;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0 0 0.6rem;
+  font-size: clamp(2.1rem, 5vw, 3.5rem);
+  color: var(--gold);
+}
+
+h2 {
+  margin: 0 0 0.8rem;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+}
+
+h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.tagline {
+  font-size: 1.2rem;
+  max-width: 42rem;
+}
+
+.hero > p,
+.section > p {
+  max-width: 46rem;
+}
+
+.install-block + .install-block {
+  margin-top: 0.9rem;
+}
+
+section,
+[id] {
+  scroll-margin-top: 5.5rem;
+}
+
+.splash,
+.shot {
+  margin: 1.4rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  overflow: hidden;
+  background: #000;
+}
+
+.splash img,
+.shot img {
+  display: block;
+  width: 100%;
+}
+
+.shot figcaption {
+  padding: 0.7rem 0.9rem 0.85rem;
+  color: var(--muted);
+  background: var(--bg-raise);
+}
+
+.section {
+  padding-top: 2.4rem;
+}
+
+.features,
+.cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.9rem;
+}
+
+.feature,
+.card,
+.install-block {
+  min-width: 0;
+  background: rgba(18, 22, 19, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  padding: 1rem 1.05rem 1.1rem;
+}
+
+.feature {
+  border-top: 3px solid var(--gold-deep);
+}
+
+.feature p,
+.card p,
+.install-block p {
+  margin: 0.35rem 0 0;
+}
+
+.muted,
+.file {
+  color: var(--muted);
+}
+
+.hero-actions,
+.card-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1.1rem;
+}
+
+.button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.1rem;
+  min-height: 2.75rem;
+  min-width: 10.5rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.7rem;
+  background: var(--gold-deep);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.button:hover,
+.button:visited {
+  background: #f6de9f;
+  color: var(--ink);
+}
+
+.button .os {
+  font-size: 1.02rem;
+}
+
+.button .file {
+  color: #4a3c16;
+  font-family: ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.card .button {
+  margin-top: 0.9rem;
+}
+
+pre {
+  margin: 0.8rem 0 0;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--bg-code);
+  border: 1px solid #243028;
+  border-radius: 0.7rem;
+  line-height: 1.45;
+}
+
+code,
+pre {
+  font-family: ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+p code {
+  font-size: 0.92em;
+  padding: 0.05em 0.28em;
+  background: #1b221c;
+  border-radius: 0.3em;
+  overflow-wrap: anywhere;
+}
+
+.commands-label {
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 1.6rem 0 2.4rem;
+  color: var(--muted);
+}
+
+.site-footer p {
+  margin: 0.2rem 0;
+}
+
+.footer-links {
+  margin: 0.9rem 0;
+}
+
+.footer-links a {
+  font-weight: 600;
+}
+
+.footer-languages {
+  margin-top: 0.4rem;
+}
+
+.missing-list {
+  padding-left: 1.1rem;
+}
+
+.missing-list li {
+  margin: 0.15rem 0;
+}
+
+@media (min-width: 700px) {
+  .cards {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 900px) {
+  .features {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-actions .button,
+  .card .button {
+    width: 100%;
+  }
+
+  .language nav {
+    position: static;
+    width: 100%;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .site-header {
+    background: var(--bg);
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+    color: #111;
+  }
+
+  .site-header,
+  .skip,
+  .hero-actions,
+  .language {
+    display: none;
+  }
+
+  a {
+    color: #111;
+  }
+
+  .feature,
+  .card,
+  .install-block,
+  pre {
+    break-inside: avoid;
+  }
+}

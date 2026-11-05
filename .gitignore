@@ -20,3 +20,8 @@ imgui.ini
 
 # Per-user CMake presets
 CMakeUserPresets.json
+
+# Generated project site. Rebuild with site/build_site.py.
+/_site/
+__pycache__/
+*.pyc

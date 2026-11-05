@@ -1,0 +1,58 @@
+# Build the project site on every pull request. Deploy only from main, and
+# only after Settings → Pages → Source is GitHub Actions. Until that setting
+# is on, the deploy job fails and the build job still reports whether the
+# site itself is valid.
+
+name: GitHub Pages
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and check the site
+        run: |
+          python3 site/build_site.py --out _site
+          python3 site/test_site.py
+          python3 site/test_site.py --check-downloads
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    if: >-
+      github.repository == 'MattA9K/Total-Annihilation-Galaxy-Editor' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
