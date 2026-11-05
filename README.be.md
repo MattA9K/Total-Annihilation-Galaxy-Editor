@@ -17,7 +17,7 @@
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (архіў) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [galaxy-editor_1.1.2_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb) |
+| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 У macOS адкрыйце вобраз дыска і перацягніце папку Galaxy Editor у папку Праграмы. У Windows распакуйце архіў і запусціце `GalaxyEditor.exe`. У Linux вы можаце выкарыстоўваць пакет `.deb` або распакаваць архіў `.tar.gz`. Кожная спампоўка ўключае `GE-Favorites-RandomMapGeneratorTiles.hpi` побач з праграмай. Пэндзаль плітак чытае гэты набор плітак, таму трымайце файл побач з `GalaxyEditor.app`, `GalaxyEditor.exe` або Linux `GalaxyEditor`. `GreenWorld.hpi` уключаны такім жа чынам. Пры першым запуску Galaxy Editor пытае, дзе ўсталяваны Total Annihilation. Кожны выпуск пералічаны на [старонцы выпускаў](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -26,8 +26,9 @@
 **Варыянт 1: Усталёўка праз пакет .deb (Debian/Ubuntu/Mint)**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+# Replace VERSION with the actual version number (e.g., 1.1.3)
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_VERSION_amd64.deb
 ```
 
 **Варыянт 2: Выкарыстанне партатыўнага архіва**

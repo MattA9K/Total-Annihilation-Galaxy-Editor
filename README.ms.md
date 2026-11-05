@@ -25,8 +25,9 @@ Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applicatio
 **Pilihan 1: Pasang melalui pakej .deb (Debian/Ubuntu/Mint)**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+# Replace VERSION with the actual version number (e.g., 1.1.3)
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_VERSION_amd64.deb
 ```
 
 **Pilihan 2: Gunakan arkib mudah alih**

@@ -17,7 +17,7 @@
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (архив) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [galaxy-editor_1.1.2_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb) |
+| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 В macOS откройте образ диска и перетащите папку Galaxy Editor в папку Программы. В Windows распакуйте архив и запустите `GalaxyEditor.exe`. В Linux вы можете использовать пакет `.deb` или распаковать архив `.tar.gz`. Каждая загрузка включает `GE-Favorites-RandomMapGeneratorTiles.hpi` рядом с приложением. Кисть плиток читает этот набор плиток, поэтому держите файл рядом с `GalaxyEditor.app`, `GalaxyEditor.exe` или Linux `GalaxyEditor`. `GreenWorld.hpi` включен таким же образом. При первом запуске Galaxy Editor спрашивает, где установлен Total Annihilation. Каждый выпуск перечислен на [странице выпусков](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -26,8 +26,9 @@
 **Вариант 1: Установка через пакет .deb (Debian/Ubuntu/Mint)**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+# Replace VERSION with the actual version number (e.g., 1.1.3)
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_VERSION_amd64.deb
 ```
 
 **Вариант 2: Использование портативного архива**

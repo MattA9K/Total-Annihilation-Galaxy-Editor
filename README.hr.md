@@ -17,7 +17,7 @@ Bojajte pločice, postavljajte stabla i metal, postavite početne pozicije igra�
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (arhiva) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
-| Linux (Debian/Ubuntu) | [galaxy-editor_1.1.2_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb) |
+| Linux (Debian/Ubuntu) | [Latest .deb package](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/latest) |
 
 Na macOS-u otvorite sliku diska i povucite mapu Galaxy Editor u mapu Aplikacije. Na Windowsima raspakirajte arhivu i pokrenite `GalaxyEditor.exe`. Na Linuxu možete koristiti `.deb` paket ili raspakirajte `.tar.gz` arhivu. Svako preuzimanje uključuje `GE-Favorites-RandomMapGeneratorTiles.hpi` pored aplikacije. Kist za pločice čita taj skup pločica, stoga držite datoteku pored `GalaxyEditor.app`, `GalaxyEditor.exe` ili Linux `GalaxyEditor`. `GreenWorld.hpi` je uključen na isti način. Prvi put kad se pokrene, Galaxy Editor pita gdje je instaliran Total Annihilation. Svako izdanje je navedeno na [stranici izdanja](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -26,8 +26,9 @@ Na macOS-u otvorite sliku diska i povucite mapu Galaxy Editor u mapu Aplikacije.
 **Opcija 1: Instalacija putem .deb paketa (Debian/Ubuntu/Mint)**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+# Replace VERSION with the actual version number (e.g., 1.1.3)
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/vVERSION/galaxy-editor_VERSION_amd64.deb
+sudo apt install ./galaxy-editor_VERSION_amd64.deb
 ```
 
 **Opcija 2: Korištenje prenosive arhive**
