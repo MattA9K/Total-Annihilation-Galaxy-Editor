@@ -1,6 +1,7 @@
 #include "core/ArchiveDocument.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
+#include "core/I18n.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
 #include "core/OrbitCamera.hpp"
@@ -1770,6 +1771,63 @@ void testEditorSettings() {
     expect(!galaxy::editorSettingsPath().empty(), "settings path is set");
 }
 
+void testLanguage() {
+    expect(galaxy::languageCount() == 15, "fifteen locales ship with the editor");
+    expect(std::string(galaxy::languageAt(0).id) == "en", "English is the first locale");
+    expect(std::string(galaxy::languageAt(1).nativeName) == "简体中文", "Chinese is named in Chinese");
+    expect(std::string(galaxy::languageAt(7).nativeName) == "한국어", "Korean is named in Korean");
+    expect(!galaxy::isKnownLanguage("") && !galaxy::isKnownLanguage("de") && !galaxy::isKnownLanguage("french"), "an empty or unknown id is not a saved language");
+    expect(galaxy::isKnownLanguage("zh-CN") && galaxy::isKnownLanguage("nb"), "shipped ids are recognized");
+
+    galaxy::setActiveLanguage("fr");
+    expect(std::string(galaxy::activeLanguage()) == "fr", "French becomes the active language");
+    expect(std::string(galaxy::text(galaxy::Text::MenuFile)) == "Fichier", "the File menu is translated");
+    expect(std::string(galaxy::text(galaxy::Text::Undo)) == "Défaire", "French undo is not the same word as cancel");
+    expect(std::string(galaxy::text(galaxy::Text::Cancel)) == "Annuler", "French cancel stays Annuler");
+    galaxy::setActiveLanguage("nope");
+    expect(std::string(galaxy::activeLanguage()) == "fr", "an unknown id leaves the active language alone");
+    expect(std::string(galaxy::textIn("zz", galaxy::Text::MenuFile)) == "File", "an unknown locale falls back to English");
+    expect(std::string(galaxy::textIn("pl", galaxy::Text::Cancel)) == "Anuluj", "a named locale can be read without activating it");
+
+    galaxy::setActiveLanguage("pl");
+    expect(galaxy::formatText(galaxy::Text::SplashCount, {"3", "10"}) == "3 z 10", "format tokens follow the translation");
+    for (int language = 0; language < galaxy::languageCount(); ++language) {
+        const char* id = galaxy::languageAt(language).id;
+        for (int row = 0; row < static_cast<int>(galaxy::Text::Count); ++row) {
+            const char* line = galaxy::textIn(id, static_cast<galaxy::Text>(row));
+            if (line == nullptr || line[0] == '\0') {
+                expect(false, std::string("missing translation ") + id + " row " + std::to_string(row));
+            }
+        }
+    }
+    const std::string& corpus = galaxy::translationCorpus();
+    expect(corpus.find("简体中文") != std::string::npos && corpus.find("한국어") != std::string::npos && corpus.find("Беларуская") != std::string::npos, "the font corpus covers the picker names");
+
+    const auto path = std::filesystem::temp_directory_path() / "galaxy-editor-language-test.json";
+    std::filesystem::remove(path);
+    expect(galaxy::loadEditorSettings(path).language.empty(), "a missing settings file has no language yet");
+    galaxy::EditorSettings settings;
+    settings.language = "zh-CN";
+    settings.previewSize = 64;
+    galaxy::saveEditorSettings(path, settings);
+    const galaxy::EditorSettings loaded = galaxy::loadEditorSettings(path);
+    expect(loaded.language == "zh-CN" && loaded.previewSize == 64, "the language is stored with the other settings");
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << "{ \"previewSize\": 80 }";
+    }
+    const galaxy::EditorSettings older = galaxy::loadEditorSettings(path);
+    expect(older.language.empty() && older.previewSize == 80, "a settings file from before languages has no language key");
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << "{ \"language\": \"french\", \"previewSize\": 96 }";
+    }
+    const galaxy::EditorSettings unknown = galaxy::loadEditorSettings(path);
+    expect(unknown.language == "french" && !galaxy::isKnownLanguage(unknown.language), "an unrecognized saved language is kept and still counts as unset");
+    std::filesystem::remove(path);
+    galaxy::setActiveLanguage("en");
+}
+
 void testVersion() {
     const std::string version = galaxy::versionString();
     int numbers = 0;
@@ -3493,6 +3551,7 @@ int main() {
     testGafImages();
     testMapSettings();
     testEditorSettings();
+    testLanguage();
     testGameFolder();
     testVersion();
     testAppearanceSettings();

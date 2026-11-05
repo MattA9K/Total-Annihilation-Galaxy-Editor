@@ -18,7 +18,7 @@ Bojajte pločice, postavljajte stabla i metal, postavite početne pozicije igra�
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (arhiva) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-Na macOS-u otvorite sliku diska i povucite mapu Galaxy Editor u mapu Aplikacije. Na Windowsima raspakirajte arhivu i pokrenite `GalaxyEditor.exe`. Na Linuxu možete koristiti `.deb` paket ili raspakirajte `.tar.gz` arhivu. Svako preuzimanje uključuje `GE-Favorites-RandomMapGeneratorTiles.hpi` pored aplikacije. Kist za pločice čita taj skup pločica, stoga držite datoteku pored `GalaxyEditor.app`, `GalaxyEditor.exe` ili Linux `GalaxyEditor`. `GreenWorld.hpi` je uključen na isti način. Prvi put kad se pokrene, Galaxy Editor pita gdje je instaliran Total Annihilation. Svako izdanje je navedeno na [stranici izdanja](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+Na macOS-u otvorite sliku diska i povucite mapu Galaxy Editor u mapu Aplikacije. Na Windowsima raspakirajte arhivu i pokrenite `GalaxyEditor.exe`. Na Linuxu možete koristiti `.deb` paket ili raspakirajte `.tar.gz` arhivu. Svako preuzimanje uključuje `GE-Favorites-RandomMapGeneratorTiles.hpi` pored aplikacije. Kist za pločice čita taj skup pločica, stoga držite datoteku pored `GalaxyEditor.app`, `GalaxyEditor.exe` ili Linux `GalaxyEditor`. `GreenWorld.hpi` je uključen na isti način. Prvi put kad se pokrene, Galaxy Editor prvo pita jezik, a zatim gdje je instaliran Total Annihilation. Svako izdanje je navedeno na [stranici izdanja](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Linux instalacija
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Skupovi pločica
 
-Galaxy Editor učitava arhive igre iz vaše mape instalacije Total Annihilation. Prvi put kad se pokrene, pita za tu mapu prije nego se pojavi ekran za pokretanje. Odaberite Otkaži za pokretanje bez nje. Uređivač i dalje radi, ali kartice Skupovi pločica i Značajke ostaju prazne i ne pita ponovno pri sljedećem pokretanju.
+Galaxy Editor učitava arhive igre iz vaše mape instalacije Total Annihilation. Pri sasvim prvom pokretanju, prije ekrana za pokretanje, pita jezik, a zatim tu mapu. Odaberite Otkaži za pokretanje bez nje. Uređivač i dalje radi, ali kartice Skupovi pločica i Značajke ostaju prazne i ne pita ponovno pri sljedećem pokretanju.
 
-Promijenite mapu bilo kada u Opcijama, pod Total Annihilation. Odaberi mapu ponovno učitava arhive odmah, a Očisti zaboravlja mapu, pa sljedeće pokretanje ponovno pita za nju, kao pri prvom pokretanju. Mapa se sprema u korisnički `settings.json`.
+Promijenite mapu bilo kada u Opcijama, pod Total Annihilation. Odaberi mapu ponovno učitava arhive odmah, a Očisti zaboravlja mapu, pa sljedeće pokretanje ponovno pita za nju, kao pri prvom pokretanju. Mapa i odabrani jezik spremaju se u korisnički `settings.json`. Jezik se kasnije mijenja u Opcijama, pod Jezik, i prozor se prebacuje odmah.
 
 Galaxy Editor čita `.hpi`, `.ccx`, `.gp3` i `.gpf` datoteke izravno unutar te mape, a zatim u mapi koja sadrži izvršnu datoteku `GalaxyEditor`. Na macOS-u to je mapa koja sadrži `GalaxyEditor.app`, pa mapa pod nazivom Galaxy Editor s aplikacijom i vašim vlastitim `.hpi` datotekama jedna uz drugu radi, na način na koji je Photoshop postavljen. Stavite vlastite arhive skupova pločica pored izvršne datoteke (ili `.app`). Ako datoteka tamo ima isto ime kao ona u mapi Total Annihilation, poput `worlds.hpi` ili `totala1.hpi`, preskače se, pa se ništa ne učitava dvaput. Arhiva svijeta poput `worlds.hpi` ispunjava karticu Skupovi pločica. `totala1.hpi`, `rev31.gp3` ili `ccdata.ccx` pružaju popis značajki i slike značajki.
 

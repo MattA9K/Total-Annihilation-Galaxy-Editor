@@ -18,7 +18,7 @@ Verf tegels, plaats bomen en metaal, stel startposities van spelers in en vorm d
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (archief) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-Op macOS, open de schijfkopie en sleep de Galaxy Editor-map naar je Toepassingen-map. Op Windows, pak het archief uit en voer `GalaxyEditor.exe` uit. Op Linux kun je het `.deb`-pakket gebruiken of het `.tar.gz`-archief uitpakken. Elke download bevat `GE-Favorites-RandomMapGeneratorTiles.hpi` naast de app. Het tegelpenseel leest die tegelset, dus houd het bestand naast `GalaxyEditor.app`, `GalaxyEditor.exe` of de Linux `GalaxyEditor`. `GreenWorld.hpi` is op dezelfde manier inbegrepen. De eerste keer dat het start, vraagt Galaxy Editor waar Total Annihilation is geïnstalleerd. Elke release staat vermeld op de [Releases-pagina](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+Op macOS, open de schijfkopie en sleep de Galaxy Editor-map naar je Toepassingen-map. Op Windows, pak het archief uit en voer `GalaxyEditor.exe` uit. Op Linux kun je het `.deb`-pakket gebruiken of het `.tar.gz`-archief uitpakken. Elke download bevat `GE-Favorites-RandomMapGeneratorTiles.hpi` naast de app. Het tegelpenseel leest die tegelset, dus houd het bestand naast `GalaxyEditor.app`, `GalaxyEditor.exe` of de Linux `GalaxyEditor`. `GreenWorld.hpi` is op dezelfde manier inbegrepen. De eerste keer dat het start, vraagt Galaxy Editor eerst de taal en daarna waar Total Annihilation is geïnstalleerd. Elke release staat vermeld op de [Releases-pagina](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Linux-installatie
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Tegelsets
 
-Galaxy Editor laadt spelarchieven uit je Total Annihilation-installatiemap. De eerste keer dat het start, vraagt het naar die map voordat het startscherm verschijnt. Kies Annuleren om zonder te starten. De editor draait nog steeds, maar de tabbladen Tegelsets en Kenmerken blijven leeg en het vraagt niet opnieuw bij de volgende start.
+Galaxy Editor laadt spelarchieven uit je Total Annihilation-installatiemap. De allereerste keer, vóór het startscherm, vraagt het de taal en daarna die map. Kies Annuleren om zonder te starten. De editor draait nog steeds, maar de tabbladen Tegelsets en Kenmerken blijven leeg en het vraagt niet opnieuw bij de volgende start.
 
-Wijzig de map op elk moment in Opties, onder Total Annihilation. Kies Map herlaadt de archieven meteen en Wissen vergeet de map, dus de volgende start vraagt er opnieuw naar, zoals bij een eerste start. De map wordt opgeslagen in de per-gebruiker `settings.json`.
+Wijzig de map op elk moment in Opties, onder Total Annihilation. Kies Map herlaadt de archieven meteen en Wissen vergeet de map, dus de volgende start vraagt er opnieuw naar, zoals bij een eerste start. De map en de gekozen taal worden opgeslagen in de per-gebruiker `settings.json`. De taal wijzigt u later in Opties, onder Taal, en het venster wisselt meteen.
 
 Galaxy Editor leest `.hpi`-, `.ccx`-, `.gp3`- en `.gpf`-bestanden direct in die map, en dan in de map met het uitvoerbare `GalaxyEditor`-bestand. Op macOS is dat de map met `GalaxyEditor.app`, dus een map genaamd Galaxy Editor met de app en je eigen `.hpi`-bestanden naast elkaar werkt, zoals Photoshop is ingedeeld. Plaats je eigen tegelset-archieven naast het uitvoerbare bestand (of de `.app`). Als een bestand daar dezelfde naam heeft als een bestand in de Total Annihilation-map, zoals `worlds.hpi` of `totala1.hpi`, wordt het overgeslagen, dus niets wordt twee keer geladen. Een wereldarchief zoals `worlds.hpi` vult het tabblad Tegelsets. `totala1.hpi`, `rev31.gp3` of `ccdata.ccx` leveren de kenmerklijst en de kenmerkafbeeldingen.
 

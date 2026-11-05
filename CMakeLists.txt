@@ -100,6 +100,7 @@ add_library(galaxy_format STATIC
     src/core/FavoritesArchive.cpp
     src/core/MapGenerator.cpp
     src/core/EditorSettings.cpp
+    src/core/I18n.cpp
     src/core/OrbitCamera.cpp
     src/core/Version.cpp
     "${VERSION_CPP}"
@@ -108,6 +109,10 @@ target_include_directories(galaxy_format PUBLIC src)
 target_link_libraries(galaxy_format PUBLIC ZLIB::ZLIB)
 target_compile_definitions(galaxy_format PUBLIC GALAXY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_compile_options(galaxy_format PRIVATE -Wall -Wextra -Wpedantic)
+if(MSVC)
+    # The translation catalog is UTF-8 source.
+    target_compile_options(galaxy_format PRIVATE /utf-8)
+endif()
 
 add_executable(galaxy_tests src/tests/format_test.cpp)
 target_link_libraries(galaxy_tests PRIVATE galaxy_format)
@@ -141,6 +146,8 @@ embed_image(WindowIcon256 "${CMAKE_SOURCE_DIR}/assets/icons/window-256.png")
 embed_image(WindowIcon64 "${CMAKE_SOURCE_DIR}/assets/icons/window-64.png")
 embed_image(WindowIcon32 "${CMAKE_SOURCE_DIR}/assets/icons/window-32.png")
 embed_image(DockIcon "${CMAKE_SOURCE_DIR}/assets/icons/dock-512.png")
+embed_image(GalaxyLatin "${CMAKE_SOURCE_DIR}/assets/fonts/GalaxyLatin.ttf")
+embed_image(GalaxyCjk "${CMAKE_SOURCE_DIR}/assets/fonts/GalaxyCjk.ttf")
 file(WRITE "${EMBED_CPP}.new" "${EMBED_BODY}}  // namespace galaxy\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${EMBED_CPP}.new" "${EMBED_CPP}")
 
@@ -156,6 +163,7 @@ add_executable(GalaxyEditor
     src/ui/GlassBlur.cpp
     src/ui/Terrain3D.cpp
     src/ui/Splash.cpp
+    src/ui/LanguagePicker.cpp
     src/ui/StbImage.cpp
     "${EMBED_CPP}")
 target_link_libraries(GalaxyEditor PRIVATE galaxy_format imgui Threads::Threads)
@@ -256,6 +264,7 @@ else()
     set_target_properties(GalaxyEditor PROPERTIES OUTPUT_NAME galaxy-editor)
     # Desktop environments take the launcher icon from an installed desktop entry.
     install(TARGETS GalaxyEditor RUNTIME DESTINATION bin)
+    install(FILES assets/fonts/NOTICE DESTINATION share/doc/galaxy-editor RENAME fonts-NOTICE)
     install(FILES assets/linux/galaxy-editor.desktop DESTINATION share/applications)
     install(FILES assets/icons/AppIcon.png DESTINATION share/icons/hicolor/512x512/apps RENAME galaxy-editor.png)
 endif()

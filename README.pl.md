@@ -18,7 +18,7 @@ Maluj kafelki, umieszczaj drzewa i metal, ustawiaj punkty startowe graczy i kszt
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (archiwum) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-W macOS otwórz obraz dysku i przeciągnij folder Galaxy Editor do folderu Aplikacje. W Windows rozpakuj archiwum i uruchom `GalaxyEditor.exe`. W Linux możesz użyć pakietu `.deb` lub rozpakować archiwum `.tar.gz`. Każde pobranie zawiera `GE-Favorites-RandomMapGeneratorTiles.hpi` obok aplikacji. Pędzel kafelków odczytuje ten zestaw kafelków, więc trzymaj plik obok `GalaxyEditor.app`, `GalaxyEditor.exe` lub `GalaxyEditor` na Linuksie. `GreenWorld.hpi` jest dołączony w ten sam sposób. Przy pierwszym uruchomieniu Galaxy Editor pyta, gdzie zainstalowano Total Annihilation. Każde wydanie jest wymienione na [stronie wydań](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+W macOS otwórz obraz dysku i przeciągnij folder Galaxy Editor do folderu Aplikacje. W Windows rozpakuj archiwum i uruchom `GalaxyEditor.exe`. W Linux możesz użyć pakietu `.deb` lub rozpakować archiwum `.tar.gz`. Każde pobranie zawiera `GE-Favorites-RandomMapGeneratorTiles.hpi` obok aplikacji. Pędzel kafelków odczytuje ten zestaw kafelków, więc trzymaj plik obok `GalaxyEditor.app`, `GalaxyEditor.exe` lub `GalaxyEditor` na Linuksie. `GreenWorld.hpi` jest dołączony w ten sam sposób. Przy pierwszym uruchomieniu Galaxy Editor najpierw pyta o język, a potem o to, gdzie zainstalowano Total Annihilation. Każde wydanie jest wymienione na [stronie wydań](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Instalacja Linux
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Zestawy kafelków
 
-Galaxy Editor ładuje archiwa gry z folderu instalacyjnego Total Annihilation. Przy pierwszym uruchomieniu pyta o ten folder przed pojawieniem się ekranu powitalnego. Wybierz Anuluj, aby uruchomić bez niego. Edytor nadal działa, ale zakładki Zestawy kafelków i Elementy pozostają puste i nie pyta ponownie przy następnym uruchomieniu.
+Galaxy Editor ładuje archiwa gry z folderu instalacyjnego Total Annihilation. Przy zupełnie pierwszym uruchomieniu, przed ekranem powitalnym, pyta o język, a potem o ten folder. Wybierz Anuluj, aby uruchomić bez niego. Edytor nadal działa, ale zakładki Zestawy kafelków i Elementy pozostają puste i nie pyta ponownie przy następnym uruchomieniu.
 
-Zmień folder w dowolnym momencie w Opcjach, w Total Annihilation. Wybierz Folder natychmiast przeładowuje archiwa, a Wyczyść zapomina folder, więc następne uruchomienie pyta o niego ponownie, jak przy pierwszym uruchomieniu. Folder jest zapisywany w osobnym dla użytkownika `settings.json`.
+Zmień folder w dowolnym momencie w Opcjach, w Total Annihilation. Wybierz Folder natychmiast przeładowuje archiwa, a Wyczyść zapomina folder, więc następne uruchomienie pyta o niego ponownie, jak przy pierwszym uruchomieniu. Folder i wybrany język są zapisywane w osobnym dla użytkownika `settings.json`. Język zmienia się później w Opcjach, w sekcji Język, a okno przełącza się od razu.
 
 Galaxy Editor odczytuje pliki `.hpi`, `.ccx`, `.gp3` i `.gpf` bezpośrednio wewnątrz tego folderu, a następnie w folderze zawierającym plik wykonywalny `GalaxyEditor`. W macOS jest to folder zawierający `GalaxyEditor.app`, więc folder o nazwie Galaxy Editor z aplikacją i własnymi plikami `.hpi` obok siebie działa tak, jak jest rozplanowany Photoshop. Umieść własne archiwa zestawów kafelków obok pliku wykonywalnego (lub `.app`). Jeśli plik tam ma taką samą nazwę jak plik w folderze Total Annihilation, na przykład `worlds.hpi` lub `totala1.hpi`, jest pomijany, więc nic nie ładuje się dwukrotnie. Archiwum świata, takie jak `worlds.hpi`, wypełnia zakładkę Zestawy kafelków. `totala1.hpi`, `rev31.gp3` lub `ccdata.ccx` dostarczają listę elementów i obrazy elementów.
 

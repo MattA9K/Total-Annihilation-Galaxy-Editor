@@ -21,6 +21,9 @@ struct EditorSettings {
     // True once the startup prompt for the folder has been answered, including
     // by skipping it, so a skipped prompt is not repeated at every launch.
     bool gameFolderAsked = false;
+    // Locale id such as "en" or "zh-CN". Empty until the first-launch picker
+    // saves a choice, which is how the editor knows to show that picker once.
+    std::string language;
 };
 
 // Settings keep paths as UTF-8 text so one file reads the same on every platform.

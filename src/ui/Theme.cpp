@@ -1,5 +1,8 @@
 #include "ui/Theme.hpp"
 
+#include "core/I18n.hpp"
+#include "ui/EmbeddedData.hpp"
+
 #include <imgui_internal.h>
 
 #include <algorithm>
@@ -150,12 +153,35 @@ const ImWchar* glyphRanges() {
     if (ranges.empty()) {
         ImFontGlyphRangesBuilder builder;
         builder.AddRanges(ImGui::GetIO().Fonts->GetGlyphRangesDefault());
-        for (const ImWchar extra : {0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2026, 0x21E7, 0x2318, 0x2325, 0x2303}) {
-            builder.AddChar(extra);
-        }
+        // Latin Extended-A and Cyrillic cover the European locales. The
+        // translation catalog adds the Chinese and Korean characters it uses.
+        static const ImWchar blocks[] = {
+            0x0100, 0x017F, 0x0400, 0x04FF, 0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2022, 0x2026, 0x2026, 0x21E7, 0x21E7, 0x2303, 0x2303, 0x2318, 0x2318, 0x2325, 0x2325, 0};
+        builder.AddRanges(blocks);
+        builder.AddText(translationCorpus().c_str());
         builder.BuildRanges(&ranges);
     }
     return ranges.Data;
+}
+
+void mergeEmbedded(const unsigned char* data, unsigned long size, float pixels) {
+    if (data == nullptr || size == 0 || size > 16u * 1024u * 1024u) {
+        return;
+    }
+    ImFontConfig config;
+    config.MergeMode = true;
+    config.FontDataOwnedByAtlas = false;
+    config.PixelSnapH = true;
+    config.OversampleH = 1;
+    config.OversampleV = 1;
+    ImGui::GetIO().Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(data), static_cast<int>(size), pixels, &config, glyphRanges());
+}
+
+// The system font draws the Latin UI. These subsets fill any glyph it lacks,
+// including Chinese and Korean, so a language change does not rebuild the atlas.
+void mergeFallback(float pixels) {
+    mergeEmbedded(kGalaxyLatinData, kGalaxyLatinSize, pixels);
+    mergeEmbedded(kGalaxyCjkData, kGalaxyCjkSize, pixels);
 }
 
 ImFont* addFont(const std::vector<FontFile>& candidates, float pixels) {
@@ -356,13 +382,24 @@ void setup(float contentScale) {
         ImFontConfig config;
         config.SizePixels = 13.0f * raster;
         regular = io.Fonts->AddFontDefault(&config);
+        mergeFallback(13.0f * raster);
         gSmall = regular;
         gBold = regular;
         gLabel = regular;
     } else {
+        mergeFallback(13.0f * raster);
         gSmall = addFont(regularFonts(), 11.0f * raster);
+        if (gSmall != nullptr) {
+            mergeFallback(11.0f * raster);
+        }
         gBold = addFont(boldFonts(), 13.0f * raster);
+        if (gBold != nullptr) {
+            mergeFallback(13.0f * raster);
+        }
         gLabel = addFont(regularFonts(), 10.0f * raster);
+        if (gLabel != nullptr) {
+            mergeFallback(10.0f * raster);
+        }
         if (gLabel == nullptr) {
             gLabel = regular;
         }
@@ -478,9 +515,9 @@ std::string shortcut(const char* keys) {
 
 const char* quitLabel() {
 #if defined(__APPLE__)
-    return "Quit Galaxy Editor";
+    return text(Text::QuitApp);
 #else
-    return "Exit";
+    return text(Text::Exit);
 #endif
 }
 

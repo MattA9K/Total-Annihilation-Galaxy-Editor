@@ -2,6 +2,7 @@
 
 #include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
+#include "core/I18n.hpp"
 #include "core/SlopeBrush.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/MapGenerator.hpp"
@@ -618,19 +619,22 @@ void EditorApp::drawToolbar() {
     // The tools follow the sidebar tab: the Features tab selects, copies and
     // pastes features only, every other tab works on terrain tiles only.
     const bool selectActive = featuresTab_ ? featureSelectMode_ : selectionMode_;
-    if (theme::toolbarItem("select", ToolIcon::Select, selectActive ? "Selecting" : "Select", selectActive, "Selecting")) {
+    if (theme::toolbarItem(
+            "select",
+            ToolIcon::Select,
+            selectActive ? text(Text::Selecting) : text(Text::Select),
+            selectActive,
+            text(Text::Selecting))) {
         toggleSelectMode();
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(featuresTab_
-                ? "Select Features\nDrag a box around features, or click one. Shift adds to the selection. Hold Space and drag to pan"
-                : "Select Tiles\nDrag a rectangle around tiles. Shift-drag adds to the selection. Shift+Ctrl-drag removes from it");
+        ImGui::SetTooltip("%s", featuresTab_ ? text(Text::TipSelectFeatures) : text(Text::TipSelectTiles));
     }
     theme::toolbarSeparator();
 
     const bool canCopy = featuresTab_ ? !selectedFeatures_.empty() : hasSelection();
     ImGui::BeginDisabled(!map_ || !canCopy);
-    if (theme::toolbarItem("cut", ToolIcon::Cut, "Cut")) {
+    if (theme::toolbarItem("cut", ToolIcon::Cut, text(Text::Cut))) {
         if (featuresTab_) {
             copyFeatures(true);
         } else {
@@ -638,11 +642,10 @@ void EditorApp::drawToolbar() {
         }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip(featuresTab_ ? "Cut\nRemove the selected features and keep a copy to paste"
-                                       : "Cut\nRemove the selected tiles and keep a copy to paste");
+        ImGui::SetTooltip("%s", featuresTab_ ? text(Text::TipCutFeatures) : text(Text::TipCutTiles));
     }
     next();
-    if (theme::toolbarItem("copy", ToolIcon::Copy, "Copy")) {
+    if (theme::toolbarItem("copy", ToolIcon::Copy, text(Text::Copy))) {
         if (featuresTab_) {
             copyFeatures(false);
         } else {
@@ -650,18 +653,17 @@ void EditorApp::drawToolbar() {
         }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip(featuresTab_ ? "Copy Features\nCopy the selected features. Paste keeps their positions relative to each other"
-                                       : "Copy Terrain + Height Map\nCopy the selected tiles and their heights");
+        ImGui::SetTooltip("%s", featuresTab_ ? text(Text::TipCopyFeatures) : text(Text::TipCopyTerrain));
     }
     ImGui::EndDisabled();
     if (!featuresTab_) {
         next();
         ImGui::BeginDisabled(!map_ || !hasSelection());
-        if (theme::toolbarItem("copy-heights", ToolIcon::CopyHeights, "Copy Heights")) {
+        if (theme::toolbarItem("copy-heights", ToolIcon::CopyHeights, text(Text::CopyHeights))) {
             copySelection(true);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("Copy Height Map\nCopy only the heights in the selection. Paste leaves the tiles in place");
+            ImGui::SetTooltip("%s", text(Text::TipCopyHeights));
         }
         ImGui::EndDisabled();
     }
@@ -669,7 +671,7 @@ void EditorApp::drawToolbar() {
     const bool canPaste = featuresTab_ ? !featureClipboard_.empty() : clipboard_.has_value();
     const bool pasting = featuresTab_ ? featurePasteArmed_ : pasteArmed_;
     ImGui::BeginDisabled(!map_ || !canPaste);
-    if (theme::toolbarItem("paste", ToolIcon::Paste, pasting ? "Pasting" : "Paste", pasting, "Pasting")) {
+    if (theme::toolbarItem("paste", ToolIcon::Paste, pasting ? text(Text::Pasting) : text(Text::Paste), pasting, text(Text::Pasting))) {
         if (featuresTab_) {
             armFeaturePaste();
         } else {
@@ -677,74 +679,79 @@ void EditorApp::drawToolbar() {
         }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip(featuresTab_ ? "Paste\nClick the map to place the copied features where you click"
-                                       : "Paste\nLeave select mode. Drag to pan, then click to place the copy");
+        ImGui::SetTooltip("%s", featuresTab_ ? text(Text::TipPasteFeatures) : text(Text::TipPasteTiles));
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
 
     ImGui::BeginDisabled(!map_ || !hasSelection() || featuresTab_);
-    if (theme::toolbarItem("modify-height", ToolIcon::ModifyHeight, "Modify Height")) {
+    if (theme::toolbarItem("modify-height", ToolIcon::ModifyHeight, text(Text::ModifyHeight))) {
         showModifyHeight_ = true;
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Modify Height\nAdd, subtract, or set the height of the selected tiles");
+        ImGui::SetTooltip("%s", text(Text::TipModifyHeight));
     }
     next();
-    if (theme::toolbarItem("blend", ToolIcon::Blend, "Blend")) {
+    if (theme::toolbarItem("blend", ToolIcon::Blend, text(Text::Blend))) {
         blendSelection();
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Blend Textures\nFade the textures across edges where selected tiles touch");
+        ImGui::SetTooltip("%s", text(Text::TipBlend));
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
 
     ImGui::BeginDisabled(!map_);
-    if (theme::toolbarItem("view-3d", ToolIcon::View3D, "3D View", view3d_)) {
+    if (theme::toolbarItem("view-3d", ToolIcon::View3D, text(Text::View3d), view3d_)) {
         set3dView(!view3d_);
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip(view3d_ ? "Back to the flat map" : "3D View\nSee the map as terrain, with the height map lifting the ground and a plane at sea level");
+        ImGui::SetTooltip("%s", view3d_ ? text(Text::TipFlatMap) : text(Text::TipView3d));
     }
     ImGui::EndDisabled();
     next();
-    if (theme::toolbarItem("height-map", ToolIcon::HeightMap, showHeightGrid_ ? "Hide Heights" : "Show Heights", showHeightGrid_, "Show Heights")) {
+    if (theme::toolbarItem(
+            "height-map",
+            ToolIcon::HeightMap,
+            showHeightGrid_ ? text(Text::HideHeights) : text(Text::ShowHeights),
+            showHeightGrid_,
+            text(Text::ShowHeights))) {
         showHeightGrid_ = !showHeightGrid_;
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(showHeightGrid_ ? "Hide the height grid" : "Show the height grid");
+        ImGui::SetTooltip("%s", showHeightGrid_ ? text(Text::TipHideGrid) : text(Text::TipShowGrid));
     }
     theme::toolbarSeparator();
 
     ImGui::BeginDisabled(!map_ || undo_.empty());
-    if (theme::toolbarItem("undo", ToolIcon::Undo, "Undo")) {
+    if (theme::toolbarItem("undo", ToolIcon::Undo, text(Text::Undo))) {
         undoPlacement();
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Undo the last tile edit");
+        ImGui::SetTooltip("%s", text(Text::TipUndo));
     }
     ImGui::EndDisabled();
     next();
     ImGui::BeginDisabled(!map_ || redo_.empty());
-    if (theme::toolbarItem("redo", ToolIcon::Redo, "Redo")) {
+    if (theme::toolbarItem("redo", ToolIcon::Redo, text(Text::Redo))) {
         redoPlacement();
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Redo the tile edit that was undone");
+        ImGui::SetTooltip("%s", text(Text::TipRedo));
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
 
-    const std::string opacityLabel = "Opacity " + std::to_string(placeOpacity_) + "%";
-    if (theme::toolbarItem("opacity", ToolIcon::Opacity, opacityLabel.c_str(), false, "Opacity 100%")) {
+    const std::string opacityLabel = formatText(Text::OpacityLabel, {std::to_string(placeOpacity_)});
+    const std::string opacityWidth = formatText(Text::OpacityLabel, {"100"});
+    if (theme::toolbarItem("opacity", ToolIcon::Opacity, opacityLabel.c_str(), false, opacityWidth.c_str())) {
         ImGui::OpenPopup("opacity-menu");
     }
     const ImVec2 opacityMin = ImGui::GetItemRectMin();
     const ImVec2 opacityMax = ImGui::GetItemRectMax();
     float usedRight = opacityMax.x;
     if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("opacity-menu")) {
-        ImGui::SetTooltip("Mix the placed tile into the tile already on the map. 100%% replaces it.");
+        ImGui::SetTooltip("%s", text(Text::TipOpacity));
     }
     ImGui::SetNextWindowPos(ImVec2(opacityMin.x, opacityMax.y + 2.0f));
     if (ImGui::BeginPopup("opacity-menu")) {
@@ -760,13 +767,13 @@ void EditorApp::drawToolbar() {
     if (featuresTab_) {
         theme::toolbarSeparator();
         ImGui::BeginDisabled(!map_);
-        if (theme::toolbarItem("delete", ToolIcon::Delete, featureDelete_ ? "Deleting" : "Delete", featureDelete_, "Deleting")) {
+        if (theme::toolbarItem("delete", ToolIcon::Delete, featureDelete_ ? text(Text::Deleting) : text(Text::Delete), featureDelete_, text(Text::Deleting))) {
             toggleDeleteMode();
         }
         ImGui::EndDisabled();
         usedRight = ImGui::GetItemRectMax().x;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("Click a tree, rock, metal patch, or other feature to remove it");
+            ImGui::SetTooltip("%s", text(Text::TipDelete));
         }
     }
 
@@ -775,7 +782,7 @@ void EditorApp::drawToolbar() {
         const float topY = ImGui::GetCursorPosY();
         const float frameHeight = ImGui::GetFrameHeight();
         ImGui::PushFont(theme::toolbarLabelFont());
-        const float captionWidth = ImGui::CalcTextSize("Brush").x;
+        const float captionWidth = ImGui::CalcTextSize(text(Text::Brush)).x;
         const float captionHeight = ImGui::GetTextLineHeight();
         ImGui::PopFont();
         const float comboWidth = std::max(std::floor(88.0f * theme::unit()), captionWidth);
@@ -805,29 +812,29 @@ void EditorApp::drawToolbar() {
         const bool sizeHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
         ImGui::PushFont(theme::toolbarLabelFont());
         ImGui::SetCursorPosX(blockX + std::max(0.0f, (comboWidth - captionWidth) * 0.5f));
-        ImGui::TextUnformatted("Brush");
+        ImGui::TextUnformatted(text(Text::Brush));
         ImGui::PopFont();
         ImGui::EndGroup();
         usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
-            ImGui::SetTooltip(fixedSize ? "Rivers, ridges and slopes fill one 16 x 16 tile cell" : "Brush size, in map tiles\n8 x 8 snaps to where four cells meet and paints those corners\n[ smaller    ] larger");
+            ImGui::SetTooltip("%s", fixedSize ? text(Text::TipBrushFixed) : text(Text::TipBrushSize));
         }
     }
 
     // The HPI editor sits at the right edge, apart from the map tools.
     {
         ImGui::PushFont(theme::toolbarLabelFont());
-        const float labelWidth = ImGui::CalcTextSize("HPI Editor").x;
+        const float labelWidth = ImGui::CalcTextSize(text(Text::HpiEditor)).x;
         ImGui::PopFont();
         const float itemWidth = std::floor(std::max(50.0f * theme::unit(), labelWidth + 16.0f * theme::unit()));
         const float rightEdge = ImGui::GetWindowContentRegionMax().x - itemWidth;
         const float fixedEnd = usedRight - ImGui::GetWindowPos().x + gap;
         ImGui::SameLine(std::max(rightEdge, fixedEnd));
-        if (theme::toolbarItem("hpi-editor", ToolIcon::HpiEditor, "HPI Editor", hpiEditor_.visible())) {
+        if (theme::toolbarItem("hpi-editor", ToolIcon::HpiEditor, text(Text::HpiEditor), hpiEditor_.visible())) {
             hpiEditor_.show();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("HPI Editor\nBrowse an HPI or UFO file, import and export files, and move them between folders");
+            ImGui::SetTooltip("%s", text(Text::TipHpi));
         }
     }
 }
@@ -1918,8 +1925,8 @@ void EditorApp::drawSidebar() {
     ImGui::BeginChild("sidebar", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     drawSidebarBackground();
     ImGui::SetWindowFontScale(std::clamp(sidebarFontPercent_, 75, 200) / 100.0f);
-    static const char* const kSidebarTabs[] = {"Tilesets", "Favorites", "Features", "Start Locations"};
-    theme::segmented("sidebar-tabs", kSidebarTabs, 4, sidebarTab_, true);
+    const char* sidebarTabs[] = {text(Text::Tilesets), text(Text::Favorites), text(Text::Features), text(Text::StartLocations)};
+    theme::segmented("sidebar-tabs", sidebarTabs, 4, sidebarTab_, true);
     ImGui::Spacing();
     startLocationsTab_ = sidebarTab_ == 3;
     featuresTab_ = sidebarTab_ == 2;
@@ -1952,9 +1959,7 @@ void EditorApp::drawSidebar() {
 }
 
 void EditorApp::drawTilesetBrowser(bool favorites) {
-    theme::helpText(favorites
-            ? "Open a category, click a tile, then click the map. Right-click a tile to copy or rename its file name. To save more tiles, select them on the map and right-click."
-            : "Open a category, click a tile, then click the map. Right-click a tile to copy or rename its file name.");
+    theme::helpText(favorites ? text(Text::FavoritesHelp) : text(Text::TilesetHelp));
     char* const searchText = favorites ? favoritesSearch_ : tilesetSearch_;
     const std::size_t searchSize = favorites ? sizeof(favoritesSearch_) : sizeof(tilesetSearch_);
     const std::string query = trimmed(searchText);
@@ -3622,7 +3627,8 @@ void EditorApp::drawStatus() {
                 selected->stamp.tileHeight,
                 tilesets_.sectionCount());
         } else {
-            ImGui::Text("%d tileset sections indexed", tilesets_.sectionCount());
+            const std::string indexed = formatText(Text::SectionsIndexed, {std::to_string(tilesets_.sectionCount())});
+            ImGui::TextUnformatted(indexed.c_str());
         }
         return;
     }
@@ -3822,14 +3828,14 @@ void EditorApp::drawAbout() {
         ImGui::OpenPopup("About Galaxy Editor");
         aboutRequested_ = false;
     }
-    if (!ImGui::BeginPopupModal("About Galaxy Editor", nullptr, theme::alertFlags())) {
+    const std::string aboutTitle = withId(Text::AboutTitle, "About Galaxy Editor");
+    if (!ImGui::BeginPopupModal(aboutTitle.c_str(), nullptr, theme::alertFlags())) {
         return;
     }
-    // \xC2\xA9 is the copyright sign.
-    theme::alertText(applicationTitle().c_str(), "Copyright \xC2\xA9 2026 Black Cat Software\nDeveloped by Matt Andrzejczuk");
-    const float okWidth = theme::pushButtonWidth("OK");
+    theme::alertText(applicationTitle().c_str(), text(Text::AboutBody));
+    const float okWidth = theme::pushButtonWidth(text(Text::Ok));
     theme::alignRight(okWidth);
-    if (theme::defaultButton("OK", ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (theme::defaultButton(text(Text::Ok), ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -3840,19 +3846,18 @@ void EditorApp::drawClosePrompt() {
         return;
     }
     ImGui::OpenPopup("Unsaved Changes");
-    if (!ImGui::BeginPopupModal("Unsaved Changes", nullptr, theme::alertFlags())) {
+    const std::string unsavedTitle = withId(Text::UnsavedTitle, "Unsaved Changes");
+    if (!ImGui::BeginPopupModal(unsavedTitle.c_str(), nullptr, theme::alertFlags())) {
         return;
     }
-    theme::alertText(
-        "You are about to close the application but there are unsaved changes.",
-        "Your changes will be lost if you exit without saving.");
-    if (ImGui::Button("Exit Without Saving")) {
+    theme::alertText(text(Text::UnsavedMessage), text(Text::UnsavedDetail));
+    if (ImGui::Button(text(Text::ExitWithoutSaving))) {
         showClosePrompt_ = false;
         quit_ = true;
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    const char* saveLabel = "Save Map & Exit";
+    const char* saveLabel = text(Text::SaveAndExit);
     const float saveWidth = theme::pushButtonWidth(saveLabel);
     theme::alignRight(saveWidth);
     if (theme::defaultButton(saveLabel, ImVec2(saveWidth, 0.0f))) {
@@ -3984,6 +3989,9 @@ void EditorApp::loadEditorOptions() {
     seaColor_ = settings.seaColor;
     gameFolder_ = settings.gameFolder;
     gameFolderAsked_ = settings.gameFolderAsked;
+    if (isKnownLanguage(settings.language)) {
+        setActiveLanguage(settings.language);
+    }
 }
 
 void EditorApp::saveEditorOptions() const {
@@ -3998,6 +4006,7 @@ void EditorApp::saveEditorOptions() const {
     settings.seaColor = seaColor_;
     settings.gameFolder = gameFolder_;
     settings.gameFolderAsked = gameFolderAsked_;
+    settings.language = activeLanguage();
     saveEditorSettings(editorSettingsPath(), settings);
 }
 
@@ -4017,12 +4026,13 @@ void EditorApp::drawMapSettings() {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 280.0f, viewport->WorkPos.y + 36.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(640.0f, 680.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Map Settings", &showMapSettings_)) {
+    const std::string mapSettingsTitle = withId(Text::MapSettings, "Map Settings");
+    if (!ImGui::Begin(mapSettingsTitle.c_str(), &showMapSettings_)) {
         ImGui::End();
         return;
     }
-    static const char* const kSettingsTabs[] = {"Map", "World", "Special", "Rules"};
-    theme::segmented("map-settings-tabs", kSettingsTabs, 4, mapSettingsTab_);
+    const char* settingsTabs[] = {text(Text::TabMap), text(Text::TabWorld), text(Text::TabSpecial), text(Text::TabRules)};
+    theme::segmented("map-settings-tabs", settingsTabs, 4, mapSettingsTab_);
     ImGui::Spacing();
     const float footer = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + 8.0f;
     ImGui::BeginChild("map-settings-body", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
@@ -4269,8 +4279,9 @@ void EditorApp::drawOptions() {
     }
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 320.0f, viewport->WorkPos.y + 48.0f), ImGuiCond_FirstUseEver);
+    const std::string optionsTitle = withId(Text::OptionsTitle, "Galaxy Editor Options");
     if (!ImGui::Begin(
-            "Galaxy Editor Options",
+            optionsTitle.c_str(),
             &showOptions_,
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::End();
@@ -4281,91 +4292,124 @@ void EditorApp::drawOptions() {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
     ImGui::PushItemWidth(width * 0.62f);
     bool optionsChanged = false;
-    ImGui::SeparatorText("Appearance");
+    ImGui::SeparatorText(text(Text::SectionLanguage));
     {
-        static const char* const kAppearances[] = {"Auto", "Light", "Dark"};
-        if (theme::segmented("appearance", kAppearances, 3, appearanceMode_)) {
+        const int current = std::max(0, languageIndex(activeLanguage()));
+        if (ImGui::BeginCombo("##editor-language", languageAt(current).nativeName)) {
+            for (int i = 0; i < languageCount(); ++i) {
+                const bool selected = i == current;
+                if (ImGui::Selectable(languageAt(i).nativeName, selected)) {
+                    setActiveLanguage(languageAt(i).id);
+                    optionsChanged = true;
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    theme::helpText(text(Text::LanguageHelp));
+    ImGui::SeparatorText(text(Text::SectionAppearance));
+    {
+        const char* appearances[] = {text(Text::AppearanceAuto), text(Text::AppearanceLight), text(Text::AppearanceDark)};
+        if (theme::segmented("appearance", appearances, 3, appearanceMode_)) {
             optionsChanged = true;
         }
     }
-    theme::helpText(
-        "Auto follows the light or dark setting of this computer and changes when it does. Where the system does not report a setting, Auto stays light.");
-    ImGui::SeparatorText("3D View");
-    optionsChanged |= ImGui::SliderInt("Sea opacity", &seaOpacity_, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    theme::helpText(text(Text::AppearanceHelp));
+    ImGui::SeparatorText(text(Text::Section3d));
+    {
+        const std::string seaOpacity = withId(Text::SeaOpacity, "Sea opacity");
+        optionsChanged |= ImGui::SliderInt(seaOpacity.c_str(), &seaOpacity_, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    }
     {
         float rgb[3] = {
             static_cast<float>((seaColor_ >> 16) & 0xFF) / 255.0f,
             static_cast<float>((seaColor_ >> 8) & 0xFF) / 255.0f,
             static_cast<float>(seaColor_ & 0xFF) / 255.0f};
-        if (ImGui::ColorEdit3("Sea color", rgb, ImGuiColorEditFlags_NoOptions | ImGuiColorEditFlags_PickerHueWheel)) {
+        const std::string seaColor = withId(Text::SeaColor, "Sea color");
+        if (ImGui::ColorEdit3(seaColor.c_str(), rgb, ImGuiColorEditFlags_NoOptions | ImGuiColorEditFlags_PickerHueWheel)) {
             const auto channel = [](float value) { return std::clamp(static_cast<int>(std::lround(value * 255.0f)), 0, 255); };
             seaColor_ = (channel(rgb[0]) << 16) | (channel(rgb[1]) << 8) | channel(rgb[2]);
             optionsChanged = true;
         }
     }
-    theme::helpText(
-        "The 3D View button in the toolbar shows the map as terrain, lifted by its height map. A see-through plane marks the sea level from Map Settings. Drag to orbit, right-drag or Shift-drag to pan, and scroll to zoom. W A S D move, Q and E turn, and Home starts over.");
-    ImGui::SeparatorText("Total Annihilation");
+    theme::helpText(text(Text::View3dHelp));
+    ImGui::SeparatorText(text(Text::SectionTa));
     if (gameFolder_.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
-        ImGui::TextUnformatted("Not set");
+        ImGui::TextUnformatted(text(Text::NotSet));
         ImGui::PopStyleColor();
     } else {
         ImGui::TextWrapped("%s", pathToUtf8(gameFolder_).c_str());
     }
     if (loadingTilesets()) {
+        const std::string loading = formatText(Text::LoadingArchives, {std::to_string(tilesetLoadDone()), std::to_string(tilesetLoadTotal())});
         ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
-        ImGui::Text("Loading %d of %d archives", static_cast<int>(tilesetLoadDone()), static_cast<int>(tilesetLoadTotal()));
+        ImGui::TextUnformatted(loading.c_str());
         ImGui::PopStyleColor();
     } else if (!gameFolder_.empty() && !gameFolderFound_) {
-        ImGui::TextWrapped("This folder was not found.");
+        ImGui::TextWrapped("%s", text(Text::FolderNotFound));
     } else if (!gameFolder_.empty() && gameFolderArchives_ == 0) {
-        ImGui::TextWrapped("This folder has no .hpi, .ccx, .gp3, or .gpf archives.");
+        ImGui::TextWrapped("%s", text(Text::FolderNoArchives));
     } else if (!gameFolder_.empty()) {
+        const std::string loaded = formatText(Text::ArchivesLoaded, {std::to_string(gameFolderArchives_)});
         ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
-        ImGui::Text("%d archives loaded from this folder", static_cast<int>(gameFolderArchives_));
+        ImGui::TextUnformatted(loaded.c_str());
         ImGui::PopStyleColor();
     }
     if (!loadingTilesets() && tilesetLoadTotal() > gameFolderArchives_) {
+        const std::string beside = formatText(Text::ArchivesBeside, {std::to_string(tilesetLoadTotal() - gameFolderArchives_)});
         ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
-        ImGui::Text("%d more loaded from beside Galaxy Editor", static_cast<int>(tilesetLoadTotal() - gameFolderArchives_));
+        ImGui::TextUnformatted(beside.c_str());
         ImGui::PopStyleColor();
     }
     ImGui::Dummy(ImVec2(0.0f, 2.0f));
     {
-        const std::string chooseLabel = theme::withEllipsis("Choose Folder");
+        const std::string chooseLabel = theme::withEllipsis(text(Text::ChooseFolder));
         const float chooseWidth = theme::pushButtonWidth(chooseLabel.c_str());
         if (ImGui::Button(chooseLabel.c_str(), ImVec2(chooseWidth, 0.0f))) {
             chooseGameFolder();
         }
         ImGui::SameLine();
         ImGui::BeginDisabled(gameFolder_.empty());
-        if (ImGui::Button("Clear", ImVec2(theme::pushButtonWidth("Clear"), 0.0f))) {
+        const std::string clearLabel = std::string(text(Text::Clear)) + "###Clear";
+        if (ImGui::Button(clearLabel.c_str(), ImVec2(theme::pushButtonWidth(text(Text::Clear)), 0.0f))) {
             setGameFolder({});
         }
         ImGui::EndDisabled();
     }
-    theme::helpText(
-        "Galaxy Editor reads tilesets and features from the .hpi, .ccx, .gp3, and .gpf files in this folder, such as totala1.hpi. Archives in the folder beside Galaxy Editor load too, so you can add your own tilesets there. A file with the same name as one in this folder loads only once. Changing the folder reloads everything right away.");
-    ImGui::SeparatorText("Tile Previews");
-    optionsChanged |= ImGui::SliderInt("Preview size", &previewSize_, 32, 256, "%d px", ImGuiSliderFlags_AlwaysClamp);
-    theme::helpText(
-        "Thumbnails come from each section in the tileset. Click one, then click the map to stamp its tiles and heights. Drag the map to pan. Esc or right-click clears the selection.");
-    ImGui::SeparatorText("Height Map");
-    if (ImGui::SliderInt("Grid size", &heightGridSize_, 16, 256, "%d px", ImGuiSliderFlags_AlwaysClamp)) {
-        heightGridSize_ = std::clamp((heightGridSize_ + 8) / 16 * 16, 16, 256);
-        optionsChanged = true;
+    theme::helpText(text(Text::GameFolderHelp));
+    ImGui::SeparatorText(text(Text::SectionPreviews));
+    {
+        const std::string previewSize = withId(Text::PreviewSize, "Preview size");
+        optionsChanged |= ImGui::SliderInt(previewSize.c_str(), &previewSize_, 32, 256, "%d px", ImGuiSliderFlags_AlwaysClamp);
     }
-    theme::helpText(
-        "Spacing is in map pixels. 16 is one height cell and 32 is one tile. Water is blue, low ground is green, hills are yellow, and cliffs and mountains run from orange to white.");
-    ImGui::SeparatorText("Tileset List");
-    optionsChanged |= ImGui::SliderInt("Sidebar font", &sidebarFontPercent_, 75, 200, "%d%%", ImGuiSliderFlags_AlwaysClamp);
-    theme::helpText("Changes the text size in the sidebar. Tile previews keep the size set above.");
-    ImGui::SeparatorText("Autosave");
-    optionsChanged |= ImGui::SliderInt("Autosave every", &autosaveMinutes_, 1, 120, "%d min", ImGuiSliderFlags_AlwaysClamp);
-    optionsChanged |= ImGui::SliderInt("Backup copies", &autosaveBackups_, 1, 20, "%d", ImGuiSliderFlags_AlwaysClamp);
-    theme::helpText(
-        "After you edit a map, a backup is written on this timer. The backup does not replace the map from Save. It is named MapName-MM-DD-YYYY-HH-MM-Backup.ufo, with the hour from 00 to 23, and it is stored in the same folder. When that folder already has this many backups of the map, the oldest one is deleted first.");
+    theme::helpText(text(Text::PreviewHelp));
+    ImGui::SeparatorText(text(Text::SectionHeight));
+    {
+        const std::string gridSize = withId(Text::GridSize, "Grid size");
+        if (ImGui::SliderInt(gridSize.c_str(), &heightGridSize_, 16, 256, "%d px", ImGuiSliderFlags_AlwaysClamp)) {
+            heightGridSize_ = std::clamp((heightGridSize_ + 8) / 16 * 16, 16, 256);
+            optionsChanged = true;
+        }
+    }
+    theme::helpText(text(Text::HeightHelp));
+    ImGui::SeparatorText(text(Text::SectionTilesets));
+    {
+        const std::string sidebarFont = withId(Text::SidebarFont, "Sidebar font");
+        optionsChanged |= ImGui::SliderInt(sidebarFont.c_str(), &sidebarFontPercent_, 75, 200, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    }
+    theme::helpText(text(Text::SidebarFontHelp));
+    ImGui::SeparatorText(text(Text::SectionAutosave));
+    {
+        const std::string autosaveEvery = withId(Text::AutosaveEvery, "Autosave every");
+        const std::string backupCopies = withId(Text::BackupCopies, "Backup copies");
+        optionsChanged |= ImGui::SliderInt(autosaveEvery.c_str(), &autosaveMinutes_, 1, 120, "%d min", ImGuiSliderFlags_AlwaysClamp);
+        optionsChanged |= ImGui::SliderInt(backupCopies.c_str(), &autosaveBackups_, 1, 20, "%d", ImGuiSliderFlags_AlwaysClamp);
+    }
+    theme::helpText(text(Text::AutosaveHelp));
     ImGui::PopItemWidth();
     ImGui::PopTextWrapPos();
     if (optionsChanged) {
@@ -4380,39 +4424,51 @@ void EditorApp::drawNewMap() {
     }
     ImGui::OpenPopup("New Map");
     ImGui::SetNextWindowSize(ImVec2(380.0f, 0.0f), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("New Map", &showNew_, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const std::string newMapTitle = withId(Text::NewMap, "New Map");
+    if (!ImGui::BeginPopupModal(newMapTitle.c_str(), &showNew_, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
 
     const bool sizeOk = newWidth_ >= kMinMapTiles && newHeight_ >= kMinMapTiles && newWidth_ <= kMaxMapTiles && newHeight_ <= kMaxMapTiles;
-    theme::helpText("Creates an empty map. Width and height are in 32-pixel tiles.");
+    theme::helpText(text(Text::NewMapHelp));
     ImGui::Spacing();
+    const std::string widthLabel = withId(Text::WidthTiles, "Width (tiles)");
+    const std::string heightLabel = withId(Text::HeightTiles, "Height (tiles)");
     ImGui::SetNextItemWidth(140.0f);
-    ImGui::InputInt("Width (tiles)", &newWidth_);
+    ImGui::InputInt(widthLabel.c_str(), &newWidth_);
     ImGui::SetNextItemWidth(140.0f);
-    ImGui::InputInt("Height (tiles)", &newHeight_);
+    ImGui::InputInt(heightLabel.c_str(), &newHeight_);
     if (sizeOk) {
         const int pixelsWide = newWidth_ * 32;
         const int pixelsHigh = newHeight_ * 32;
+        char gameWide[32];
+        char gameHigh[32];
         if (newWidth_ % 16 == 0 && newHeight_ % 16 == 0) {
-            ImGui::Text("%d x %d pixels. Game size %d x %d.", pixelsWide, pixelsHigh, newWidth_ / 16, newHeight_ / 16);
+            std::snprintf(gameWide, sizeof(gameWide), "%d", newWidth_ / 16);
+            std::snprintf(gameHigh, sizeof(gameHigh), "%d", newHeight_ / 16);
         } else {
-            ImGui::Text("%d x %d pixels. Game size %.2f x %.2f.", pixelsWide, pixelsHigh, newWidth_ / 16.0, newHeight_ / 16.0);
+            std::snprintf(gameWide, sizeof(gameWide), "%.2f", newWidth_ / 16.0);
+            std::snprintf(gameHigh, sizeof(gameHigh), "%.2f", newHeight_ / 16.0);
         }
+        const std::string sizeLine = formatText(
+            Text::NewMapSize,
+            {std::to_string(pixelsWide), std::to_string(pixelsHigh), gameWide, gameHigh});
+        ImGui::TextUnformatted(sizeLine.c_str());
     } else {
-        ImGui::TextWrapped("Size must be from %d to %d tiles.", kMinMapTiles, kMaxMapTiles);
+        const std::string badSize = formatText(Text::NewMapBadSize, {std::to_string(kMinMapTiles), std::to_string(kMaxMapTiles)});
+        ImGui::TextWrapped("%s", badSize.c_str());
     }
 
     ImGui::Dummy(ImVec2(0.0f, 8.0f));
-    const float buttonWidth = theme::pushButtonWidth("Create");
+    const float buttonWidth = std::max(theme::pushButtonWidth(text(Text::Cancel)), theme::pushButtonWidth(text(Text::Create)));
     theme::alignRight(buttonWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x);
-    if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f))) {
+    if (ImGui::Button(text(Text::Cancel), ImVec2(buttonWidth, 0.0f))) {
         showNew_ = false;
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(!sizeOk);
-    if (theme::defaultButton("Create", ImVec2(buttonWidth, 0.0f))) {
+    if (theme::defaultButton(text(Text::Create), ImVec2(buttonWidth, 0.0f))) {
         try {
             map_ = createBlankMap(newWidth_, newHeight_);
             ++mapSerial_;
@@ -5758,31 +5814,31 @@ bool EditorApp::draw() {
     ImGui::PopStyleVar(3);
 
     if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem(theme::withEllipsis("New Map").c_str(), theme::shortcut("N").c_str())) {
+        if (ImGui::BeginMenu(text(Text::MenuFile))) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::NewMap)).c_str(), theme::shortcut("N").c_str())) {
                 showNew_ = true;
             }
-            if (ImGui::MenuItem(theme::withEllipsis("Open Map").c_str(), theme::shortcut("O").c_str())) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::OpenMap)).c_str(), theme::shortcut("O").c_str())) {
                 if (const auto chosen = openMapDialog(suggestedOpenDirectory())) {
                     openMap(*chosen);
                 }
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Save", theme::shortcut("S").c_str(), false, map_.has_value())) {
+            if (ImGui::MenuItem(text(Text::Save), theme::shortcut("S").c_str(), false, map_.has_value())) {
                 saveMap();
             }
-            if (ImGui::MenuItem(theme::withEllipsis("Save As").c_str(), theme::shortcut("Shift+S").c_str(), false, map_.has_value())) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::SaveAs)).c_str(), theme::shortcut("Shift+S").c_str(), false, map_.has_value())) {
                 saveMapAs();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem(theme::withEllipsis("Generate Map").c_str(), nullptr, false, map_.has_value())) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::GenerateMap)).c_str(), nullptr, false, map_.has_value())) {
                 std::mt19937 seedRng{std::random_device{}()};
                 std::uniform_int_distribution<int> seedPick(1, 999983);
                 genSeed_ = seedPick(seedRng);
                 showGenerate_ = true;
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("HPI Editor")) {
+            if (ImGui::MenuItem(text(Text::HpiEditor))) {
                 hpiEditor_.show();
             }
             ImGui::Separator();
@@ -5791,60 +5847,60 @@ bool EditorApp::draw() {
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", theme::shortcut("Z").c_str(), false, map_.has_value() && !undo_.empty())) {
+        if (ImGui::BeginMenu(text(Text::MenuEdit))) {
+            if (ImGui::MenuItem(text(Text::Undo), theme::shortcut("Z").c_str(), false, map_.has_value() && !undo_.empty())) {
                 undoPlacement();
             }
-            if (ImGui::MenuItem("Redo", theme::shortcut("Shift+Z").c_str(), false, map_.has_value() && !redo_.empty())) {
+            if (ImGui::MenuItem(text(Text::Redo), theme::shortcut("Shift+Z").c_str(), false, map_.has_value() && !redo_.empty())) {
                 redoPlacement();
             }
             ImGui::Separator();
             if (featuresTab_) {
                 const bool hasFeatures = map_.has_value() && !selectedFeatures_.empty();
-                if (ImGui::MenuItem("Cut Features", theme::shortcut("X").c_str(), false, hasFeatures)) {
+                if (ImGui::MenuItem(text(Text::CutFeatures), theme::shortcut("X").c_str(), false, hasFeatures)) {
                     copyFeatures(true);
                 }
-                if (ImGui::MenuItem("Copy Features", theme::shortcut("C").c_str(), false, hasFeatures)) {
+                if (ImGui::MenuItem(text(Text::CopyFeatures), theme::shortcut("C").c_str(), false, hasFeatures)) {
                     copyFeatures(false);
                 }
-                if (ImGui::MenuItem("Paste Features", theme::shortcut("V").c_str(), false, map_.has_value() && !featureClipboard_.empty())) {
+                if (ImGui::MenuItem(text(Text::PasteFeatures), theme::shortcut("V").c_str(), false, map_.has_value() && !featureClipboard_.empty())) {
                     armFeaturePaste();
                 }
-                if (ImGui::MenuItem("Delete Selected Features", nullptr, false, hasFeatures)) {
+                if (ImGui::MenuItem(text(Text::DeleteSelectedFeatures), nullptr, false, hasFeatures)) {
                     deleteSelectedFeatures();
                 }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Select Features", nullptr, featureSelectMode_, map_.has_value())) {
+                if (ImGui::MenuItem(text(Text::SelectFeatures), nullptr, featureSelectMode_, map_.has_value())) {
                     toggleFeatureSelectMode();
                 }
             } else {
-                if (ImGui::MenuItem("Cut", theme::shortcut("X").c_str(), false, map_.has_value() && hasSelection())) {
+                if (ImGui::MenuItem(text(Text::Cut), theme::shortcut("X").c_str(), false, map_.has_value() && hasSelection())) {
                     cutSelection();
                 }
-                if (ImGui::MenuItem("Copy Terrain + Height Map", theme::shortcut("C").c_str(), false, map_.has_value() && hasSelection())) {
+                if (ImGui::MenuItem(text(Text::CopyTerrain), theme::shortcut("C").c_str(), false, map_.has_value() && hasSelection())) {
                     copySelection(false);
                 }
-                if (ImGui::MenuItem("Copy Height Map", theme::shortcut("Shift+C").c_str(), false, map_.has_value() && hasSelection())) {
+                if (ImGui::MenuItem(text(Text::CopyHeightMap), theme::shortcut("Shift+C").c_str(), false, map_.has_value() && hasSelection())) {
                     copySelection(true);
                 }
-                if (ImGui::MenuItem("Paste", theme::shortcut("V").c_str(), false, map_.has_value() && clipboard_.has_value())) {
+                if (ImGui::MenuItem(text(Text::Paste), theme::shortcut("V").c_str(), false, map_.has_value() && clipboard_.has_value())) {
                     armPaste();
                 }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Select Tiles", nullptr, selectionMode_, map_.has_value())) {
+                if (ImGui::MenuItem(text(Text::SelectTiles), nullptr, selectionMode_, map_.has_value())) {
                     toggleSelectMode();
                 }
             }
-            if (ImGui::MenuItem(theme::withEllipsis("Modify Height").c_str(), nullptr, false, map_.has_value() && hasSelection() && !featuresTab_)) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::ModifyHeight)).c_str(), nullptr, false, map_.has_value() && hasSelection() && !featuresTab_)) {
                 showModifyHeight_ = true;
             }
-            if (ImGui::MenuItem("Blend Textures", nullptr, false, map_.has_value() && hasSelection() && !featuresTab_)) {
+            if (ImGui::MenuItem(text(Text::BlendTextures), nullptr, false, map_.has_value() && hasSelection() && !featuresTab_)) {
                 blendSelection();
             }
-            if (ImGui::MenuItem("Delete Features", nullptr, featureDelete_, map_.has_value() && featuresTab_)) {
+            if (ImGui::MenuItem(text(Text::DeleteFeatures), nullptr, featureDelete_, map_.has_value() && featuresTab_)) {
                 toggleDeleteMode();
             }
-            if (ImGui::BeginMenu("Tile Opacity")) {
+            if (ImGui::BeginMenu(text(Text::TileOpacity))) {
                 for (int value = 5; value <= 100; value += 5) {
                     const std::string choice = std::to_string(value) + "%";
                     if (ImGui::MenuItem(choice.c_str(), nullptr, placeOpacity_ == value)) {
@@ -5855,12 +5911,12 @@ bool EditorApp::draw() {
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Map")) {
-            if (ImGui::MenuItem(theme::withEllipsis("Map Settings").c_str(), nullptr, false, map_.has_value())) {
+        if (ImGui::BeginMenu(text(Text::MenuMap))) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::MapSettings)).c_str(), nullptr, false, map_.has_value())) {
                 showMapSettings_ = true;
                 mapSettingsFresh_ = true;
             }
-            if (ImGui::MenuItem(theme::withEllipsis("Resize Map").c_str(), nullptr, false, map_.has_value())) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::ResizeMap)).c_str(), nullptr, false, map_.has_value())) {
                 resizeLeft_ = 0;
                 resizeRight_ = 0;
                 resizeTop_ = 0;
@@ -5869,16 +5925,16 @@ bool EditorApp::draw() {
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("View")) {
-            if (ImGui::MenuItem("Fit Map", nullptr, false, map_.has_value())) {
+        if (ImGui::BeginMenu(text(Text::MenuView))) {
+            if (ImGui::MenuItem(text(Text::FitMap), nullptr, false, map_.has_value())) {
                 fit_ = true;
             }
-            if (ImGui::MenuItem("Actual Size", nullptr, false, map_.has_value())) {
+            if (ImGui::MenuItem(text(Text::ActualSize), nullptr, false, map_.has_value())) {
                 fit_ = false;
                 zoom_ = 1.0f;
             }
-            if (ImGui::BeginMenu("Grid")) {
-                if (ImGui::MenuItem("Off", nullptr, gridTiles_ == 0)) {
+            if (ImGui::BeginMenu(text(Text::Grid))) {
+                if (ImGui::MenuItem(text(Text::GridOff), nullptr, gridTiles_ == 0)) {
                     gridTiles_ = 0;
                 }
                 for (const int size : {1, 4, 8, 16, 32}) {
@@ -5890,32 +5946,32 @@ bool EditorApp::draw() {
                 ImGui::EndMenu();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("3D View", theme::shortcut("3").c_str(), view3d_, map_.has_value())) {
+            if (ImGui::MenuItem(text(Text::View3d), theme::shortcut("3").c_str(), view3d_, map_.has_value())) {
                 set3dView(!view3d_);
             }
-            if (ImGui::MenuItem("Reset 3D Camera", nullptr, false, map_.has_value() && view3d_)) {
+            if (ImGui::MenuItem(text(Text::Reset3dCamera), nullptr, false, map_.has_value() && view3d_)) {
                 camera3d_.frame(static_cast<float>(map_->pixelWidth()), static_cast<float>(map_->pixelHeight()));
             }
             ImGui::Separator();
-            if (ImGui::MenuItem(showHeightGrid_ ? "Hide Height Map" : "Show Height Map")) {
+            if (ImGui::MenuItem(showHeightGrid_ ? text(Text::HideHeightMap) : text(Text::ShowHeightMap))) {
                 showHeightGrid_ = !showHeightGrid_;
             }
-            ImGui::MenuItem("Feature Markers", nullptr, &showFeatures_);
-            ImGui::MenuItem("Show Feature Borders", nullptr, &showFeatureBorders_);
-            ImGui::MenuItem("Start Positions", nullptr, &showStarts_);
-            ImGui::MenuItem("Minimap", nullptr, &showMinimap_);
-            ImGui::MenuItem("Tile Brush", nullptr, &showTileBrush_);
-            ImGui::MenuItem("Frosted Glass", nullptr, &frostedGlass_);
+            ImGui::MenuItem(text(Text::FeatureMarkers), nullptr, &showFeatures_);
+            ImGui::MenuItem(text(Text::ShowFeatureBorders), nullptr, &showFeatureBorders_);
+            ImGui::MenuItem(text(Text::StartPositions), nullptr, &showStarts_);
+            ImGui::MenuItem(text(Text::Minimap), nullptr, &showMinimap_);
+            ImGui::MenuItem(text(Text::TileBrush), nullptr, &showTileBrush_);
+            ImGui::MenuItem(text(Text::FrostedGlass), nullptr, &frostedGlass_);
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Options")) {
-            if (ImGui::MenuItem(theme::withEllipsis("Editor Options").c_str(), theme::shortcut(",").c_str())) {
+        if (ImGui::BeginMenu(text(Text::MenuOptions))) {
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::EditorOptions)).c_str(), theme::shortcut(",").c_str())) {
                 showOptions_ = true;
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Help")) {
-            if (ImGui::MenuItem("About Galaxy Editor")) {
+        if (ImGui::BeginMenu(text(Text::MenuHelp))) {
+            if (ImGui::MenuItem(text(Text::AboutMenu))) {
                 aboutRequested_ = true;
             }
             ImGui::EndMenu();
@@ -5972,11 +6028,12 @@ bool EditorApp::draw() {
     if (!error_.empty()) {
         ImGui::OpenPopup("Error");
     }
-    if (ImGui::BeginPopupModal("Error", nullptr, theme::alertFlags())) {
-        theme::alertText("Galaxy Editor could not finish that.", error_.c_str());
-        const float okWidth = theme::pushButtonWidth("OK");
+    const std::string errorTitle = withId(Text::ErrorTitle, "Error");
+    if (ImGui::BeginPopupModal(errorTitle.c_str(), nullptr, theme::alertFlags())) {
+        theme::alertText(text(Text::ErrorLead), error_.c_str());
+        const float okWidth = theme::pushButtonWidth(text(Text::Ok));
         theme::alignRight(okWidth);
-        if (theme::defaultButton("OK", ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (theme::defaultButton(text(Text::Ok), ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             error_.clear();
             ImGui::CloseCurrentPopup();
         }
@@ -5985,11 +6042,12 @@ bool EditorApp::draw() {
     if (!vanillaTileWarning_.empty()) {
         ImGui::OpenPopup("Tile Limit");
     }
-    if (ImGui::BeginPopupModal("Tile Limit", nullptr, theme::alertFlags())) {
+    const std::string tileLimitTitle = withId(Text::TileLimitTitle, "Tile Limit");
+    if (ImGui::BeginPopupModal(tileLimitTitle.c_str(), nullptr, theme::alertFlags())) {
         theme::alertText(vanillaTileWarning_.c_str());
-        const float okWidth = theme::pushButtonWidth("OK");
+        const float okWidth = theme::pushButtonWidth(text(Text::Ok));
         theme::alignRight(okWidth);
-        if (theme::defaultButton("OK", ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (theme::defaultButton(text(Text::Ok), ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             vanillaTileWarning_.clear();
             ImGui::CloseCurrentPopup();
         }

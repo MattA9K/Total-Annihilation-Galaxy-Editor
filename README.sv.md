@@ -18,7 +18,7 @@ Måla plattor, placera träd och metall, ställ in spelarstarter och forma marke
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
 | Linux (arkiv) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
 
-På macOS, öppna diskavbildningen och dra Galaxy Editor-mappen till din Program-mapp. På Windows, packa upp arkivet och kör `GalaxyEditor.exe`. På Linux kan du använda `.deb`-paketet eller packa upp `.tar.gz`-arkivet. Varje nedladdning inkluderar `GE-Favorites-RandomMapGeneratorTiles.hpi` bredvid appen. Plattborsten läser det plattuppsättningen, så behåll filen bredvid `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` ingår på samma sätt. Första gången den startar frågar Galaxy Editor var Total Annihilation är installerat. Varje utgåva listas på [utgåvorsidan](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+På macOS, öppna diskavbildningen och dra Galaxy Editor-mappen till din Program-mapp. På Windows, packa upp arkivet och kör `GalaxyEditor.exe`. På Linux kan du använda `.deb`-paketet eller packa upp `.tar.gz`-arkivet. Varje nedladdning inkluderar `GE-Favorites-RandomMapGeneratorTiles.hpi` bredvid appen. Plattborsten läser det plattuppsättningen, så behåll filen bredvid `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `GalaxyEditor`. `GreenWorld.hpi` ingår på samma sätt. Första gången den startar frågar Galaxy Editor först om språket och sedan var Total Annihilation är installerat. Varje utgåva listas på [utgåvorsidan](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Linux-installation
 
@@ -102,9 +102,9 @@ cmake --build build --target galaxy_tests
 
 ## Plattuppsättningar
 
-Galaxy Editor laddar spelarkiv från din Total Annihilation-installationsmapp. Första gången den startar frågar den efter den mappen innan startskärmen visas. Välj Avbryt för att starta utan den. Redigeraren kör fortfarande, men flikarna Plattuppsättningar och Funktioner förblir tomma, och den frågar inte igen vid nästa start.
+Galaxy Editor laddar spelarkiv från din Total Annihilation-installationsmapp. Allra första gången den startar, före startskärmen, frågar den om språket och sedan efter den mappen. Välj Avbryt för att starta utan den. Redigeraren kör fortfarande, men flikarna Plattuppsättningar och Funktioner förblir tomma, och den frågar inte igen vid nästa start.
 
-Ändra mappen när som helst i Alternativ, under Total Annihilation. Välj Mapp laddar om arkiven direkt, och Rensa glömmer mappen, så nästa start frågar efter den igen, som vid en första start. Mappen sparas i per-användar-`settings.json`.
+Ändra mappen när som helst i Alternativ, under Total Annihilation. Välj Mapp laddar om arkiven direkt, och Rensa glömmer mappen, så nästa start frågar efter den igen, som vid en första start. Mappen och det valda språket sparas i per-användar-`settings.json`. Språket ändras senare i Alternativ, under Språk, och fönstret byter direkt.
 
 Galaxy Editor läser `.hpi`-, `.ccx`-, `.gp3`- och `.gpf`-filer direkt inuti den mappen, och sedan i mappen som innehåller den körbara `GalaxyEditor`-filen. På macOS är det mappen som innehåller `GalaxyEditor.app`, så en mapp som heter Galaxy Editor med appen och dina egna `.hpi`-filer sida vid sida fungerar, precis som Photoshop är upplagt. Placera dina egna plattuppsättningsarkiv bredvid den körbara filen (eller `.app`). Om en fil där har samma namn som en i Total Annihilation-mappen, såsom `worlds.hpi` eller `totala1.hpi`, hoppas den över, så ingenting laddas två gånger. Ett världsarkiv som `worlds.hpi` fyller fliken Plattuppsättningar. `totala1.hpi`, `rev31.gp3` eller `ccdata.ccx` tillhandahåller funktionslistan och funktionsbilderna.
 

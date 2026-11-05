@@ -17,4 +17,10 @@ extern const unsigned long kWindowIcon32Size;
 extern const unsigned char kDockIconData[];
 extern const unsigned long kDockIconSize;
 
+// Subset fonts for the characters the translations use beyond the system UI font.
+extern const unsigned char kGalaxyLatinData[];
+extern const unsigned long kGalaxyLatinSize;
+extern const unsigned char kGalaxyCjkData[];
+extern const unsigned long kGalaxyCjkSize;
+
 }  // namespace galaxy
