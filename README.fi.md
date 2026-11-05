@@ -16,9 +16,28 @@ Maalaa laattoja, sijoita puita ja metallia, aseta pelaajien aloituskohdat ja muo
 | --- | --- |
 | macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
 | Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (arkisto) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| Linux (Debian/Ubuntu) | [galaxy-editor_1.1.2_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb) |
 
-MacOS:ssä avaa levykuva ja vedä Galaxy Editor -kansio Applications-kansioon. Windowsissa pura arkisto ja suorita `GalaxyEditor.exe`. Linuxissa pura arkisto ja suorita `GalaxyEditor`. Jokainen lataus sisältää `GE-Favorites-RandomMapGeneratorTiles.hpi` -tiedoston sovelluksen vieressä. Laattojen sivellin lukee kyseisen laattavalikoiman, joten pidä tiedosto `GalaxyEditor.app`:n, `GalaxyEditor.exe`:n tai Linux-version `GalaxyEditor`:n vieressä. `GreenWorld.hpi` on mukana samalla tavalla. Ensimmäisellä käynnistyskerralla Galaxy Editor kysyy, missä Total Annihilation on asennettu. Jokainen julkaisu on lueteltu [Julkaisut-sivulla](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+MacOS:ssä avaa levykuva ja vedä Galaxy Editor -kansio Applications-kansioon. Windowsissa pura arkisto ja suorita `GalaxyEditor.exe`. Linuxissa voit käyttää `.deb`-pakettia tai purkaa `.tar.gz`-arkiston. Jokainen lataus sisältää `GE-Favorites-RandomMapGeneratorTiles.hpi` -tiedoston sovelluksen vieressä. Laattojen sivellin lukee kyseisen laattavalikoiman, joten pidä tiedosto `GalaxyEditor.app`:n, `GalaxyEditor.exe`:n tai Linux-version `GalaxyEditor`:n vieressä. `GreenWorld.hpi` on mukana samalla tavalla. Ensimmäisellä käynnistyskerralla Galaxy Editor kysyy, missä Total Annihilation on asennettu. Jokainen julkaisu on lueteltu [Julkaisut-sivulla](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+
+### Linux-asennus
+
+**Vaihtoehto 1: Asenna .deb-paketilla (Debian/Ubuntu/Mint)**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/galaxy-editor_1.1.2_amd64.deb
+sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+```
+
+**Vaihtoehto 2: Käytä siirrettävää arkistoa**
+
+```bash
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
+cd GalaxyEditor-1.1.2-linux-x64
+./GalaxyEditor
+```
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">

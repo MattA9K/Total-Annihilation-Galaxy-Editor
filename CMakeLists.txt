@@ -259,3 +259,26 @@ endif()
 
 enable_testing()
 add_test(NAME format COMMAND galaxy_tests)
+
+# CPack configuration for DEB packaging
+if(UNIX AND NOT APPLE)
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_PACKAGE_NAME "galaxy-editor")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_VENDOR "Black Cat Software")
+    set(CPACK_PACKAGE_CONTACT "Matt Andrzejczuk")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A map editor for Total Annihilation")
+    set(CPACK_PACKAGE_DESCRIPTION "Galaxy Editor is a map editor for Total Annihilation.
+Paint tiles, place trees and metal, set player starts, and shape the height
+of the ground. Maps open and save as .ufo files the game can load.")
+    
+    set(CPACK_DEBIAN_PACKAGE_SECTION "graphics")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "zlib1g, libgl1, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxi6, libxext6, zenity")
+    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+    
+    set(CPACK_PACKAGE_FILE_NAME "GalaxyEditor-${PROJECT_VERSION}-linux-x64")
+    
+    include(CPack)
+endif()

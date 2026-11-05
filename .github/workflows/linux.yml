@@ -26,9 +26,34 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
           cmake --build build --target GalaxyEditor -j"$(nproc)"
 
-      - name: Upload the editor
+      - name: Build DEB package
+        run: |
+          cd build
+          cpack -G DEB
+
+      - name: Package tarball
+        run: |
+          VERSION=$(cat VERSION)
+          mkdir -p "GalaxyEditor-${VERSION}-linux-x64"
+          cp build/GalaxyEditor "GalaxyEditor-${VERSION}-linux-x64/"
+          if [ -f "GE-Favorites-RandomMapGeneratorTiles.hpi" ]; then
+            cp GE-Favorites-RandomMapGeneratorTiles.hpi "GalaxyEditor-${VERSION}-linux-x64/"
+          fi
+          if [ -f "GreenWorld.hpi" ]; then
+            cp GreenWorld.hpi "GalaxyEditor-${VERSION}-linux-x64/"
+          fi
+          tar -czf "GalaxyEditor-${VERSION}-linux-x64.tar.gz" "GalaxyEditor-${VERSION}-linux-x64"
+
+      - name: Upload DEB package
         uses: actions/upload-artifact@v4
         with:
-          name: GalaxyEditor-linux-x64
-          path: build/GalaxyEditor
+          name: GalaxyEditor-linux-x64-deb
+          path: build/*.deb
+          if-no-files-found: error
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyEditor-linux-x64-tarball
+          path: GalaxyEditor-*.tar.gz
           if-no-files-found: error
