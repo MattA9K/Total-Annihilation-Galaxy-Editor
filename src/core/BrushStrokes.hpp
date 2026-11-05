@@ -20,10 +20,10 @@ namespace galaxy {
 // Base-0 and Base-85 join with Coast pieces, Base-68 and Base-85 with
 // ShallowCoast pieces, Base-68 and Base-0 with ShallowDeep pieces, Base-85 and
 // Base-219 with Cliff pieces, and Base-219 joins Base-0 and Base-68 with
-// CoastalCliff pieces. Base-45 and Base-0 join the same way, with Base-45 on the
-// land side of a coast and Base-0 on the lava side. Base-85 and Base-255 join
+// CoastalCliff pieces. Base-86 and Base-41 join the same way, with Base-86 on the
+// land side of a coast and Base-41 on the lava side. Base-85 and Base-255 join
 // with Cliff pieces. Mars uses that pair: its cliff flat is height 255. Lava
-// Base-45 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
+// Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
 // holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
 // and Base-85 use a CoastDSL piece, and Base-219 with Base-85 and either Base-0
@@ -155,7 +155,7 @@ enum class TransitionStyle {
     ShallowDeep,
     CoastalCliffDeep,     // Base-219 beside Base-0
     CoastalCliffShallow,  // Base-219 beside Base-68
-    WorldBlend,           // Lava Base-45 beside Mars or GreenWorld Base-85
+    WorldBlend,           // Lava Base-86 beside Mars or GreenWorld Base-85
 };
 
 // Which pair of paints a family of pieces joins. Paints are named by height, so
@@ -169,14 +169,14 @@ struct BrushTransitionRule {
 inline const std::array<BrushTransitionRule, 9>& brushTransitionRules() {
     static const std::array<BrushTransitionRule, 9> rules = {{
         {0, 85, TransitionStyle::Coast},
-        {0, 45, TransitionStyle::Coast},
+        {41, 86, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
         {0, 219, TransitionStyle::CoastalCliffDeep},
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
-        {45, 85, TransitionStyle::WorldBlend},
+        {85, 86, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -237,8 +237,8 @@ inline std::string transitionPieceName(TransitionStyle style, int mask, std::str
     case TransitionStyle::CoastalCliffDeep: return coastalCliffName(0, mask, 0);
     case TransitionStyle::CoastalCliffShallow: return coastalCliffName(68, mask, 0);
     case TransitionStyle::WorldBlend: {
-        // The mask marks the higher land. Blend-Green-R has grass along the right,
-        // and Blend-Mars-Low-TL has Mars everywhere except the top left.
+        // The mask marks the Mars or GreenWorld corners. Blend-Green-R has grass
+        // along the right, and Blend-Mars-Low-TL has Mars everywhere except the top left.
         const std::string family = blendWorld.empty() ? std::string("Mars") : std::string(blendWorld);
         const std::string cliff(cliffPieceName(mask));
         if (cliff.rfind("Cliff-High-", 0) == 0) {
@@ -389,11 +389,19 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         return mask;
     };
     if (distinct == 2) {
-        std::string_view family = graph.world(sorted[1]);
+        const TransitionStyle style = graph.style(sorted[0], sorted[1]);
+        // Levels are stored from lowest height to highest. A world blend marks the
+        // Mars or GreenWorld corners. Lava ground is Base-86, one step above those
+        // lands, so that marked side is the lower level.
+        int marked = sorted[1];
+        if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
+            marked = sorted[0];
+        }
+        std::string_view family = graph.world(marked);
         if (family.empty()) {
             family = "Mars";
         }
-        return transitionPieceName(graph.style(sorted[0], sorted[1]), maskOf(sorted[1]), coastLiquid, family);
+        return transitionPieceName(style, maskOf(marked), coastLiquid, family);
     }
     if (distinct == 3) {
         const int low = graph.height(sorted[0]);

@@ -40,7 +40,8 @@ void drawLanguagePicker(LanguagePickerState& state) {
     ImGui::Begin(
         "##language-picker",
         nullptr,
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     const float column = std::min(440.0f * theme::unit(), std::max(220.0f, ImGui::GetContentRegionAvail().x - 32.0f));
     const float left = ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - column) * 0.5f);
@@ -60,9 +61,10 @@ void drawLanguagePicker(LanguagePickerState& state) {
 
     ImGui::Dummy(ImVec2(0.0f, 14.0f * theme::unit()));
     ImGui::SetCursorPosX(left);
+    // A fixed number of rows, not whatever is left in the window. The window is then
+    // shortened to this content, which is what keeps the area under Continue small.
     const float row = ImGui::GetFrameHeightWithSpacing();
-    const float reserve = ImGui::GetFrameHeight() + 28.0f * theme::unit();
-    const float listHeight = std::max(row * 4.0f, std::min(row * 8.5f, ImGui::GetContentRegionAvail().y - reserve));
+    const float listHeight = row * std::min(static_cast<float>(count), 8.5f);
     ImGui::BeginChild("language-list", ImVec2(column, listHeight), ImGuiChildFlags_Borders, ImGuiWindowFlags_AlwaysVerticalScrollbar);
     for (int i = 0; i < count; ++i) {
         const bool selected = i == state.selected;
@@ -87,6 +89,8 @@ void drawLanguagePicker(LanguagePickerState& state) {
     if (theme::defaultButton(label, ImVec2(buttonWidth, 0.0f))) {
         state.confirm = true;
     }
+    ImGui::Dummy(ImVec2(0.0f, 16.0f * theme::unit()));
+    state.contentHeight = ImGui::GetCursorPosY() + ImGui::GetStyle().WindowPadding.y;
     ImGui::End();
 }
 

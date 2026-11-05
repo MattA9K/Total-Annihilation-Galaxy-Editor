@@ -343,12 +343,15 @@ private:
     // The other lands this brush can blend into, such as Mars Base-85 and GreenWorld
     // Base-85 while Lava is selected. They are not buttons.
     std::vector<BrushPaint> brushPartners_;
-    // Tile pictures that identify a land when two paints share a height. Fringe
-    // pictures belong to a blend and still follow the height at that corner.
+    // Tile pictures that identify a land when two paints share a height. A fringe
+    // picture is a blend or a lava coast, and the corner height chooses between
+    // its paint and partnerName.
     struct BrushPictureHint {
         std::string category;
         std::string name;
         bool fringe = false;
+        std::string partnerCategory;
+        std::string partnerName;
     };
     std::unordered_map<std::uint64_t, BrushPictureHint> brushPictures_;
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.

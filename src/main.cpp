@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -216,6 +217,8 @@ bool runLanguagePicker(GLFWwindow* window) {
 
     galaxy::LanguagePickerState state;
     bool open = true;
+    bool fitted = false;
+    bool shown = false;
     while (open && !state.confirm) {
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) {
@@ -226,8 +229,38 @@ bool runLanguagePicker(GLFWwindow* window) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         galaxy::drawLanguagePicker(state);
+        if (!fitted && state.contentHeight > 0.0f) {
+            int width = 0;
+            int height = 0;
+            glfwGetWindowSize(window, &width, &height);
+            int frameTop = 0;
+            int frameBottom = 0;
+            glfwGetWindowFrameSize(window, nullptr, &frameTop, nullptr, &frameBottom);
+            int fittedHeight = static_cast<int>(std::ceil(state.contentHeight));
+            if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
+                int areaHeight = 0;
+                glfwGetMonitorWorkarea(monitor, nullptr, nullptr, nullptr, &areaHeight);
+                if (areaHeight > 0) {
+                    const int limit = std::max(240, areaHeight - frameTop - frameBottom);
+                    fittedHeight = std::min(fittedHeight, limit);
+                }
+            }
+            if (fittedHeight > 0 && fittedHeight != height) {
+                glfwSetWindowSize(window, width, fittedHeight);
+                centerOnPrimaryMonitor(window, width, fittedHeight, frameTop);
+                glfwPollEvents();
+            }
+            fitted = true;
+            // This frame was laid out in the tall measurement window. Draw again at the fitted size.
+            ImGui::EndFrame();
+            continue;
+        }
         const ImVec4 background = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
         presentFrame(window, background.x, background.y, background.z);
+        if (fitted && !shown) {
+            glfwShowWindow(window);
+            shown = true;
+        }
     }
     io.ConfigFlags |= navigation;
     if (!state.confirm) {
@@ -256,7 +289,8 @@ GLFWwindow* createLanguageWindow() {
             height = std::clamp(height, 420, std::max(420, areaHeight - 48));
         }
     }
-    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    // Hidden until the first layout can shorten it to the list and the Continue button.
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     GLFWwindow* window = glfwCreateWindow(width, height, galaxy::applicationTitle().c_str(), nullptr, nullptr);

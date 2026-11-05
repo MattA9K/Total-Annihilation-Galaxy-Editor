@@ -3824,11 +3824,12 @@ void EditorApp::requestClose() {
 }
 
 void EditorApp::drawAbout() {
+    // The ### part is the popup id. OpenPopup and BeginPopupModal have to use that same string.
+    const std::string aboutTitle = withId(Text::AboutTitle, "About Galaxy Editor");
     if (aboutRequested_) {
-        ImGui::OpenPopup("About Galaxy Editor");
+        ImGui::OpenPopup(aboutTitle.c_str());
         aboutRequested_ = false;
     }
-    const std::string aboutTitle = withId(Text::AboutTitle, "About Galaxy Editor");
     if (!ImGui::BeginPopupModal(aboutTitle.c_str(), nullptr, theme::alertFlags())) {
         return;
     }
@@ -3845,8 +3846,8 @@ void EditorApp::drawClosePrompt() {
     if (!showClosePrompt_) {
         return;
     }
-    ImGui::OpenPopup("Unsaved Changes");
     const std::string unsavedTitle = withId(Text::UnsavedTitle, "Unsaved Changes");
+    ImGui::OpenPopup(unsavedTitle.c_str());
     if (!ImGui::BeginPopupModal(unsavedTitle.c_str(), nullptr, theme::alertFlags())) {
         return;
     }
@@ -4422,9 +4423,9 @@ void EditorApp::drawNewMap() {
     if (!showNew_) {
         return;
     }
-    ImGui::OpenPopup("New Map");
-    ImGui::SetNextWindowSize(ImVec2(380.0f, 0.0f), ImGuiCond_Appearing);
     const std::string newMapTitle = withId(Text::NewMap, "New Map");
+    ImGui::OpenPopup(newMapTitle.c_str());
+    ImGui::SetNextWindowSize(ImVec2(380.0f, 0.0f), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(newMapTitle.c_str(), &showNew_, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
@@ -5766,7 +5767,7 @@ bool EditorApp::draw() {
             }
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen("Error") && !ImGui::IsPopupOpen("Tile Limit") && !ImGui::IsPopupOpen("Generate Map") && !ImGui::IsPopupOpen("New Map") && !ImGui::IsPopupOpen("Resize Map") && !ImGui::IsPopupOpen("Modify Height") && !ImGui::IsPopupOpen("Unsaved Changes") && !hpiEditor_.focused()
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) && !hpiEditor_.focused()
         && !showAddFavorite_ && !showCreateFavorites_ && !showDeleteFavorite_ && !showRenameTile_ && !selectionMenuOpen_) {
         if (showMapSettings_ && !ImGui::GetIO().WantTextInput) {
             showMapSettings_ = false;
@@ -6025,10 +6026,10 @@ bool EditorApp::draw() {
     drawClosePrompt();
     drawAbout();
 
-    if (!error_.empty()) {
-        ImGui::OpenPopup("Error");
-    }
     const std::string errorTitle = withId(Text::ErrorTitle, "Error");
+    if (!error_.empty()) {
+        ImGui::OpenPopup(errorTitle.c_str());
+    }
     if (ImGui::BeginPopupModal(errorTitle.c_str(), nullptr, theme::alertFlags())) {
         theme::alertText(text(Text::ErrorLead), error_.c_str());
         const float okWidth = theme::pushButtonWidth(text(Text::Ok));
@@ -6039,10 +6040,10 @@ bool EditorApp::draw() {
         }
         ImGui::EndPopup();
     }
-    if (!vanillaTileWarning_.empty()) {
-        ImGui::OpenPopup("Tile Limit");
-    }
     const std::string tileLimitTitle = withId(Text::TileLimitTitle, "Tile Limit");
+    if (!vanillaTileWarning_.empty()) {
+        ImGui::OpenPopup(tileLimitTitle.c_str());
+    }
     if (ImGui::BeginPopupModal(tileLimitTitle.c_str(), nullptr, theme::alertFlags())) {
         theme::alertText(vanillaTileWarning_.c_str());
         const float okWidth = theme::pushButtonWidth(text(Text::Ok));
@@ -6292,22 +6293,29 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                                         if (matched >= 0 && !found->second.fringe) {
                                             voted = matched;
                                         } else if (matched >= 0) {
-                                            int lower = -1;
+                                            int other = -1;
+                                            const bool namedPartner = !found->second.partnerName.empty();
                                             for (int i = 0; i < graph.size(); ++i) {
-                                                if (graph.style(i, matched) == TransitionStyle::WorldBlend) {
-                                                    lower = i;
+                                                if (namedPartner) {
+                                                    if (lowerText(levels[static_cast<std::size_t>(i)]->category) == lowerText(found->second.partnerCategory)
+                                                        && lowerText(levels[static_cast<std::size_t>(i)]->name) == lowerText(found->second.partnerName)) {
+                                                        other = i;
+                                                        break;
+                                                    }
+                                                } else if (graph.style(i, matched) == TransitionStyle::WorldBlend) {
+                                                    other = i;
                                                 }
                                             }
                                             const int sx = tx * 2 + (tx < nodeX * cell ? 1 : 0);
                                             const int sy = ty * 2 + (ty < nodeY * cell ? 1 : 0);
                                             const std::size_t heightIndex = static_cast<std::size_t>(sy) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(sx);
                                             const int height = heightIndex < map_->heights.size() ? map_->heights[heightIndex] : levelHeights[static_cast<std::size_t>(matched)];
-                                            if (lower < 0) {
+                                            if (other < 0) {
                                                 voted = matched;
                                             } else {
-                                                const int upperDistance = std::abs(height - levelHeights[static_cast<std::size_t>(matched)]);
-                                                const int lowerDistance = std::abs(height - levelHeights[static_cast<std::size_t>(lower)]);
-                                                voted = lowerDistance < upperDistance ? lower : matched;
+                                                const int matchedDistance = std::abs(height - levelHeights[static_cast<std::size_t>(matched)]);
+                                                const int otherDistance = std::abs(height - levelHeights[static_cast<std::size_t>(other)]);
+                                                voted = otherDistance < matchedDistance ? other : matched;
                                             }
                                         }
                                     }
@@ -6730,7 +6738,7 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
-    // Lava Base-45 blends into Mars Base-85 and GreenWorld Base-85. A partner is a
+    // Lava Base-86 blends into Mars Base-85 and GreenWorld Base-85. A partner is a
     // paint the graph can see, and a stroke it can place, without becoming a button.
     struct PartnerWant {
         const char* world;
@@ -6741,7 +6749,7 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
     } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
-        wanted.push_back(PartnerWant{"Lava", "Base-45"});
+        wanted.push_back(PartnerWant{"Lava", "Base-86"});
     }
     for (const PartnerWant& want : wanted) {
         for (const TilesetSection& section : source->sections) {
@@ -6782,7 +6790,22 @@ void EditorApp::ensureBrushPaints() {
         }
     }
     if (sharedHeight) {
-        const auto rememberTiles = [&](const SectionStamp& stamp, const std::string& category, const std::string& name, bool fringe) {
+        const BrushPaint* lavaGround = nullptr;
+        const BrushPaint* lavaLiquid = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            if (blendWorldName(paint->category) != "Lava") {
+                continue;
+            }
+            const int number = trailingNumber(paint->name);
+            if (lavaLiquid == nullptr || number < trailingNumber(lavaLiquid->name)) {
+                lavaLiquid = paint;
+            }
+            if (lavaGround == nullptr || number > trailingNumber(lavaGround->name)) {
+                lavaGround = paint;
+            }
+        }
+        const auto rememberTiles = [&](const SectionStamp& stamp, const std::string& category, const std::string& name, bool fringe,
+                                        const std::string& partnerCategory, const std::string& partnerName) {
             const int tiles = stamp.tileWidth * stamp.tileHeight;
             for (int tile = 0; tile < tiles; ++tile) {
                 const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
@@ -6794,19 +6817,22 @@ void EditorApp::ensureBrushPaints() {
                 if (fringe && brushPictures_.find(hash) != brushPictures_.end()) {
                     continue;
                 }
-                brushPictures_[hash] = BrushPictureHint{category, name, fringe};
+                brushPictures_[hash] = BrushPictureHint{category, name, fringe, partnerCategory, partnerName};
             }
         };
-        const auto rememberPath = [&](const std::string& path, const std::string& category, const std::string& name, bool fringe) {
+        const auto rememberPath = [&](const std::string& path, const std::string& category, const std::string& name, bool fringe,
+                                       const std::string& partnerCategory, const std::string& partnerName) {
             try {
                 const HpiFile* file = source->archive().find(path);
                 if (file == nullptr) {
                     return;
                 }
-                rememberTiles(loadSectionStamp(source->archive().extract(*file)), category, name, fringe);
+                rememberTiles(loadSectionStamp(source->archive().extract(*file)), category, name, fringe, partnerCategory, partnerName);
             } catch (const std::exception&) {
             }
         };
+        const std::string lavaGroundCategory = lavaGround != nullptr ? lavaGround->category : std::string();
+        const std::string lavaGroundName = lavaGround != nullptr ? lavaGround->name : std::string();
         for (const BrushPiece& piece : brushPieces_) {
             const std::string lowered = lowerText(piece.name);
             const char* family = nullptr;
@@ -6826,7 +6852,7 @@ void EditorApp::ensureBrushPaints() {
                 }
             }
             if (upper != nullptr) {
-                rememberPath(piece.sectionPath, upper->category, upper->name, true);
+                rememberPath(piece.sectionPath, upper->category, upper->name, true, lavaGroundCategory, lavaGroundName);
             }
         }
         for (const BrushPaint* paint : pictured) {
@@ -6843,8 +6869,18 @@ void EditorApp::ensureBrushPaints() {
                     }
                 }
                 if (base || stroke) {
-                    rememberPath(section.archivePath, paint->category, paint->name, false);
+                    rememberPath(section.archivePath, paint->category, paint->name, false, {}, {});
                 }
+            }
+        }
+        // A lava shore rises from Base-41 to Base-86, through heights that also sit near
+        // Mars and GreenWorld Base-85. The shore picture keeps that corner on lava.
+        if (lavaGround != nullptr && lavaLiquid != nullptr && lavaGround != lavaLiquid) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (blendWorldName(piece.category) != "Lava" || !lowerText(piece.name).starts_with("coast-")) {
+                    continue;
+                }
+                rememberPath(piece.sectionPath, lavaGround->category, lavaGround->name, true, lavaLiquid->category, lavaLiquid->name);
             }
         }
     }

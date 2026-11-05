@@ -8,6 +8,9 @@ struct LanguagePickerState {
     int selected = 0;
     bool confirm = false;
     bool scrollToSelected = true;
+    // Height of this frame's contents, including the window padding. The caller
+    // sizes the window to it so the area under Continue is only the bottom margin.
+    float contentHeight = 0.0f;
 };
 
 // One frame of the picker. Call between NewFrame and Render.
