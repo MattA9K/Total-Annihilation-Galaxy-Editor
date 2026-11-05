@@ -1,0 +1,32 @@
+name: macOS app
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake --preset default \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --target GalaxyEditor -j"$(sysctl -n hw.ncpu)"
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyEditor-macos
+          path: build/GalaxyEditor.app
+          if-no-files-found: error

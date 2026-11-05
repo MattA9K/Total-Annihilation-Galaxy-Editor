@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake g++ make pkg-config \
+            zlib1g-dev \
+            libgl1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev
+
+      - name: Configure and build
+        run: |
+          cmake --preset default \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGLFW_BUILD_WAYLAND=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+          cmake --build build --target GalaxyEditor -j"$(nproc)"
+
+      - name: Build DEB package
+        run: |
+          cd build
+          cpack -G DEB
+
+      - name: Package tarball
+        run: |
+          scripts/fetch-companion-hpi.sh
+          scripts/package-linux.sh
+          mkdir -p packages
+          cp build/galaxy-editor_*_amd64.deb GalaxyEditor-*-linux-x64.tar.gz packages/
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: packages/
+          if-no-files-found: error
+
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build zip \
+            g++-mingw-w64-x86-64-posix
+
+      - name: Configure and build
+        run: |
+          cmake --preset windows
+          cmake --build --preset windows
+
+      - name: Package zip
+        run: |
+          scripts/fetch-companion-hpi.sh
+          scripts/package-windows.sh
+          mkdir -p packages
+          cp GalaxyEditor-*-windows-x64.zip packages/
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: packages/
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake --preset default \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --target GalaxyEditor -j"$(sysctl -n hw.ncpu)"
+
+      - name: Package disk image
+        run: |
+          scripts/fetch-companion-hpi.sh
+          scripts/package-macos.sh
+          mkdir -p packages
+          cp GalaxyEditor-*-macos.dmg packages/
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-package
+          path: packages/
+          if-no-files-found: error
+
+  publish:
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          find_asset() {
+            found=$(find dist -type f -name "$1")
+            if [ -z "$found" ] || [ "$(printf '%s\n' "$found" | wc -l)" -ne 1 ]; then
+              echo "Expected one ${1}" >&2
+              find dist -type f -print
+              exit 1
+            fi
+            printf '%s\n' "$found"
+          }
+          deb=$(find_asset "galaxy-editor_${version}_amd64.deb")
+          tar=$(find_asset "GalaxyEditor-${version}-linux-x64.tar.gz")
+          zip=$(find_asset "GalaxyEditor-${version}-windows-x64.zip")
+          dmg=$(find_asset "GalaxyEditor-${version}-macos.dmg")
+          scripts/release-notes.sh "$version" > dist/notes.md
+          title="Galaxy Editor ${version}"
+          publish_notes() {
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "$title" \
+              --notes-file dist/notes.md \
+              --draft=false \
+              --prerelease=false \
+              --latest
+          }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$deb" "$tar" "$zip" "$dmg" --clobber
+            publish_notes
+          elif ! gh release create "$GITHUB_REF_NAME" "$deb" "$tar" "$zip" "$dmg" \
+              --title "$title" \
+              --notes-file dist/notes.md \
+              --latest; then
+            # Asset upload creates a draft first. Finish that draft if create stopped early.
+            gh release upload "$GITHUB_REF_NAME" "$deb" "$tar" "$zip" "$dmg" --clobber
+            publish_notes
+          fi

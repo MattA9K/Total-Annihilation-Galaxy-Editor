@@ -1,0 +1,36 @@
+name: Windows binary
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build zip \
+            g++-mingw-w64-x86-64-posix
+
+      - name: Configure and build
+        run: |
+          cmake --preset windows
+          cmake --build --preset windows
+
+      - name: Upload the executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyEditor-windows-x64
+          path: build-windows/GalaxyEditor.exe
+          if-no-files-found: error

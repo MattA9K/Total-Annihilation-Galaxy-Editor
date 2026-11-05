@@ -14,30 +14,30 @@ Paint tiles, place trees and metal, set player starts, and shape the height of t
 
 | Platform | Download |
 | --- | --- |
-| macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
-| Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| macOS | [GalaxyEditor-1.1.3-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.3-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-windows-x64.zip) |
+| Linux | [GalaxyEditor-1.1.3-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-linux-x64.tar.gz) |
+| Debian / Ubuntu | [galaxy-editor_1.1.3_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/galaxy-editor_1.1.3_amd64.deb) |
 
-On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. On Linux, unpack the v1.1.2 archive and run `GalaxyEditor`. Later Linux builds name that program `galaxy-editor`. The v1.1.2 downloads include `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app`, `GalaxyEditor.exe`, or the Linux program from the archive. `GreenWorld.hpi` is included the same way. The first time it starts, Galaxy Editor asks which language to use, then where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+On macOS, open the disk image and drag the Galaxy Editor folder to your Applications folder. On Windows, unzip the archive and run `GalaxyEditor.exe`. On Linux, install the `.deb` below or unpack the archive and run `./galaxy-editor`. The disk image, the zip, and the tar.gz include `GE-Favorites-RandomMapGeneratorTiles.hpi` beside the app. The tile brush reads that tileset, so keep the file next to `GalaxyEditor.app`, `GalaxyEditor.exe`, or `galaxy-editor`. `GreenWorld.hpi` is included the same way. The `.deb` does not include those two files. The first time it starts, Galaxy Editor asks which language to use, then where Total Annihilation is installed. Every release is listed on the [Releases page](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Linux
 
-The v1.1.2 release ships the portable archive. These commands work today:
+Debian and Ubuntu install the command `galaxy-editor` from the package. `apt` pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`.
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
-tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
-cd GalaxyEditor-1.1.2-linux-x64
-./GalaxyEditor
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/galaxy-editor_1.1.3_amd64.deb
+sudo apt install ./galaxy-editor_1.1.3_amd64.deb
 ```
 
-Debian and Ubuntu packages are not on the v1.1.2 release, so there is no `.deb` download URL yet. The next tagged release attaches `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. Once a release includes the file, download it from that release and install it:
+The portable archive is the same program, with `GE-Favorites-RandomMapGeneratorTiles.hpi` and `GreenWorld.hpi` beside it:
 
 ```bash
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.3-linux-x64.tar.gz
+cd GalaxyEditor-1.1.3-linux-x64
+./galaxy-editor
 ```
-
-`apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The same lowercase name is what you run inside a Linux archive built after this change. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files stay in the `.tar.gz`, beside the program.
 
 <p align="center">
   <img src="Screenshot.png" alt="Galaxy Editor open on a large map, with the tileset sidebar, a height tooltip, and the minimap" width="920">

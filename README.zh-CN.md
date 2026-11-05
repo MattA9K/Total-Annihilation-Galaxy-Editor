@@ -14,31 +14,31 @@
 
 | 平台 | 下载 |
 | --- | --- |
-| macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
-| Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux (存档) | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| macOS | [GalaxyEditor-1.1.3-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.3-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-windows-x64.zip) |
+| Linux (存档) | [GalaxyEditor-1.1.3-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-linux-x64.tar.gz) |
+| Debian / Ubuntu | [galaxy-editor_1.1.3_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/galaxy-editor_1.1.3_amd64.deb) |
 
-在 macOS 上，打开磁盘映像并将 Galaxy Editor 文件夹拖到您的应用程序文件夹。在 Windows 上，解压缩存档并运行 `GalaxyEditor.exe`。在 Linux 上，您可以使用 `.deb` 软件包或解压 `.tar.gz` 存档。每个下载都包含应用程序旁边的 `GE-Favorites-RandomMapGeneratorTiles.hpi`。地块画笔会读取该图块集，因此请将文件保留在 `GalaxyEditor.app`、`GalaxyEditor.exe` 或 Linux `GalaxyEditor` 旁边。`GreenWorld.hpi` 也以同样的方式包含。首次启动时，Galaxy Editor 会先询问使用哪种语言，然后再询问 Total Annihilation 的安装位置。所有版本都列在[发布页面](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)上。
+在 macOS 上，打开磁盘映像并将 Galaxy Editor 文件夹拖到您的应用程序文件夹。在 Windows 上，解压缩存档并运行 `GalaxyEditor.exe`。在 Linux 上，您可以使用 `.deb` 软件包或解压 `.tar.gz` 存档。每个下载都包含应用程序旁边的 `GE-Favorites-RandomMapGeneratorTiles.hpi`。地块画笔会读取该图块集，因此请将文件保留在 `GalaxyEditor.app`、`GalaxyEditor.exe` 或 Linux `galaxy-editor` 旁边。`GreenWorld.hpi` 也以同样的方式包含。首次启动时，Galaxy Editor 会先询问使用哪种语言，然后再询问 Total Annihilation 的安装位置。所有版本都列在[发布页面](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases)上。
 
 ### Linux 安装
 
 **选项 1：通过 .deb 软件包安装 (Debian/Ubuntu/Mint)**
 
-The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+Download `galaxy-editor_1.1.3_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
 
 ```bash
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/galaxy-editor_1.1.3_amd64.deb
+sudo apt install ./galaxy-editor_1.1.3_amd64.deb
 ```
-
-Until then, use the `.tar.gz` below. That archive is what works today.
 
 **选项 2：使用便携式存档**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
-tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
-cd GalaxyEditor-1.1.2-linux-x64
-./GalaxyEditor
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.3-linux-x64.tar.gz
+cd GalaxyEditor-1.1.3-linux-x64
+./galaxy-editor
 ```
 
 <p align="center">

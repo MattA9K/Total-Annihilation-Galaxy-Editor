@@ -14,31 +14,31 @@ Cat jubin, letakkan pokok dan logam, tetapkan permulaan pemain, dan bentuk ketin
 
 | Platform | Muat Turun |
 | --- | --- |
-| macOS | [GalaxyEditor-1.1.2-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-macos.dmg) |
-| Windows | [GalaxyEditor-1.1.2-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-windows-x64.zip) |
-| Linux | [GalaxyEditor-1.1.2-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz) |
+| macOS | [GalaxyEditor-1.1.3-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.3-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-windows-x64.zip) |
+| Linux | [GalaxyEditor-1.1.3-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-linux-x64.tar.gz) |
+| Debian / Ubuntu | [galaxy-editor_1.1.3_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/galaxy-editor_1.1.3_amd64.deb) |
 
-Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applications anda. Pada Windows, nyahzip arkib dan jalankan `GalaxyEditor.exe`. Pada Linux, anda boleh menggunakan pakej `.deb` atau nyahpak arkib `.tar.gz`. Setiap muat turun termasuk `GE-Favorites-RandomMapGeneratorTiles.hpi` di sebelah aplikasi. Berus jubin membaca set jubin tersebut, jadi simpan fail di sebelah `GalaxyEditor.app`, `GalaxyEditor.exe`, atau Linux `GalaxyEditor`. `GreenWorld.hpi` disertakan dengan cara yang sama. Kali pertama ia bermula, Galaxy Editor bertanya bahasa dahulu, kemudian di mana Total Annihilation dipasang. Setiap keluaran disenaraikan di [halaman Keluaran](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
+Pada macOS, buka imej cakera dan seret folder Galaxy Editor ke folder Applications anda. Pada Windows, nyahzip arkib dan jalankan `GalaxyEditor.exe`. Pada Linux, anda boleh menggunakan pakej `.deb` atau nyahpak arkib `.tar.gz`. Setiap muat turun termasuk `GE-Favorites-RandomMapGeneratorTiles.hpi` di sebelah aplikasi. Berus jubin membaca set jubin tersebut, jadi simpan fail di sebelah `GalaxyEditor.app`, `GalaxyEditor.exe`, atau Linux `galaxy-editor`. `GreenWorld.hpi` disertakan dengan cara yang sama. Kali pertama ia bermula, Galaxy Editor bertanya bahasa dahulu, kemudian di mana Total Annihilation dipasang. Setiap keluaran disenaraikan di [halaman Keluaran](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
 ### Pemasangan Linux
 
 **Pilihan 1: Pasang melalui pakej .deb (Debian/Ubuntu/Mint)**
 
-The `.deb` is not on the v1.1.2 release, so there is no download URL for it yet. The package file name is `galaxy-editor_<version>_amd64.deb`. For version 1.1.2 that name is `galaxy-editor_1.1.2_amd64.deb`. When a later release includes the file, install the downloaded package with:
+Download `galaxy-editor_1.1.3_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
 
 ```bash
-sudo apt install ./galaxy-editor_1.1.2_amd64.deb
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/galaxy-editor_1.1.3_amd64.deb
+sudo apt install ./galaxy-editor_1.1.3_amd64.deb
 ```
-
-Until then, use the `.tar.gz` below. That archive is what works today.
 
 **Pilihan 2: Gunakan arkib mudah alih**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.2/GalaxyEditor-1.1.2-linux-x64.tar.gz
-tar -xzf GalaxyEditor-1.1.2-linux-x64.tar.gz
-cd GalaxyEditor-1.1.2-linux-x64
-./GalaxyEditor
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.3/GalaxyEditor-1.1.3-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.3-linux-x64.tar.gz
+cd GalaxyEditor-1.1.3-linux-x64
+./galaxy-editor
 ```
 
 <p align="center">

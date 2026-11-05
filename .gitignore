@@ -4,6 +4,14 @@
 /build-windows/
 *.deb
 
+# Tileset archives fetched for portable packages. They ship in GitHub
+# releases and are not source.
+*.hpi
+/GalaxyEditor-*/
+/GalaxyEditor-*.tar.gz
+/GalaxyEditor-*.zip
+/GalaxyEditor-*.dmg
+
 # macOS Finder metadata
 .DS_Store
 
