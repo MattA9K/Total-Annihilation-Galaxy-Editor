@@ -29,7 +29,7 @@ python3 site/build_site.py --base / --out /tmp/galaxy-site
 python3 site/preview.py --base / --directory /tmp/galaxy-site
 ```
 
-Check the generated files, including the four v1.1.3 download URLs:
+Check the generated files, including the four download URLs for the version in `VERSION`:
 
 ```bash
 python3 site/test_site.py
@@ -44,16 +44,16 @@ python3 site/test_site.py --check-downloads
   are read from `README.md` and `README.<locale>.md` at build time.
 - Navigation, install instructions, image descriptions, and the language
   names that are not already in a README live in `site/i18n.json`.
-- Download URLs are built from `VERSION`. For 1.1.3 they are the four files
-  actually attached to the `v1.1.3` release:
-  - `GalaxyEditor-1.1.3-macos.dmg`
-  - `GalaxyEditor-1.1.3-windows-x64.zip`
-  - `GalaxyEditor-1.1.3-linux-x64.tar.gz`
-  - `galaxy-editor_1.1.3_amd64.deb`
+- Download URLs are built from `VERSION`. For 1.1.4 they are the four files
+  actually attached to the `v1.1.4` release:
+  - `GalaxyEditor-1.1.4-macos.dmg`
+  - `GalaxyEditor-1.1.4-windows-x64.zip`
+  - `GalaxyEditor-1.1.4-linux-x64.tar.gz`
+  - `galaxy-editor_1.1.4_amd64.deb`
 - Screenshots and icons are copied from `src/SplashScreen.png`,
   `Screenshot.png`, and `assets/icons/`. The screenshot is the editor on a
   map. Its window title still says v1.0.0, so the site does not claim it is
-  a picture of 1.1.3.
+  a picture of the current release.
 
 The Linux commands install a downloaded `.deb` from the current directory:
 
@@ -76,7 +76,7 @@ the macOS release workflow say.
 ## Update a release
 
 1. Publish the GitHub release with the same four filenames, with the new
-   version number in place of `1.1.3`.
+   version number in place of `1.1.4`.
 2. Make sure `VERSION` in the repository is that version.
 3. Update the download sections of the READMEs so the documentation matches.
 4. If the install steps changed, edit `site/i18n.json` in every language.

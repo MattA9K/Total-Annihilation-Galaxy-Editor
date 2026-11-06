@@ -1,6 +1,6 @@
 #!/bin/sh
-# Print the GitHub Release body for a version. The 1.1.3 section is the
-# change list for that tag; later tags keep the install instructions.
+# Print the GitHub Release body for a version. A matching section below is the
+# change list for that tag. Every tag keeps the install instructions.
 set -eu
 version=${1:?version}
 cat <<EOF
@@ -19,6 +19,17 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
+
+if [ "$version" = "1.1.4" ]; then
+  cat <<EOF
+
+## New
+
+**Lava brush.** Lava liquid is Base-41 and lava ground is Base-86. Base-190 is the high plateau. The ravine cliffs transition between Base-86 and Base-190. The favorites tileset beside the app includes those tiles.
+
+**Fixes.** The language window is only as tall as its contents. File > New Map opens again.
+EOF
+fi
 
 if [ "$version" = "1.1.3" ]; then
   cat <<EOF
