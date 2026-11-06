@@ -20,6 +20,17 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.5" ]; then
+  cat <<EOF
+
+## New
+
+**Ice.** The tile brush has an Ice tileset. Base-0 is water, Base-85 is land, and Base-170 is the high ground. Shores join the water to the land. Cliffs join Base-85 to Base-170. Four straight slopes turn those cliffs into walkable slopes.
+
+**Lava slopes.** Ravine ramps are in the favorites tileset, so a Lava cliff can become a slope.
+EOF
+fi
+
 if [ "$version" = "1.1.4" ]; then
   cat <<EOF
 

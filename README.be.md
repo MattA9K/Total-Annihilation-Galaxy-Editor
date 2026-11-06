@@ -14,10 +14,10 @@
 
 | Платформа | Спампаваць |
 | --- | --- |
-| macOS | [GalaxyEditor-1.1.4-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.4/GalaxyEditor-1.1.4-macos.dmg) |
-| Windows | [GalaxyEditor-1.1.4-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.4/GalaxyEditor-1.1.4-windows-x64.zip) |
-| Linux (архіў) | [GalaxyEditor-1.1.4-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.4/GalaxyEditor-1.1.4-linux-x64.tar.gz) |
-| Debian / Ubuntu | [galaxy-editor_1.1.4_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.4/galaxy-editor_1.1.4_amd64.deb) |
+| macOS | [GalaxyEditor-1.1.5-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.5/GalaxyEditor-1.1.5-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.5-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.5/GalaxyEditor-1.1.5-windows-x64.zip) |
+| Linux (архіў) | [GalaxyEditor-1.1.5-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.5/GalaxyEditor-1.1.5-linux-x64.tar.gz) |
+| Debian / Ubuntu | [galaxy-editor_1.1.5_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.5/galaxy-editor_1.1.5_amd64.deb) |
 
 У macOS адкрыйце вобраз дыска і перацягніце папку Galaxy Editor у папку Праграмы. У Windows распакуйце архіў і запусціце `GalaxyEditor.exe`. У Linux вы можаце выкарыстоўваць пакет `.deb` або распакаваць архіў `.tar.gz`. Кожная спампоўка ўключае `GE-Favorites-RandomMapGeneratorTiles.hpi` побач з праграмай. Пэндзаль плітак чытае гэты набор плітак, таму трымайце файл побач з `GalaxyEditor.app`, `GalaxyEditor.exe` або Linux `galaxy-editor`. `GreenWorld.hpi` уключаны такім жа чынам. Пры першым запуску Galaxy Editor спачатку пытае мову, а потым дзе ўсталяваны Total Annihilation. Кожны выпуск пералічаны на [старонцы выпускаў](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,19 +25,19 @@
 
 **Варыянт 1: Усталёўка праз пакет .deb (Debian/Ubuntu/Mint)**
 
-Download `galaxy-editor_1.1.4_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
+Download `galaxy-editor_1.1.5_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.4/galaxy-editor_1.1.4_amd64.deb
-sudo apt install ./galaxy-editor_1.1.4_amd64.deb
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.5/galaxy-editor_1.1.5_amd64.deb
+sudo apt install ./galaxy-editor_1.1.5_amd64.deb
 ```
 
 **Варыянт 2: Выкарыстанне партатыўнага архіва**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.4/GalaxyEditor-1.1.4-linux-x64.tar.gz
-tar -xzf GalaxyEditor-1.1.4-linux-x64.tar.gz
-cd GalaxyEditor-1.1.4-linux-x64
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.5/GalaxyEditor-1.1.5-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.5-linux-x64.tar.gz
+cd GalaxyEditor-1.1.5-linux-x64
 ./galaxy-editor
 ```
 
