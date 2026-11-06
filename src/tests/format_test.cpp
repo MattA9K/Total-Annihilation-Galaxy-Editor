@@ -2964,6 +2964,20 @@ void testBrushCells() {
     BrushTestLattice iceHigh(5, 5, 1, ice);
     iceHigh.paint(2, 2, 1, 2);
     expect(iceHigh.piece(2, 2) == "Base-170" && iceHigh.piece(2, 1) == "Cliff-High-B" && iceHigh.piece(1, 1) == "Cliff-High-BR" && !iceHigh.steep(), "Ice high ground meets Base-85 with cliff pieces");
+
+    // Metal is deep water, shallow water, and metal land. Deep water meets land
+    // directly, the same way GreenWorld does, and shallow sits between the other two.
+    const BrushGraph metal(std::vector<int>{0, 68, 85});
+    expect(metal.style(0, 2) == TransitionStyle::Coast && metal.style(1, 2) == TransitionStyle::ShallowCoast && metal.style(0, 1) == TransitionStyle::ShallowDeep, "Metal joins deep water, shallow water, and land with the GreenWorld pieces");
+    BrushTestLattice metalLand(5, 5, 0, metal);
+    metalLand.paint(2, 2, 1, 2);
+    expect(metalLand.piece(2, 2) == "Base-85" && metalLand.piece(2, 1) == "Coast-Water-T" && metalLand.piece(1, 1) == "Coast-Land-BR" && !metalLand.steep(), "Metal land in deep water uses coast pieces");
+    BrushTestLattice metalShallow(5, 5, 0, metal);
+    metalShallow.paint(2, 2, 1, 1);
+    expect(metalShallow.piece(2, 2) == "Base-68" && metalShallow.piece(2, 1) == "ShallowDeep-Shallow-B" && !metalShallow.steep(), "shallow water in deep water uses shallow-deep pieces");
+    BrushTestLattice metalShelf(5, 5, 1, metal);
+    metalShelf.paint(2, 2, 1, 2);
+    expect(metalShelf.piece(2, 2) == "Base-85" && metalShelf.piece(2, 1) == "ShallowCoast-Water-T" && !metalShelf.steep(), "Metal land in shallow water uses shallow coast pieces");
 }
 
 // A small grid of cells for the river rules. Each cell holds a label such as "Base-85".

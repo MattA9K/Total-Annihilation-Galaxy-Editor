@@ -25,7 +25,8 @@ namespace galaxy {
 // with Cliff pieces. Base-85 and Base-255 join with Cliff pieces. Mars uses that
 // pair: its cliff flat is height 255. Base-85 and Base-170 join with Cliff pieces.
 // Ice uses that pair: water is Base-0, land is Base-85, and the high ground is
-// Base-170. Lava
+// Base-170. Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
+// Lava
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
 // holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
