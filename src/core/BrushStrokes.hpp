@@ -23,7 +23,9 @@ namespace galaxy {
 // CoastalCliff pieces. Base-86 and Base-41 join the same way, with Base-86 on the
 // land side of a coast and Base-41 on the lava side. Base-86 and Base-190 join
 // with Cliff pieces. Base-85 and Base-255 join with Cliff pieces. Mars uses that
-// pair: its cliff flat is height 255. Lava
+// pair: its cliff flat is height 255. Base-85 and Base-170 join with Cliff pieces.
+// Ice uses that pair: water is Base-0, land is Base-85, and the high ground is
+// Base-170. Lava
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
 // holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
@@ -167,8 +169,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 10>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 10> rules = {{
+inline const std::array<BrushTransitionRule, 11>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 11> rules = {{
         {0, 85, TransitionStyle::Coast},
         {41, 86, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
@@ -177,6 +179,7 @@ inline const std::array<BrushTransitionRule, 10>& brushTransitionRules() {
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
+        {85, 170, TransitionStyle::Cliff},
         {86, 190, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
     }};

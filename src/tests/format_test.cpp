@@ -2954,6 +2954,16 @@ void testBrushCells() {
     BrushTestLattice greenOnLava(5, 5, 1, greenLava);
     greenOnLava.paint(2, 2, 1, 0);
     expect(greenOnLava.piece(2, 2) == "Base-85" && greenOnLava.piece(2, 1) == "Blend-Green-B" && greenOnLava.piece(1, 2) == "Blend-Green-R" && greenOnLava.piece(1, 1) == "Blend-Green-BR" && !greenOnLava.steep(), "grass painted on lava is ringed by green blend pieces");
+
+    // Ice is Base-0 water, Base-85 land, and Base-170 high ground.
+    const BrushGraph ice(std::vector<int>{0, 85, 170});
+    expect(ice.style(0, 1) == TransitionStyle::Coast && ice.style(1, 2) == TransitionStyle::Cliff && ice.style(0, 2) == TransitionStyle::None, "Ice joins water to land with coasts and land to Base-170 with cliffs");
+    BrushTestLattice iceLand(5, 5, 0, ice);
+    iceLand.paint(2, 2, 1, 1);
+    expect(iceLand.piece(2, 2) == "Base-85" && iceLand.piece(2, 1) == "Coast-Water-T" && iceLand.piece(1, 1) == "Coast-Land-BR" && !iceLand.steep(), "Ice land in the water uses coast pieces");
+    BrushTestLattice iceHigh(5, 5, 1, ice);
+    iceHigh.paint(2, 2, 1, 2);
+    expect(iceHigh.piece(2, 2) == "Base-170" && iceHigh.piece(2, 1) == "Cliff-High-B" && iceHigh.piece(1, 1) == "Cliff-High-BR" && !iceHigh.steep(), "Ice high ground meets Base-85 with cliff pieces");
 }
 
 // A small grid of cells for the river rules. Each cell holds a label such as "Base-85".
