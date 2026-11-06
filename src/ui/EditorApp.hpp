@@ -186,6 +186,10 @@ private:
     void drawCreateFavorites();
     void drawDeleteFavorite();
     void requestDeleteFavorite(std::size_t archiveIndex, const CachedSection& section);
+    void requestDeleteFavoriteSelection();
+    // Plain click selects one favorite and arms it for the map. Ctrl-click, which
+    // is Command-click on macOS, adds or removes that tile from the selection.
+    void selectFavoriteTile(std::size_t archiveIndex, int sectionIndex, bool extend);
     void requestRenameTile(std::size_t archiveIndex, const CachedSection& section);
     void drawRenameTile();
     // Reads one tileset archive from disk again and drops the pictures cached from it.
@@ -448,9 +452,17 @@ private:
     bool showCreateFavorites_ = false;
     char favoriteNewName_[128] = {};
     bool showDeleteFavorite_ = false;
-    std::filesystem::path deleteFavoriteArchive_;
-    std::string deleteFavoritePath_;
-    std::string deleteFavoriteName_;
+    // Tiles chosen on the Favorites tab. The section index is into sections_.
+    // Command-click or Ctrl-click adds to this set. Delete and the right-click
+    // menu remove every tile in it, from each archive, in one rewrite per archive.
+    std::set<int> favoriteSelection_;
+    std::unordered_map<int, std::size_t> favoriteSelectionArchive_;
+    struct FavoriteDelete {
+        std::filesystem::path archive;
+        std::string sectionPath;
+        std::string name;
+    };
+    std::vector<FavoriteDelete> deleteFavorites_;
     bool showRenameTile_ = false;
     std::filesystem::path renameArchive_;
     std::string renameArchiveLabel_;

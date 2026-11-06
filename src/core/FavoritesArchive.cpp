@@ -275,25 +275,35 @@ std::string renameTilesetSection(const std::filesystem::path& archivePath, std::
     return name;
 }
 
-void removeFavoriteSection(const std::filesystem::path& archivePath, std::string_view sectionPath) {
+void removeFavoriteSections(const std::filesystem::path& archivePath, const std::vector<std::string>& sectionPaths) {
+    if (sectionPaths.empty()) {
+        return;
+    }
+    std::set<std::string> targets;
+    for (const std::string& path : sectionPaths) {
+        targets.insert(lowered(slashes(path)));
+    }
     const HpiArchive archive = HpiArchive::open(archivePath);
-    const std::string target = lowered(slashes(std::string(sectionPath)));
     std::vector<HpiWriteFile> kept;
-    bool found = false;
+    std::size_t found = 0;
     for (const HpiFile& file : archive.files()) {
-        if (lowered(slashes(file.path)) == target) {
-            found = true;
+        if (targets.count(lowered(slashes(file.path))) != 0) {
+            ++found;
             continue;
         }
         kept.push_back(HpiWriteFile{file.path, archive.extract(file)});
     }
-    if (!found) {
-        throw std::runtime_error("That tile is no longer in " + archivePath.filename().string() + ".");
+    if (found != targets.size()) {
+        throw std::runtime_error("A tile is no longer in " + archivePath.filename().string() + ".");
     }
     if (kept.empty()) {
         kept.push_back(noteFile());
     }
     writeHpiArchive(archivePath, std::move(kept));
+}
+
+void removeFavoriteSection(const std::filesystem::path& archivePath, std::string_view sectionPath) {
+    removeFavoriteSections(archivePath, {std::string(sectionPath)});
 }
 
 }  // namespace galaxy

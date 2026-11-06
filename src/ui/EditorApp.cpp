@@ -376,6 +376,8 @@ void EditorApp::reloadTilesets() {
     }
     sections_.clear();
     selectedSection_ = -1;
+    favoriteSelection_.clear();
+    favoriteSelectionArchive_.clear();
     ghostFor_ = -1;
     destroyTexture(ghostTexture_);
     for (auto& entry : featureSprites_) {
@@ -2070,7 +2072,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                         for (int n = 0; n < pageCount; ++n) {
                             const int index = shown[static_cast<std::size_t>(n)];
                             const CachedSection& cached = sections_[static_cast<std::size_t>(index)];
-                            const bool selected = selectedSection_ == index;
+                            const bool selected = favorites ? favoriteSelection_.count(index) != 0 : selectedSection_ == index;
                             ImGui::PushID(index);
                             ImGui::BeginGroup();
                             if (selected) {
@@ -2093,10 +2095,15 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                 const float suffixWidth = ImGui::CalcTextSize(sizeSuffix.c_str()).x;
                                 caption = fitLabel(cached.name, std::max(8.0f, labelLimit - suffixWidth)) + sizeSuffix;
                             }
+                            const bool extendSelection = favorites && ImGui::GetIO().KeyCtrl;
                             if (cached.preview == 0 && ImGui::Selectable(caption.c_str(), selected, 0, ImVec2(std::max(cardWidth, ImGui::CalcTextSize(caption.c_str()).x), image))) {
-                                selectedSection_ = index;
-                                pasteArmed_ = false;
-                                brushName_.clear();
+                                if (favorites) {
+                                    selectFavoriteTile(archiveIndex, index, extendSelection);
+                                } else {
+                                    selectedSection_ = index;
+                                    pasteArmed_ = false;
+                                    brushName_.clear();
+                                }
                             }
                             const ImVec2 buttonMin = ImGui::GetItemRectMin();
                             const ImVec2 buttonMax = ImGui::GetItemRectMax();
@@ -2118,16 +2125,22 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                             if (showBadge) {
                                 theme::drawBadge(badge, favorites ? theme::BadgeIcon::Trash : theme::BadgeIcon::AddToFavorites, overBadge);
                             }
-                            if (pressed && overBadge) {
+                            if (pressed && extendSelection) {
+                                selectFavoriteTile(archiveIndex, index, true);
+                            } else if (pressed && overBadge) {
                                 if (favorites) {
                                     requestDeleteFavorite(archiveIndex, cached);
                                 } else {
                                     openAddToFavorites(cached.stamp, cached.name);
                                 }
                             } else if (pressed) {
-                                selectedSection_ = index;
-                                pasteArmed_ = false;
-                                brushName_.clear();
+                                if (favorites) {
+                                    selectFavoriteTile(archiveIndex, index, false);
+                                } else {
+                                    selectedSection_ = index;
+                                    pasteArmed_ = false;
+                                    brushName_.clear();
+                                }
                             }
                             if (overBadge) {
                                 ImGui::SetTooltip("%s", favorites ? "delete tile from favorites" : "add to favorites");
@@ -2151,6 +2164,16 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                             ImGui::EndGroup();
                             const float itemWidthOnRow = ImGui::GetItemRectSize().x;
                             const float itemRight = ImGui::GetItemRectMax().x;
+                            // A right-click on a tile that is not part of the selection selects
+                            // that tile alone, so Delete applies to the tile under the pointer.
+                            if (favorites && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup)) {
+                                if (favoriteSelection_.count(index) == 0) {
+                                    favoriteSelection_.clear();
+                                    favoriteSelectionArchive_.clear();
+                                    favoriteSelection_.insert(index);
+                                    favoriteSelectionArchive_[index] = archiveIndex;
+                                }
+                            }
                             if (ImGui::BeginPopupContextItem("tile-file")) {
                                 const TilesetSection* listed = nullptr;
                                 if (archiveIndex < tilesets_.archives().size()) {
@@ -2168,6 +2191,14 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                 }
                                 if (ImGui::MenuItem("Rename file")) {
                                     requestRenameTile(archiveIndex, cached);
+                                }
+                                if (favorites && !favoriteSelection_.empty()) {
+                                    ImGui::Separator();
+                                    const int count = static_cast<int>(favoriteSelection_.size());
+                                    const std::string label = count == 1 ? std::string("Delete") : "Delete " + std::to_string(count) + " tiles";
+                                    if (ImGui::MenuItem(label.c_str(), "Delete")) {
+                                        requestDeleteFavoriteSelection();
+                                    }
                                 }
                                 ImGui::EndPopup();
                             }
@@ -3038,6 +3069,10 @@ void EditorApp::drawMap() {
                 pasteArmed_ = false;
                 statusNote_ = "Paste cancelled";
             } else {
+                if (favoriteSelection_.size() <= 1) {
+                    favoriteSelection_.clear();
+                    favoriteSelectionArchive_.clear();
+                }
                 selectedSection_ = -1;
             }
         }
@@ -5195,20 +5230,66 @@ void EditorApp::drawCreateFavorites() {
     ImGui::EndPopup();
 }
 
+void EditorApp::selectFavoriteTile(std::size_t archiveIndex, int sectionIndex, bool extend) {
+    if (extend) {
+        if (favoriteSelection_.erase(sectionIndex) != 0) {
+            favoriteSelectionArchive_.erase(sectionIndex);
+            if (selectedSection_ == sectionIndex) {
+                selectedSection_ = -1;
+            }
+        } else {
+            favoriteSelection_.insert(sectionIndex);
+            favoriteSelectionArchive_[sectionIndex] = archiveIndex;
+        }
+        return;
+    }
+    favoriteSelection_.clear();
+    favoriteSelectionArchive_.clear();
+    favoriteSelection_.insert(sectionIndex);
+    favoriteSelectionArchive_[sectionIndex] = archiveIndex;
+    selectedSection_ = sectionIndex;
+    pasteArmed_ = false;
+    brushName_.clear();
+}
+
 void EditorApp::requestDeleteFavorite(std::size_t archiveIndex, const CachedSection& section) {
+    deleteFavorites_.clear();
     if (archiveIndex >= tilesets_.archives().size()) {
         return;
     }
     const TilesetArchive& archive = tilesets_.archives()[archiveIndex];
     for (const TilesetSection& listed : archive.sections) {
         if (listed.world == section.world && listed.category == section.category && listed.name == section.name) {
-            deleteFavoriteArchive_ = archive.path;
-            deleteFavoritePath_ = listed.archivePath;
-            deleteFavoriteName_ = listed.name;
+            deleteFavorites_.push_back(FavoriteDelete{archive.path, listed.archivePath, listed.name});
             showDeleteFavorite_ = true;
             return;
         }
     }
+}
+
+void EditorApp::requestDeleteFavoriteSelection() {
+    deleteFavorites_.clear();
+    for (const int sectionIndex : favoriteSelection_) {
+        if (sectionIndex < 0 || sectionIndex >= static_cast<int>(sections_.size())) {
+            continue;
+        }
+        const auto archive = favoriteSelectionArchive_.find(sectionIndex);
+        if (archive == favoriteSelectionArchive_.end()) {
+            continue;
+        }
+        const CachedSection& section = sections_[static_cast<std::size_t>(sectionIndex)];
+        if (archive->second >= tilesets_.archives().size()) {
+            continue;
+        }
+        const TilesetArchive& tileset = tilesets_.archives()[archive->second];
+        for (const TilesetSection& listed : tileset.sections) {
+            if (listed.world == section.world && listed.category == section.category && listed.name == section.name) {
+                deleteFavorites_.push_back(FavoriteDelete{tileset.path, listed.archivePath, listed.name});
+                break;
+            }
+        }
+    }
+    showDeleteFavorite_ = !deleteFavorites_.empty();
 }
 
 void EditorApp::drawDeleteFavorite() {
@@ -5219,27 +5300,63 @@ void EditorApp::drawDeleteFavorite() {
     if (!ImGui::BeginPopupModal("Delete Favorite", nullptr, theme::alertFlags())) {
         return;
     }
-    const std::string message = "Do you want to delete \"" + deleteFavoriteName_ + "\" from your favorites?";
-    const std::string informative = "It will be removed from " + deleteFavoriteArchive_.filename().string() + ". You can't undo this.";
+    const int count = static_cast<int>(deleteFavorites_.size());
+    std::string message;
+    std::string informative;
+    if (count <= 1) {
+        const std::string name = deleteFavorites_.empty() ? std::string("this tile") : deleteFavorites_.front().name;
+        const std::string archive = deleteFavorites_.empty() ? std::string("its archive") : deleteFavorites_.front().archive.filename().string();
+        message = "Do you want to delete \"" + name + "\" from your favorites?";
+        informative = "It will be removed from " + archive + ". You can't undo this.";
+    } else {
+        std::set<std::filesystem::path> archives;
+        for (const FavoriteDelete& item : deleteFavorites_) {
+            archives.insert(item.archive);
+        }
+        message = "Do you want to delete " + std::to_string(count) + " tiles from your favorites?";
+        if (archives.size() == 1) {
+            informative = "They will be removed from " + archives.begin()->filename().string() + ". You can't undo this.";
+        } else {
+            informative = "They will be removed from " + std::to_string(archives.size()) + " favorites archives. You can't undo this.";
+        }
+    }
     theme::alertText(message.c_str(), informative.c_str());
     const float buttonWidth = theme::pushButtonWidth("Delete");
     theme::alignRight(buttonWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x);
     if (ImGui::Button("Delete", ImVec2(buttonWidth, 0.0f))) {
         try {
-            removeFavoriteSection(deleteFavoriteArchive_, deleteFavoritePath_);
-            refreshFavoritesArchive(deleteFavoriteArchive_);
-            statusNote_ = "Deleted " + deleteFavoriteName_ + " from " + deleteFavoriteArchive_.filename().string();
+            std::map<std::filesystem::path, std::vector<std::string>> grouped;
+            for (const FavoriteDelete& item : deleteFavorites_) {
+                grouped[item.archive].push_back(item.sectionPath);
+            }
+            for (const auto& [archive, paths] : grouped) {
+                removeFavoriteSections(archive, paths);
+                refreshFavoritesArchive(archive);
+            }
+            const std::string archiveName = deleteFavorites_.empty() ? std::string() : deleteFavorites_.front().archive.filename().string();
+            const std::string tileName = deleteFavorites_.empty() ? std::string() : deleteFavorites_.front().name;
+            favoriteSelection_.clear();
+            favoriteSelectionArchive_.clear();
+            if (count <= 1) {
+                statusNote_ = "Deleted " + tileName + " from " + archiveName;
+            } else if (grouped.size() == 1) {
+                statusNote_ = "Deleted " + std::to_string(count) + " tiles from " + archiveName;
+            } else {
+                statusNote_ = "Deleted " + std::to_string(count) + " tiles from favorites";
+            }
             error_.clear();
         } catch (const std::exception& ex) {
             error_ = ex.what();
         }
         showDeleteFavorite_ = false;
+        deleteFavorites_.clear();
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
     // Cancel answers Return, so the destructive choice is never the quick one.
     if (theme::defaultButton("Cancel", ImVec2(buttonWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         showDeleteFavorite_ = false;
+        deleteFavorites_.clear();
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -5390,6 +5507,9 @@ void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
             cached.stamp = SectionStamp{};
             if (selectedSection_ == sectionIndex) {
                 selectedSection_ = -1;
+            }
+            if (favoriteSelection_.erase(sectionIndex) != 0) {
+                favoriteSelectionArchive_.erase(sectionIndex);
             }
             if (ghostFor_ == sectionIndex) {
                 destroyTexture(ghostTexture_);
@@ -5704,6 +5824,10 @@ bool EditorApp::draw() {
         } else if (featureKeys && !selectedFeatures_.empty()
             && (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
             deleteSelectedFeatures();
+        } else if (sidebarTab_ == 1 && !favoriteSelection_.empty()
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)
+            && (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
+            requestDeleteFavoriteSelection();
         } else if (tileKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C)) {
             copySelection(true);
         } else if (tileKeys && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
@@ -5799,6 +5923,8 @@ bool EditorApp::draw() {
             statusNote_ = "Brush cancelled";
         } else {
             selectedSection_ = -1;
+            favoriteSelection_.clear();
+            favoriteSelectionArchive_.clear();
         }
     }
 

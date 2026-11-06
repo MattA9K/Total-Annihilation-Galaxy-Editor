@@ -2245,6 +2245,25 @@ void testFavorites() {
     }
     expect(openTilesetArchive(path).sections.empty(), "an archive emptied of tiles still opens");
 
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp) == "Rivers01", "batch starts from a free name");
+    expect(addFavoriteSection(path, "Mine", "Rivers", stamp) == "Rivers02", "batch second tile");
+    expect(addFavoriteSection(path, "Other", "Rivers", stamp) == "Rivers01", "batch tile in another category");
+    removeFavoriteSections(path, {"sections/Mine/Rivers/Rivers01.sct", "sections/Other/Rivers/Rivers01.sct"});
+    {
+        const TilesetArchive left = openTilesetArchive(path);
+        expect(left.archive().find("sections/Mine/Rivers/Rivers01.sct") == nullptr, "batch delete removes the first tile");
+        expect(left.archive().find("sections/Other/Rivers/Rivers01.sct") == nullptr, "batch delete removes a tile in another category");
+        expect(left.archive().find("sections/Mine/Rivers/Rivers02.sct") != nullptr, "batch delete leaves the tile that was not chosen");
+    }
+    bool missingBatch = false;
+    try {
+        removeFavoriteSections(path, {"sections/Mine/Rivers/Rivers02.sct", "sections/Mine/Rivers/Nothing.sct"});
+    } catch (const std::exception&) {
+        missingBatch = true;
+    }
+    expect(missingBatch, "a batch that names a missing tile is refused");
+    expect(openTilesetArchive(path).archive().find("sections/Mine/Rivers/Rivers02.sct") != nullptr, "a refused batch leaves every tile");
+
     std::filesystem::remove(path, ignored);
 }
 

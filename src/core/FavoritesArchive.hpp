@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace galaxy {
 
@@ -59,6 +60,10 @@ std::string addFavoriteSection(
 
 // Removes one file from an archive, by the path the archive lists, and rewrites it.
 void removeFavoriteSection(const std::filesystem::path& archivePath, std::string_view sectionPath);
+
+// Removes every listed file in one rewrite. A missing path leaves the archive
+// unchanged. An archive that would otherwise be empty keeps its note file.
+void removeFavoriteSections(const std::filesystem::path& archivePath, const std::vector<std::string>& sectionPaths);
 
 // Changes the file name of one section and rewrites the archive. newName is the
 // file name, with or without a trailing .sct, and the section stays in its
