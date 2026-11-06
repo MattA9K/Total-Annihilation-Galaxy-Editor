@@ -2906,6 +2906,25 @@ void testBrushCells() {
     pool.paint(2, 2, 1, 0);
     expect(pool.piece(2, 2) == "Base-41" && pool.piece(2, 1) == "Coast-Lava-B" && pool.piece(1, 1) == "Coast-Lava-BR" && !pool.steep(), "a lava pool in the land uses Coast-Lava pieces");
 
+    // Lava Base-190 is the ravine plateau above Base-86. It uses cliff pieces there,
+    // and it leaves the coast and the Mars blend on their own pairs.
+    const BrushGraph lavaRavine(std::vector<int>{41, 85, 86, 190}, {"Lava", "Mars", "Lava", "Lava"});
+    expect(lavaRavine.style(0, 2) == TransitionStyle::Coast && lavaRavine.style(1, 2) == TransitionStyle::WorldBlend && lavaRavine.style(2, 3) == TransitionStyle::Cliff, "Base-190 joins Base-86 with cliffs, and the lower lava pairs stay as they were");
+    expect(lavaRavine.style(0, 3) == TransitionStyle::None && lavaRavine.style(1, 3) == TransitionStyle::None, "Base-190 does not join the lava sea or Mars directly");
+    BrushTestLattice ravine(5, 5, 2, lavaRavine);
+    ravine.paint(2, 2, 1, 3);
+    expect(ravine.piece(2, 2) == "Base-190" && ravine.piece(2, 1) == "Cliff-High-B" && ravine.piece(1, 1) == "Cliff-High-BR" && !ravine.steep(), "Base-190 on Base-86 is ringed by cliff pieces");
+    BrushTestLattice ravineCut(5, 5, 3, lavaRavine);
+    ravineCut.paint(2, 2, 1, 2);
+    expect(ravineCut.piece(2, 2) == "Base-86" && ravineCut.piece(2, 1) == "Cliff-High-T" && ravineCut.piece(1, 1) == "Cliff-Low-BR" && !ravineCut.steep(), "Base-86 cut into Base-190 uses the low cliff corners");
+    BrushTestLattice stillCoast(5, 5, 0, lavaRavine);
+    stillCoast.coastLiquid = "Lava";
+    stillCoast.paint(2, 2, 1, 2);
+    expect(stillCoast.piece(2, 2) == "Base-86" && stillCoast.piece(2, 1) == "Coast-Lava-T" && !stillCoast.steep(), "Base-86 in the lava still uses coast pieces when Base-190 is present");
+    BrushTestLattice stillBlend(5, 5, 1, lavaRavine);
+    stillBlend.paint(2, 2, 1, 2);
+    expect(stillBlend.piece(2, 2) == "Base-86" && stillBlend.piece(2, 1) == "Blend-Mars-T" && !stillBlend.steep(), "Base-86 on Mars still uses blend pieces when Base-190 is present");
+
     // Mars is Base-0 water, Base-85 land, and Base-255 cliff ground.
     const BrushGraph mars(std::vector<int>{0, 85, 255});
     expect(mars.style(0, 1) == TransitionStyle::Coast && mars.style(1, 2) == TransitionStyle::Cliff && mars.compatible(0, 1) && mars.compatible(1, 2), "Mars joins water to land with coasts and land to Base-255 with cliffs");

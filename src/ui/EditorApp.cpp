@@ -6790,18 +6790,32 @@ void EditorApp::ensureBrushPaints() {
         }
     }
     if (sharedHeight) {
+        // The shore and the world blend belong to Base-86. Base-190 is a higher
+        // plateau, so the tallest Lava paint is not the ground those pictures join.
+        const auto lavaPaintAt = [&](int height) -> const BrushPaint* {
+            for (const BrushPaint* paint : pictured) {
+                if (blendWorldName(paint->category) == "Lava" && trailingNumber(paint->name) == height) {
+                    return paint;
+                }
+            }
+            return nullptr;
+        };
         const BrushPaint* lavaGround = nullptr;
         const BrushPaint* lavaLiquid = nullptr;
-        for (const BrushPaint* paint : pictured) {
-            if (blendWorldName(paint->category) != "Lava") {
+        const BrushPaint* lavaCliffLow = nullptr;
+        const BrushPaint* lavaCliffHigh = nullptr;
+        for (const BrushTransitionRule& rule : brushTransitionRules()) {
+            const BrushPaint* lower = lavaPaintAt(rule.lowerHeight);
+            const BrushPaint* upper = lavaPaintAt(rule.upperHeight);
+            if (lower == nullptr || upper == nullptr) {
                 continue;
             }
-            const int number = trailingNumber(paint->name);
-            if (lavaLiquid == nullptr || number < trailingNumber(lavaLiquid->name)) {
-                lavaLiquid = paint;
-            }
-            if (lavaGround == nullptr || number > trailingNumber(lavaGround->name)) {
-                lavaGround = paint;
+            if (rule.style == TransitionStyle::Coast && lavaGround == nullptr) {
+                lavaLiquid = lower;
+                lavaGround = upper;
+            } else if (rule.style == TransitionStyle::Cliff && lavaCliffHigh == nullptr) {
+                lavaCliffLow = lower;
+                lavaCliffHigh = upper;
             }
         }
         const auto rememberTiles = [&](const SectionStamp& stamp, const std::string& category, const std::string& name, bool fringe,
@@ -6814,8 +6828,26 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 const std::uint64_t hash = hashBrushTile(stamp.tileImages.data() + bytes);
-                if (fringe && brushPictures_.find(hash) != brushPictures_.end()) {
+                const auto existing = brushPictures_.find(hash);
+                if (fringe && existing != brushPictures_.end()) {
                     continue;
+                }
+                // Base-86 and Base-190 use the same dirt picture. The height chooses
+                // between them, and a repeated tile must not turn that choice back
+                // into a hard Base-190, or every Base-86 click is read as the plateau.
+                if (!fringe && existing != brushPictures_.end() && blendWorldName(category) == "Lava"
+                    && blendWorldName(existing->second.category) == "Lava") {
+                    const bool same = lowerText(existing->second.name) == lowerText(name);
+                    if (same && existing->second.fringe) {
+                        continue;
+                    }
+                    if (!same && !existing->second.fringe) {
+                        existing->second = BrushPictureHint{category, name, true, existing->second.category, existing->second.name};
+                        continue;
+                    }
+                    if (!same && existing->second.fringe) {
+                        continue;
+                    }
                 }
                 brushPictures_[hash] = BrushPictureHint{category, name, fringe, partnerCategory, partnerName};
             }
@@ -6881,6 +6913,16 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 rememberPath(piece.sectionPath, lavaGround->category, lavaGround->name, true, lavaLiquid->category, lavaLiquid->name);
+            }
+        }
+        // A lava cliff rises from Base-86 to Base-190. Heights along that face also
+        // sit near Mars and GreenWorld Base-85, so the picture keeps the corner on lava.
+        if (lavaCliffLow != nullptr && lavaCliffHigh != nullptr && lavaCliffLow != lavaCliffHigh) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (blendWorldName(piece.category) != "Lava" || !lowerText(piece.name).starts_with("cliff-")) {
+                    continue;
+                }
+                rememberPath(piece.sectionPath, lavaCliffHigh->category, lavaCliffHigh->name, true, lavaCliffLow->category, lavaCliffLow->name);
             }
         }
     }
