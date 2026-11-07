@@ -36,15 +36,17 @@ namespace galaxy {
 // Base-68 ring. A cell that holds Base-0, Base-68 and Base-80 uses a CoastDSL
 // piece, which is how one Base-80 island can have a deep coast on one side and
 // a shallow coast on the other.
-// Archipelago joins Base-0 to Base-86 with those same Coast pieces. When Base-85
-// is also a paint, water keeps its coast with Base-85 and Base-86 keeps its blend
-// with Base-85. Archipelago's Base-72 joins Base-0 with ShallowDeep pieces and
-// Base-86 with ShallowCoast pieces. The direct Base-0 coast stays, so painting
-// Base-86 on water does not insert a Base-72 ring. A cell that holds Base-0,
-// Base-72 and Base-86 uses a CoastDSL piece, which is how one Base-86 island can
+// Archipelago joins Base-0 to Base-78 with those same Coast pieces. When Base-85
+// is also a paint, water keeps its coast with Base-85 and Base-78 keeps its blend
+// with Base-85. Archipelago's Base-68 joins Base-0 with ShallowDeep pieces and
+// Base-78 with ShallowCoast pieces. The direct Base-0 coast stays, so painting
+// Base-78 on water does not insert a Base-68 ring. A cell that holds Base-0,
+// Base-68 and Base-78 uses a CoastDSL piece, which is how one Base-78 island can
 // have a deep coast on one side and a shallow coast on the other. Archipelago's
-// Base-202 joins Base-86 with Cliff pieces, so a click on water keeps Base-86
-// between the water and the ravine.
+// Base-194 joins Base-78 with Cliff pieces, so a click on water keeps Base-78
+// between the water and the ravine. Base-68 is also GreenWorld's shallow water,
+// and that shallow coast stays inside one world, so Archipelago's Base-68 does
+// not join GreenWorld's Base-85.
 // Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
 // Base-85 and Base-139 join with Cliff pieces. Metal's raised ground is Base-139.
 // Base-85 also joins Base-219 with Cliff pieces. When one low ground has two cliff
@@ -54,12 +56,12 @@ namespace galaxy {
 // not also join Base-85 to Base-255, which is how Mars reaches its cliff flat.
 // Lava
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. Archipelago
-// Base-86 joins GreenWorld Base-85 the same way, with pieces named for the
+// Base-78 joins GreenWorld Base-85 the same way, with pieces named for the
 // Archipelago side. Archipelago's own coast from Base-0 stays, so grass beside
 // the water does not replace that coast. A cell
 // holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
-// and Base-85 use a CoastDSL piece, Base-0, Base-72 and Base-86 use one too, and
+// and Base-85 use a CoastDSL piece, Base-0, Base-68 and Base-78 use one too, and
 // Base-219 with Base-85 and either Base-0 or Base-68 uses a CoastalCliff piece.
 inline constexpr int kBrushCellTiles = 16;
 
@@ -205,11 +207,11 @@ inline const std::array<BrushTransitionRule, 21>& brushTransitionRules() {
         {0, 80, TransitionStyle::Coast},
         {68, 80, TransitionStyle::ShallowCoast},
         {41, 86, TransitionStyle::Coast},
-        {0, 86, TransitionStyle::Coast},
+        {0, 78, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
-        {0, 72, TransitionStyle::ShallowDeep},
-        {72, 86, TransitionStyle::ShallowCoast},
+        {68, 78, TransitionStyle::ShallowCoast},
+        {78, 85, TransitionStyle::WorldBlend},
         {0, 219, TransitionStyle::CoastalCliffDeep},
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
@@ -218,7 +220,7 @@ inline const std::array<BrushTransitionRule, 21>& brushTransitionRules() {
         {85, 170, TransitionStyle::Cliff},
         {85, 139, TransitionStyle::Cliff},
         {86, 190, TransitionStyle::Cliff},
-        {86, 202, TransitionStyle::Cliff},
+        {78, 194, TransitionStyle::Cliff},
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
@@ -320,10 +322,12 @@ public:
         hop_.assign(cells, 0);
         // Mars joins Base-85 straight to Base-255. Metal's Base-255 only has pieces
         // for Base-139, so that direct cliff is left out once Base-139 is present.
-        // Archipelago joins Base-0 straight to Base-86. A Base-86 from another
-        // world, such as Lava beside Mars or Archipelago beside GreenWorld, is
-        // reached through Base-85 instead. Base-72 does not remove Archipelago's
-        // own coast: shallow water is its own paint.
+        // Archipelago joins Base-0 straight to Base-78. Another world's land,
+        // such as Lava beside Mars or Archipelago beside GreenWorld, is reached
+        // through Base-85 instead. Base-68 does not remove Archipelago's own
+        // coast: shallow water is its own paint. GreenWorld's shallow coast
+        // joins Base-68 to Base-85 inside one world, and Archipelago's Base-68
+        // stays off GreenWorld's Base-85.
         const bool through139 = std::find(heights_.begin(), heights_.end(), 139) != heights_.end();
         const bool through85 = std::find(heights_.begin(), heights_.end(), 85) != heights_.end();
         for (int a = 0; a < count; ++a) {
@@ -333,10 +337,11 @@ public:
                         continue;
                     }
                     if (heights_[static_cast<std::size_t>(a)] == rule.lowerHeight && heights_[static_cast<std::size_t>(b)] == rule.upperHeight) {
-                        const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 86
-                            && !worlds_[static_cast<std::size_t>(a)].empty() && !worlds_[static_cast<std::size_t>(b)].empty()
-                            && worlds_[static_cast<std::size_t>(a)] != worlds_[static_cast<std::size_t>(b)];
-                        if (foreignLand) {
+                        const bool named = !worlds_[static_cast<std::size_t>(a)].empty() && !worlds_[static_cast<std::size_t>(b)].empty();
+                        const bool differentWorld = named && worlds_[static_cast<std::size_t>(a)] != worlds_[static_cast<std::size_t>(b)];
+                        const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
+                        const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
+                        if (foreignLand || foreignShallow) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
@@ -463,8 +468,9 @@ inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, in
 // The section a cell needs, from the level at each of its corners, without a
 // variation number. Empty for a flat cell and for a layout that has no section.
 // Two levels use the family that joins them. Base-0, Base-68 and Base-85
-// together use a CoastDSL section, Base-0, Base-68 and Base-80 use one too, and
-// Base-219, Base-85 and Base-0 or Base-68 use a CoastalCliff section.
+// together use a CoastDSL section, Base-0, Base-68 and Base-80 use one too,
+// Base-0, Base-68 and Base-78 use one too, and Base-219, Base-85 and either
+// Base-0 or Base-68 use a CoastalCliff section.
 inline std::string brushPieceName(const BrushGraph& graph, const std::array<int, 4>& corners, std::string_view coastLiquid = "Water") {
     std::array<int, 4> sorted = corners;
     std::sort(sorted.begin(), sorted.end());
@@ -482,10 +488,13 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             return cliffTransitionName(graph, sorted[0], sorted[1], maskOf(sorted[1]));
         }
         // Levels are stored from lowest height to highest. A world blend marks the
-        // Mars or GreenWorld corners. Lava ground is Base-86, one step above those
-        // lands, so that marked side is the lower level.
+        // Mars or GreenWorld corners when the other land is Lava. Archipelago is
+        // Base-78, below GreenWorld's Base-85, and its blend pieces still mark
+        // the Archipelago corners.
         int marked = sorted[1];
-        if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
+        if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
+            marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+        } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
             marked = sorted[0];
         }
         std::string_view family = graph.world(marked);
@@ -498,7 +507,7 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         const int low = graph.height(sorted[0]);
         const int middle = graph.height(sorted[1]);
         const int high = graph.height(sorted[2]);
-        if ((low == 0 && middle == 68 && (high == 85 || high == 80)) || (low == 0 && middle == 72 && high == 86)) {
+        if (low == 0 && middle == 68 && (high == 85 || high == 80 || high == 78)) {
             return dslPieceName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
         if (middle == 85 && high == 219) {

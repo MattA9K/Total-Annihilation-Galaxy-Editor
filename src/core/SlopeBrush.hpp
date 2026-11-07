@@ -4,7 +4,7 @@
 // walk. Clicking a cliff turns that one cell into the slope with the same high
 // ground. A family number, such as 255, is the same idea for another cliff:
 // Metal's Base-139 to Base-255 slopes are Single-255-High-B and the other three
-// straight edges. Family 202 is Archipelago's Base-86 to Base-202 slopes. Those
+// straight edges. Family 202 is Archipelago's Base-78 to Base-194 slopes. Those
 // cliffs keep the plain Cliff-High names. Family 155 is Desert's Base-80 to
 // Base-155 slopes, and those cliffs keep the plain Cliff-High names too. Family
 // 230 is Desert's Base-155 to Base-230 slopes, and those read the Cliff-230
@@ -296,7 +296,7 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         if (family == 255) {
             range = "\nSlopes only go on cliffs between Base-139 and Base-255";
         } else if (family == 202) {
-            range = "\nSlopes only go on cliffs between Base-86 and Base-202";
+            range = "\nSlopes only go on cliffs between Base-78 and Base-194";
         } else if (family == 155) {
             range = "\nSlopes only go on cliffs between Base-80 and Base-155";
         } else if (family == 230) {

@@ -3557,8 +3557,8 @@ void EditorApp::drawMap() {
                     action = "Click a straight Base-139 to Base-255 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 85 to 219") {
                     action = "Click a Base-85 to Base-219 cliff to turn it into a slope";
-                } else if (brushName_ == "Slope 86 to 202") {
-                    action = "Click a Base-86 to Base-202 cliff to turn it into a slope";
+                } else if (brushName_ == "Slope 78 to 194") {
+                    action = "Click a Base-78 to Base-194 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 80 to 155") {
                     action = "Click a straight Base-80 to Base-155 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 155 to 230") {
@@ -6670,7 +6670,7 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
         int family = 0;
         if (brushName_ == "Slope 139 to 255") {
             family = 255;
-        } else if (brushName_ == "Slope 86 to 202") {
+        } else if (brushName_ == "Slope 78 to 194") {
             family = 202;
         } else if (brushName_ == "Slope 80 to 155") {
             family = 155;
@@ -6892,7 +6892,7 @@ void EditorApp::ensureBrushPaints() {
         }
     }
     // Lava Base-86 blends into Mars Base-85 and GreenWorld Base-85. Archipelago
-    // Base-86 blends into GreenWorld Base-85. A partner is a paint the graph can
+    // Base-78 blends into GreenWorld Base-85. A partner is a paint the graph can
     // see, and a stroke it can place, without becoming a button.
     struct PartnerWant {
         const char* world;
@@ -6905,7 +6905,7 @@ void EditorApp::ensureBrushPaints() {
     } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         if (lowerText(brushWorld_) == "greenworld") {
-            wanted.push_back(PartnerWant{"Archipelago", "Base-86"});
+            wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         }
     } else if (lowerText(brushWorld_) == "archipelago") {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
@@ -7032,7 +7032,7 @@ void EditorApp::ensureBrushPaints() {
                 for (const BrushPaint* paint : pictured) {
                     if (blendWorldName(paint->category) == "Green" && trailingNumber(paint->name) == 85) {
                         grass = paint;
-                    } else if (blendWorldName(paint->category) == "Archi" && trailingNumber(paint->name) == 86) {
+                    } else if (blendWorldName(paint->category) == "Archi" && trailingNumber(paint->name) == 78) {
                         archipelago = paint;
                     }
                 }
@@ -7163,7 +7163,7 @@ void EditorApp::ensureBrushPaints() {
     const bool metalSlopes = lowerText(brushWorld_) == "metal";
     const bool archipelagoSlopes = lowerText(brushWorld_) == "archipelago";
     if (archipelagoSlopes) {
-        addRiverButton("Slope 86 to 202", "Slope-202-High-B-01", BrushKind::Slope);
+        addRiverButton("Slope 78 to 194", "Slope-202-High-B-01", BrushKind::Slope);
     } else if (lowerText(brushWorld_) == "desert") {
         addRiverButton("Slope 80 to 155", "Single-155-High-B", BrushKind::Slope);
         addRiverButton("Slope 155 to 230", "Single-230-High-B", BrushKind::Slope);
@@ -7345,8 +7345,8 @@ void EditorApp::drawTileBrush() {
                     hint = "Turn a straight Base-139 to Base-255 cliff into a slope\nEach slope stays on its own cliff";
                 } else if (paint.name == "Slope 85 to 219") {
                     hint = "Turn a Base-85 to Base-219 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
-                } else if (paint.name == "Slope 86 to 202") {
-                    hint = "Turn a Base-86 to Base-202 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                } else if (paint.name == "Slope 78 to 194") {
+                    hint = "Turn a Base-78 to Base-194 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
                 } else if (paint.name == "Slope 80 to 155") {
                     hint = "Turn a straight Base-80 to Base-155 cliff into a slope\nEach slope stays on its own cliff";
                 } else if (paint.name == "Slope 155 to 230") {

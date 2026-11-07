@@ -3079,33 +3079,33 @@ void testBrushCells() {
     }
     expect(desertDsl && desertDslOutside.empty() && !desertMixed.steep(), "a Base-80 island can hold a Base-0 coast and a Base-68 coast, got " + desertDslOutside);
 
-    // Archipelago is Base-0 water and Base-86 land, joined by the same coast shapes.
-    const BrushGraph archipelago(std::vector<int>{0, 86});
-    expect(archipelago.style(0, 1) == TransitionStyle::Coast && archipelago.compatible(0, 1), "Archipelago joins water to Base-86 with coasts");
+    // Archipelago is Base-0 water and Base-78 land, joined by the same coast shapes.
+    const BrushGraph archipelago(std::vector<int>{0, 78});
+    expect(archipelago.style(0, 1) == TransitionStyle::Coast && archipelago.compatible(0, 1), "Archipelago joins water to Base-78 with coasts");
     BrushTestLattice archLand(5, 5, 0, archipelago);
     archLand.paint(2, 2, 1, 1);
-    expect(archLand.piece(2, 2) == "Base-86" && archLand.piece(2, 1) == "Coast-Water-T" && archLand.piece(1, 1) == "Coast-Land-BR" && !archLand.steep(), "Archipelago land in the water uses coast pieces");
-    const BrushGraph archRavine(std::vector<int>{0, 86, 202});
-    expect(archRavine.style(1, 2) == TransitionStyle::Cliff && archRavine.style(0, 2) == TransitionStyle::None && archRavine.distance(0, 2) == 2, "Archipelago Base-202 sits on Base-86");
+    expect(archLand.piece(2, 2) == "Base-78" && archLand.piece(2, 1) == "Coast-Water-T" && archLand.piece(1, 1) == "Coast-Land-BR" && !archLand.steep(), "Archipelago land in the water uses coast pieces");
+    const BrushGraph archRavine(std::vector<int>{0, 78, 194});
+    expect(archRavine.style(1, 2) == TransitionStyle::Cliff && archRavine.style(0, 2) == TransitionStyle::None && archRavine.distance(0, 2) == 2, "Archipelago Base-194 sits on Base-78");
     BrushTestLattice archPlateau(5, 5, 1, archRavine);
     archPlateau.paint(2, 2, 1, 2);
-    expect(archPlateau.piece(2, 2) == "Base-202" && archPlateau.piece(2, 1) == "Cliff-High-B" && archPlateau.piece(1, 1) == "Cliff-High-BR" && !archPlateau.steep(), "Archipelago Base-202 meets Base-86 with cliff pieces");
+    expect(archPlateau.piece(2, 2) == "Base-194" && archPlateau.piece(2, 1) == "Cliff-High-B" && archPlateau.piece(1, 1) == "Cliff-High-BR" && !archPlateau.steep(), "Archipelago Base-194 meets Base-78 with cliff pieces");
     BrushTestLattice archFromWater(5, 5, 0, archRavine);
     archFromWater.paint(2, 2, 1, 2);
-    expect(archFromWater.piece(2, 2) == "Base-202" && archFromWater.piece(2, 1) == "Cliff-High-B" && archFromWater.piece(2, 0) == "Coast-Water-T" && !archFromWater.steep(), "Base-202 painted on water keeps Base-86 between them");
-    const BrushGraph archShelf(std::vector<int>{0, 72, 86, 202});
-    expect(archShelf.style(0, 1) == TransitionStyle::ShallowDeep && archShelf.style(1, 2) == TransitionStyle::ShallowCoast && archShelf.style(0, 2) == TransitionStyle::Coast && archShelf.style(2, 3) == TransitionStyle::Cliff, "Archipelago Base-72 joins Base-0 and Base-86 and leaves the deep coast");
-    expect(archShelf.distance(0, 2) == 1 && archShelf.distance(0, 3) == 2, "Base-86 stays one coast from the water when Base-72 is also a paint");
+    expect(archFromWater.piece(2, 2) == "Base-194" && archFromWater.piece(2, 1) == "Cliff-High-B" && archFromWater.piece(2, 0) == "Coast-Water-T" && !archFromWater.steep(), "Base-194 painted on water keeps Base-78 between them");
+    const BrushGraph archShelf(std::vector<int>{0, 68, 78, 194});
+    expect(archShelf.style(0, 1) == TransitionStyle::ShallowDeep && archShelf.style(1, 2) == TransitionStyle::ShallowCoast && archShelf.style(0, 2) == TransitionStyle::Coast && archShelf.style(2, 3) == TransitionStyle::Cliff, "Archipelago Base-68 joins Base-0 and Base-78 and leaves the deep coast");
+    expect(archShelf.distance(0, 2) == 1 && archShelf.distance(0, 3) == 2, "Base-78 stays one coast from the water when Base-68 is also a paint");
     BrushTestLattice archShallow(5, 5, 0, archShelf);
     archShallow.paint(2, 2, 1, 1);
-    expect(archShallow.piece(2, 2) == "Base-72" && archShallow.piece(2, 1) == "ShallowDeep-Shallow-B" && !archShallow.steep(), "Base-72 in the water uses shallow-deep pieces");
+    expect(archShallow.piece(2, 2) == "Base-68" && archShallow.piece(2, 1) == "ShallowDeep-Shallow-B" && !archShallow.steep(), "Base-68 in the water uses shallow-deep pieces");
     BrushTestLattice archShelfLand(5, 5, 1, archShelf);
     archShelfLand.paint(2, 2, 1, 2);
-    expect(archShelfLand.piece(2, 2) == "Base-86" && archShelfLand.piece(2, 1) == "ShallowCoast-Water-T" && !archShelfLand.steep(), "Base-86 in Base-72 uses shallow coast pieces");
+    expect(archShelfLand.piece(2, 2) == "Base-78" && archShelfLand.piece(2, 1) == "ShallowCoast-Water-T" && !archShelfLand.steep(), "Base-78 in Base-68 uses shallow coast pieces");
     BrushTestLattice archDeepCoast(5, 5, 0, archShelf);
     archDeepCoast.paint(2, 2, 1, 2);
-    expect(archDeepCoast.piece(2, 2) == "Base-86" && archDeepCoast.piece(2, 1) == "Coast-Water-T" && archDeepCoast.piece(2, 0) == "Base-0" && !archDeepCoast.steep(), "Base-86 painted on water still uses the deep coast");
-    expect(brushPieceName(archShelf, {2, 1, 0, 0}) == "DSL-Land-TL-Shallow-TR-Water-B", "Archipelago corners on 86, 72 and 0 pick a CoastDSL section");
+    expect(archDeepCoast.piece(2, 2) == "Base-78" && archDeepCoast.piece(2, 1) == "Coast-Water-T" && archDeepCoast.piece(2, 0) == "Base-0" && !archDeepCoast.steep(), "Base-78 painted on water still uses the deep coast");
+    expect(brushPieceName(archShelf, {2, 1, 0, 0}) == "DSL-Land-TL-Shallow-TR-Water-B", "Archipelago corners on 78, 68 and 0 pick a CoastDSL section");
     BrushTestLattice archMixed(9, 9, 2, archShelf);
     archMixed.paint(3, 3, 1, 1);
     archMixed.paint(4, 3, 1, 0);
@@ -3115,27 +3115,27 @@ void testBrushCells() {
             archDsl = archDsl || archMixed.piece(cx, cy).rfind("DSL-", 0) == 0;
         }
     }
-    expect(archDsl && !archMixed.steep(), "a Base-86 island can hold a Base-0 coast and a Base-72 coast");
+    expect(archDsl && !archMixed.steep(), "a Base-78 island can hold a Base-0 coast and a Base-68 coast");
 
-    // GreenWorld Base-85 meets Archipelago Base-86 with blend pieces named for the
+    // GreenWorld Base-85 meets Archipelago Base-78 with blend pieces named for the
     // Archipelago side. Archipelago water still reaches its own land in one coast.
-    const BrushGraph greenArchi(std::vector<int>{85, 86}, {"Green", "Archi"});
-    expect(greenArchi.style(0, 1) == TransitionStyle::WorldBlend && greenArchi.compatible(0, 1), "GreenWorld Base-85 and Archipelago Base-86 join with blend pieces");
+    const BrushGraph greenArchi(std::vector<int>{78, 85}, {"Archi", "Green"});
+    expect(greenArchi.style(0, 1) == TransitionStyle::WorldBlend && greenArchi.compatible(0, 1), "GreenWorld Base-85 and Archipelago Base-78 join with blend pieces");
     expect(transitionPieceName(TransitionStyle::WorldBlend, kCornerTopLeft | kCornerTopRight, "Water", "Archi") == "Blend-Archi-T" && transitionPieceName(TransitionStyle::WorldBlend, kCornerAll & ~kCornerBottomRight, "Water", "Archi") == "Blend-Archi-Low-BR", "archipelago blend pieces name the archipelago side");
-    BrushTestLattice archOnGreen(5, 5, 0, greenArchi);
-    archOnGreen.paint(2, 2, 1, 1);
-    expect(archOnGreen.piece(2, 2) == "Base-86" && archOnGreen.piece(2, 1) == "Blend-Archi-B" && archOnGreen.piece(1, 2) == "Blend-Archi-R" && archOnGreen.piece(1, 1) == "Blend-Archi-BR" && !archOnGreen.steep(), "Archipelago painted on grass is ringed by archipelago blend pieces");
-    BrushTestLattice greenOnArchi(5, 5, 1, greenArchi);
-    greenOnArchi.paint(2, 2, 1, 0);
+    BrushTestLattice archOnGreen(5, 5, 1, greenArchi);
+    archOnGreen.paint(2, 2, 1, 0);
+    expect(archOnGreen.piece(2, 2) == "Base-78" && archOnGreen.piece(2, 1) == "Blend-Archi-B" && archOnGreen.piece(1, 2) == "Blend-Archi-R" && archOnGreen.piece(1, 1) == "Blend-Archi-BR" && !archOnGreen.steep(), "Archipelago painted on grass is ringed by archipelago blend pieces");
+    BrushTestLattice greenOnArchi(5, 5, 0, greenArchi);
+    greenOnArchi.paint(2, 2, 1, 1);
     expect(greenOnArchi.piece(2, 2) == "Base-85" && greenOnArchi.piece(2, 1) == "Blend-Archi-T" && greenOnArchi.piece(1, 1) == "Blend-Archi-Low-BR" && !greenOnArchi.steep(), "grass painted on Archipelago is ringed by archipelago blend pieces");
-    const BrushGraph archWithGrass(std::vector<int>{0, 72, 85, 86, 202}, {"Archi", "Archi", "Green", "Archi", "Archi"});
-    expect(archWithGrass.style(0, 3) == TransitionStyle::Coast && archWithGrass.style(2, 3) == TransitionStyle::WorldBlend && archWithGrass.distance(0, 3) == 1, "Archipelago keeps its deep coast when GreenWorld Base-85 is a paint");
+    const BrushGraph archWithGrass(std::vector<int>{0, 68, 78, 85, 194}, {"Archi", "Archi", "Archi", "Green", "Archi"});
+    expect(archWithGrass.style(0, 2) == TransitionStyle::Coast && archWithGrass.style(2, 3) == TransitionStyle::WorldBlend && archWithGrass.style(1, 3) == TransitionStyle::None && archWithGrass.distance(0, 2) == 1, "Archipelago keeps its deep coast when GreenWorld Base-85 is a paint");
     BrushTestLattice archCoastRemains(5, 5, 0, archWithGrass);
-    archCoastRemains.paint(2, 2, 1, 3);
-    expect(archCoastRemains.piece(2, 2) == "Base-86" && archCoastRemains.piece(2, 1) == "Coast-Water-T" && archCoastRemains.piece(2, 0) == "Base-0" && !archCoastRemains.steep(), "Archipelago land painted on its own water does not detour through grass");
-    const BrushGraph grassBesideArchi(std::vector<int>{0, 85, 86, 86}, {"Green", "Green", "Lava", "Archi"});
-    expect(grassBesideArchi.style(0, 2) == TransitionStyle::None && grassBesideArchi.style(0, 3) == TransitionStyle::None && grassBesideArchi.style(1, 2) == TransitionStyle::WorldBlend && grassBesideArchi.style(1, 3) == TransitionStyle::WorldBlend && grassBesideArchi.distance(0, 3) == 2, "GreenWorld water reaches Archipelago through Base-85 and still reaches Lava the same way");
-    expect(brushPieceName(grassBesideArchi, {1, 1, 3, 3}) == "Blend-Archi-B" && brushPieceName(grassBesideArchi, {1, 1, 2, 2}) == "Blend-Green-T", "grass against Archipelago and grass against Lava keep their own blend pieces");
+    archCoastRemains.paint(2, 2, 1, 2);
+    expect(archCoastRemains.piece(2, 2) == "Base-78" && archCoastRemains.piece(2, 1) == "Coast-Water-T" && archCoastRemains.piece(2, 0) == "Base-0" && !archCoastRemains.steep(), "Archipelago land painted on its own water does not detour through grass");
+    const BrushGraph grassBesideArchi(std::vector<int>{0, 78, 85, 86}, {"Green", "Archi", "Green", "Lava"});
+    expect(grassBesideArchi.style(0, 1) == TransitionStyle::None && grassBesideArchi.style(0, 3) == TransitionStyle::None && grassBesideArchi.style(2, 3) == TransitionStyle::WorldBlend && grassBesideArchi.style(1, 2) == TransitionStyle::WorldBlend && grassBesideArchi.distance(0, 1) == 2, "GreenWorld water reaches Archipelago through Base-85 and still reaches Lava the same way");
+    expect(brushPieceName(grassBesideArchi, {2, 2, 1, 1}) == "Blend-Archi-B" && brushPieceName(grassBesideArchi, {2, 2, 3, 3}) == "Blend-Green-T", "grass against Archipelago and grass against Lava keep their own blend pieces");
     const BrushGraph waterThenLava(std::vector<int>{0, 85, 86}, {"Mars", "Mars", "Lava"});
     expect(waterThenLava.style(0, 1) == TransitionStyle::Coast && waterThenLava.style(1, 2) == TransitionStyle::WorldBlend && waterThenLava.style(0, 2) == TransitionStyle::None && waterThenLava.distance(0, 2) == 2, "water reaches Lava Base-86 through Base-85");
 
@@ -3875,7 +3875,7 @@ void testSlopes() {
     stillJoins.slope(1, 1, everySlope);
     expect(stillJoins.slope(2, 1, everySlope).allowed() && stillJoins.at(1, 1) == "Slope-High-B-TransitionR" && stillJoins.at(2, 1) == "Slope-High-B-TransitionL", "a full slope set still joins neighbours");
 
-    // Archipelago slopes read the plain Base-86 cliffs and use family 202 in the slope names.
+    // Archipelago slopes read the plain Base-78 cliffs and use family 202 in the slope names.
     const galaxy::SlopeShape archCliff = galaxy::parseSlopeShape("Cliff-High-B", 202);
     expect(archCliff.valid && !archCliff.slope && archCliff.mask == (kCornerBottomLeft | kCornerBottomRight), "Archipelago slopes read Cliff-High-B");
     const galaxy::SlopeShape archRamp = galaxy::parseSlopeShape("Slope-202-High-B-TransitionL-01", 202);
@@ -3889,7 +3889,7 @@ void testSlopes() {
     SlopeTestGrid archWrong(3, 3, "Base-85");
     archWrong.at(1, 1) = "Cliff-255-High-B";
     const galaxy::RiverPlan archRefused = archWrong.slope(1, 1, {}, 202);
-    expect(!archRefused.allowed() && archRefused.reason.find("Base-86 and Base-202") != std::string::npos && archWrong.at(1, 1) == "Cliff-255-High-B", "Archipelago slopes stay off a Base-255 cliff");
+    expect(!archRefused.allowed() && archRefused.reason.find("Base-78 and Base-194") != std::string::npos && archWrong.at(1, 1) == "Cliff-255-High-B", "Archipelago slopes stay off a Base-255 cliff");
 
     const galaxy::SlopeShape archSingleLow = galaxy::parseSlopeShape("Single-202-Low-BR-01", 202);
     expect(archSingleLow.valid && archSingleLow.slope && archSingleLow.mask == (kCornerAll & ~kCornerBottomRight), "a family 202 single low corner is the bottom-right notch");
