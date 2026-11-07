@@ -20,6 +20,17 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.6" ]; then
+  cat <<EOF
+
+## New
+
+**Metal.** The tile brush has a Metal tileset. Base-0 is deep water, Base-68 is shallow water, and Base-85 is land, with shores between them. Base-139 is the raised ground off Base-85. Base-219 is the cliff off Base-85, and Slope 85 to 219 turns those cliffs into walkable slopes. Base-255 sits on Base-139. Slope 139 to 255 turns the straight cliffs between them into slopes.
+
+**Favorites.** Command-click on Mac, or Ctrl-click on Windows, selects more than one favorite tile. Right-click or the Delete key removes the selected tiles together.
+EOF
+fi
+
 if [ "$version" = "1.1.5" ]; then
   cat <<EOF
 
