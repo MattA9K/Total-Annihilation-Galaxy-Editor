@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import html
 import json
 import re
 import sys
@@ -89,8 +91,60 @@ def local_target(out: Path, base: str, href: str) -> Path | None:
     return out / relative
 
 
+def check_gallery(out: Path, base: str, text: str, locale: dict, strings: dict, shots: list[dict]) -> list[str]:
+    errors = []
+    locale_id = locale["id"]
+    anchor = build_site.locale_href(base, locale_id) + "#screenshots"
+    if 'id="screenshots"' not in text or anchor not in text:
+        errors.append(f"{locale_id} is missing the screenshots anchor")
+    if strings["screenshots_title"] not in text or strings["screenshots_intro"] not in text:
+        errors.append(f"{locale_id} is missing the screenshots heading or introduction")
+    if text.count('class="shot-slide"') != 8 or text.count('class="shot-thumb"') != 8:
+        errors.append(f"{locale_id} does not show eight screenshots")
+    if 'id="shot-dialog"' not in text or "shot-close" not in text:
+        errors.append(f"{locale_id} is missing the screenshot dialog")
+    for shot in shots:
+        paths = (
+            f"{base}/assets/screenshots/full/{shot['full']}",
+            f"{base}/assets/screenshots/preview/{shot['preview']}",
+            f"{base}/assets/screenshots/thumb/{shot['thumb']}",
+        )
+        for href in paths:
+            if href not in text:
+                errors.append(f"{locale_id} is missing {href}")
+            target = local_target(out, base, href)
+            if target is None or not target.is_file():
+                errors.append(f"{locale_id} screenshot does not resolve: {href}")
+        caption = strings[f"shot_{shot['id']}_caption"]
+        alt = strings[f"shot_{shot['id']}_alt"]
+        if caption not in text or f'alt="{html.escape(alt, quote=True)}"' not in text:
+            errors.append(f"{locale_id} caption or alt text is missing for {shot['id']}")
+    for key in ("shot_prev", "shot_next", "shot_close", "shot_open", "shot_dialog_label", "shot_loading"):
+        visible = html.escape(strings[key], quote=False)
+        attribute = html.escape(strings[key], quote=True)
+        if visible not in text and attribute not in text:
+            errors.append(f"{locale_id} is missing the label {key}")
+    for needle in ("showModal", "ArrowLeft", "ArrowRight", "Escape", "touchend", ".focus("):
+        if needle not in text:
+            errors.append(f"{locale_id} gallery behavior is missing {needle}")
+    return errors
+
+
 def check_structure(out: Path, base: str, origin: str, version: str) -> list[str]:
     errors: list[str] = []
+    strings_by_id = build_site.load_strings(build_site.repo_root() / "site")
+    gallery_shots = build_site.load_gallery(build_site.repo_root() / "site")
+    manifest = json.loads((build_site.repo_root() / "site" / "screenshots" / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("omitted", {}).get("source") != "galaxy-editor-06.png":
+        errors.append("the omitted screenshot is not recorded")
+    full_dir = out / "assets" / "screenshots" / "full"
+    built_full = sorted(path.name for path in full_dir.glob("*.png")) if full_dir.is_dir() else []
+    if built_full != sorted(shot["full"] for shot in gallery_shots):
+        errors.append(f"published full screenshots are {built_full}")
+    for shot in gallery_shots:
+        full = full_dir / shot["full"]
+        if not full.is_file() or hashlib.sha256(full.read_bytes()).hexdigest() != shot["sha256"]:
+            errors.append(f"{shot['id']} full image changed during the build")
     assets = build_site.release_assets(version)
     names = build_site.asset_names(version)
     deb_block = build_site.deb_commands(version, assets)
@@ -199,8 +253,9 @@ def check_structure(out: Path, base: str, origin: str, version: str) -> list[str
         parser.feed(text)
         parser.close()
         errors.extend(f"{locale['id']}: {item}" for item in parser.errors)
-        if parser.scripts != ["application/ld+json"]:
+        if parser.scripts != ["application/ld+json", ""]:
             errors.append(f"{locale['id']} scripts are {parser.scripts}")
+        errors.extend(check_gallery(out, base, text, locale, strings_by_id[locale["id"]], gallery_shots))
         schema = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', text).group(1))
         if schema["softwareVersion"] != version or schema["inLanguage"] != locale["html_lang"]:
             errors.append(f"{locale['id']} schema version or language is wrong")
