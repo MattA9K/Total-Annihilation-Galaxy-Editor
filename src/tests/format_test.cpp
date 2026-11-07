@@ -2984,6 +2984,23 @@ void testBrushCells() {
     iceHigh.paint(2, 2, 1, 2);
     expect(iceHigh.piece(2, 2) == "Base-170" && iceHigh.piece(2, 1) == "Cliff-High-B" && iceHigh.piece(1, 1) == "Cliff-High-BR" && !iceHigh.steep(), "Ice high ground meets Base-85 with cliff pieces");
 
+    // Archipelago is Base-0 water and Base-86 land, joined by the same coast shapes.
+    const BrushGraph archipelago(std::vector<int>{0, 86});
+    expect(archipelago.style(0, 1) == TransitionStyle::Coast && archipelago.compatible(0, 1), "Archipelago joins water to Base-86 with coasts");
+    BrushTestLattice archLand(5, 5, 0, archipelago);
+    archLand.paint(2, 2, 1, 1);
+    expect(archLand.piece(2, 2) == "Base-86" && archLand.piece(2, 1) == "Coast-Water-T" && archLand.piece(1, 1) == "Coast-Land-BR" && !archLand.steep(), "Archipelago land in the water uses coast pieces");
+    const BrushGraph archRavine(std::vector<int>{0, 86, 202});
+    expect(archRavine.style(1, 2) == TransitionStyle::Cliff && archRavine.style(0, 2) == TransitionStyle::None && archRavine.distance(0, 2) == 2, "Archipelago Base-202 sits on Base-86");
+    BrushTestLattice archPlateau(5, 5, 1, archRavine);
+    archPlateau.paint(2, 2, 1, 2);
+    expect(archPlateau.piece(2, 2) == "Base-202" && archPlateau.piece(2, 1) == "Cliff-High-B" && archPlateau.piece(1, 1) == "Cliff-High-BR" && !archPlateau.steep(), "Archipelago Base-202 meets Base-86 with cliff pieces");
+    BrushTestLattice archFromWater(5, 5, 0, archRavine);
+    archFromWater.paint(2, 2, 1, 2);
+    expect(archFromWater.piece(2, 2) == "Base-202" && archFromWater.piece(2, 1) == "Cliff-High-B" && archFromWater.piece(2, 0) == "Coast-Water-T" && !archFromWater.steep(), "Base-202 painted on water keeps Base-86 between them");
+    const BrushGraph waterThenLava(std::vector<int>{0, 85, 86}, {"Mars", "Mars", "Lava"});
+    expect(waterThenLava.style(0, 1) == TransitionStyle::Coast && waterThenLava.style(1, 2) == TransitionStyle::WorldBlend && waterThenLava.style(0, 2) == TransitionStyle::None && waterThenLava.distance(0, 2) == 2, "water reaches Lava Base-86 through Base-85");
+
     // Metal is deep water, shallow water, metal land, and raised ground. Deep water
     // meets land directly, the same way GreenWorld does, and shallow sits between
     // the other two. Base-139 meets Base-85 with cliff pieces.

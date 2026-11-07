@@ -26,6 +26,10 @@ namespace galaxy {
 // pair: its cliff flat is height 255. Base-85 and Base-170 join with Cliff pieces.
 // Ice uses that pair: water is Base-0, land is Base-85, and the high ground is
 // Base-170. Crystal uses the coast alone: water is Base-0 and land is Base-85.
+// Archipelago joins Base-0 to Base-86 with those same Coast pieces. When Base-85
+// is also a paint, water keeps its coast with Base-85 and Base-86 keeps its blend
+// with Base-85. Archipelago's Base-202 joins Base-86 with Cliff pieces, so a
+// click on water keeps Base-86 between the water and the ravine.
 // Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
 // Base-85 and Base-139 join with Cliff pieces. Metal's raised ground is Base-139.
 // Base-85 also joins Base-219 with Cliff pieces. When one low ground has two cliff
@@ -177,10 +181,11 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 13>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 13> rules = {{
+inline const std::array<BrushTransitionRule, 15>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 15> rules = {{
         {0, 85, TransitionStyle::Coast},
         {41, 86, TransitionStyle::Coast},
+        {0, 86, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
         {0, 219, TransitionStyle::CoastalCliffDeep},
@@ -191,6 +196,7 @@ inline const std::array<BrushTransitionRule, 13>& brushTransitionRules() {
         {85, 170, TransitionStyle::Cliff},
         {85, 139, TransitionStyle::Cliff},
         {86, 190, TransitionStyle::Cliff},
+        {86, 202, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
     }};
     return rules;
@@ -287,11 +293,18 @@ public:
         hop_.assign(cells, 0);
         // Mars joins Base-85 straight to Base-255. Metal's Base-255 only has pieces
         // for Base-139, so that direct cliff is left out once Base-139 is present.
+        // Archipelago joins Base-0 straight to Base-86. Mars and GreenWorld already
+        // reach Base-86 through Base-85, so that direct coast stays out once Base-85
+        // is a paint.
         const bool through139 = std::find(heights_.begin(), heights_.end(), 139) != heights_.end();
+        const bool through85 = std::find(heights_.begin(), heights_.end(), 85) != heights_.end();
         for (int a = 0; a < count; ++a) {
             for (int b = 0; b < count; ++b) {
                 for (const BrushTransitionRule& rule : brushTransitionRules()) {
                     if (through139 && rule.lowerHeight == 85 && rule.upperHeight == 255) {
+                        continue;
+                    }
+                    if (through85 && rule.lowerHeight == 0 && rule.upperHeight == 86) {
                         continue;
                     }
                     if (heights_[static_cast<std::size_t>(a)] == rule.lowerHeight && heights_[static_cast<std::size_t>(b)] == rule.upperHeight) {
