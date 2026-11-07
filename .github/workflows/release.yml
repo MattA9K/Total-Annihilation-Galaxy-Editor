@@ -97,6 +97,13 @@ jobs:
       - name: Package disk image
         run: |
           scripts/fetch-companion-hpi.sh hpi-1.1.6
+          # The image only needs the app. Object files and the preinstalled
+          # simulator runtimes otherwise leave hdiutil with no room to copy
+          # the tileset archives.
+          find build -mindepth 1 -maxdepth 1 ! -name GalaxyEditor.app -exec rm -rf {} +
+          sudo rm -rf /Applications/Xcode*.app /Library/Developer/CoreSimulator || true
+          rm -rf "$HOME/Library/Developer/CoreSimulator" "$HOME/Library/Developer/Xcode/DerivedData" || true
+          df -h /
           scripts/package-macos.sh
           mkdir -p packages
           cp GalaxyEditor-*-macos.dmg packages/
