@@ -4,6 +4,7 @@
 #include "platform/AppIcon.hpp"
 #include "platform/FileDialog.hpp"
 #include "platform/SystemAppearance.hpp"
+#include "platform/UpdatePing.hpp"
 #include "ui/EditorApp.hpp"
 #include "ui/LanguagePicker.hpp"
 #include "ui/Splash.hpp"
@@ -340,6 +341,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Could not initialize GLFW\n");
         return 1;
     }
+    galaxy::startUpdateCheck();
+    struct StopUpdateCheck {
+        ~StopUpdateCheck() { galaxy::stopUpdateCheck(); }
+    } stopUpdateCheck;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);

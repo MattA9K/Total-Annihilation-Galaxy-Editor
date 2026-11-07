@@ -8,6 +8,7 @@
 #include "core/RiverBrush.hpp"
 #include "core/SlopeBrush.hpp"
 #include "core/TilesetLibrary.hpp"
+#include "core/UpdateCheck.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
 #include "format/HpiArchive.hpp"
@@ -1861,6 +1862,12 @@ void testVersion() {
     std::getline(versionFile, fileVersion);
     expect(fileVersion == version, "the compiled-in version matches the VERSION file");
     expect(galaxy::applicationTitle() == "Galaxy Editor v" + version, "the title is the name followed by v and the version");
+    expect(galaxy::updateCheckBody("1.1.7", "macOS", "macOS 27.0.1", false)
+            == "{\"current_version\":\"1.1.7\",\"is_the_second_time_checked\":false,\"platform\":\"macOS\",\"operating_system\":\"macOS 27.0.1\"}",
+        "the first update check names the version, platform and system");
+    expect(galaxy::updateCheckBody("1.1.7", "macOS", "macOS 27.0.1", true)
+            == "{\"current_version\":\"1.1.7\",\"is_the_second_time_checked\":true,\"platform\":\"macOS\",\"operating_system\":\"macOS 27.0.1\"}",
+        "a later update check uses the same body with the later flag set");
 }
 
 void testAppearanceSettings() {

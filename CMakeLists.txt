@@ -103,6 +103,7 @@ add_library(galaxy_format STATIC
     src/core/I18n.cpp
     src/core/OrbitCamera.cpp
     src/core/Version.cpp
+    src/core/UpdateCheck.cpp
     "${VERSION_CPP}"
 )
 target_include_directories(galaxy_format PUBLIC src)
@@ -170,7 +171,7 @@ target_link_libraries(GalaxyEditor PRIVATE galaxy_format imgui Threads::Threads)
 target_compile_options(GalaxyEditor PRIVATE -Wall -Wextra -Wpedantic)
 
 if(APPLE)
-    target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_mac.mm src/platform/AppIcon_mac.mm src/platform/SystemAppearance_mac.mm)
+    target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_mac.mm src/platform/AppIcon_mac.mm src/platform/SystemAppearance_mac.mm src/platform/UpdatePing.cpp src/platform/UpdatePing_mac.mm)
     target_link_libraries(GalaxyEditor PRIVATE "-framework Cocoa" "-framework UniformTypeIdentifiers")
     # The build produces GalaxyEditor.app. Its version and name come from the
     # generated Info.plist, and the Finder takes the icon from the bundle.
@@ -196,8 +197,8 @@ if(APPLE)
             VERBATIM)
     endif()
 elseif(WIN32)
-    target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_win.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_win.cpp)
-    target_link_libraries(GalaxyEditor PRIVATE comdlg32 advapi32 ole32 shell32 uuid)
+    target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_win.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_win.cpp src/platform/UpdatePing.cpp src/platform/UpdatePing_win.cpp)
+    target_link_libraries(GalaxyEditor PRIVATE comdlg32 advapi32 ole32 shell32 uuid winhttp)
     # A window program, not a console one, so no black console window opens beside it.
     # main() stays the entry point.
     if(MSVC)
@@ -258,7 +259,9 @@ elseif(WIN32)
     file(WRITE "${WIN_RC}" "${WIN_RC_TEXT}")
     target_sources(GalaxyEditor PRIVATE "${WIN_RC}")
 else()
-    target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_posix.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_posix.cpp)
+    find_package(CURL REQUIRED)
+    target_sources(GalaxyEditor PRIVATE src/platform/FileDialog_posix.cpp src/platform/AppIcon.cpp src/platform/SystemAppearance_posix.cpp src/platform/UpdatePing.cpp src/platform/UpdatePing_posix.cpp)
+    target_link_libraries(GalaxyEditor PRIVATE CURL::libcurl)
     # The CMake target stays GalaxyEditor. The file people run is galaxy-editor,
     # the usual lowercase command name on Linux.
     set_target_properties(GalaxyEditor PROPERTIES OUTPUT_NAME galaxy-editor)
@@ -289,7 +292,7 @@ of the ground. Maps open and save as .ufo files the game can load.")
     # libOpenGL.so.0 is a direct dependency (libopengl0). GLFW then dlopens
     # GLX and the X11 libraries listed here. EGL, GLES, OSMesa, and Vulkan are probed
     # only when those backends are used, so they stay optional.
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "zlib1g, libopengl0, libgl1, libx11-6, libx11-xcb1, libxrandr2, libxinerama1, libxcursor1, libxi6, libxext6, libxrender1, zenity")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "zlib1g, libcurl4, libopengl0, libgl1, libx11-6, libx11-xcb1, libxrandr2, libxinerama1, libxcursor1, libxi6, libxext6, libxrender1, zenity")
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
     set(CPACK_DEBIAN_FILE_NAME "galaxy-editor_${PROJECT_VERSION}_amd64.deb")
     
