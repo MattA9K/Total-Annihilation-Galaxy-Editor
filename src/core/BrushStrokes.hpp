@@ -30,6 +30,8 @@ namespace galaxy {
 // Base-85 also joins Base-219 with Cliff pieces. When one low ground has two cliff
 // tops, Base-219 keeps the plain Cliff-High name and the other top is
 // Cliff-<height>-High, so Metal's ramps stay apart from its Base-219 cliffs.
+// Metal's Base-255 joins Base-139 only. A brush that already has Base-139 does
+// not also join Base-85 to Base-255, which is how Mars reaches its cliff flat.
 // Lava
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
 // holds one paint or two joined paints. Three paints
@@ -174,8 +176,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 12>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 12> rules = {{
+inline const std::array<BrushTransitionRule, 13>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 13> rules = {{
         {0, 85, TransitionStyle::Coast},
         {41, 86, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
@@ -184,6 +186,7 @@ inline const std::array<BrushTransitionRule, 12>& brushTransitionRules() {
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
+        {139, 255, TransitionStyle::Cliff},
         {85, 170, TransitionStyle::Cliff},
         {85, 139, TransitionStyle::Cliff},
         {86, 190, TransitionStyle::Cliff},
@@ -281,9 +284,15 @@ public:
         styles_.assign(cells, TransitionStyle::None);
         distance_.assign(cells, kFar);
         hop_.assign(cells, 0);
+        // Mars joins Base-85 straight to Base-255. Metal's Base-255 only has pieces
+        // for Base-139, so that direct cliff is left out once Base-139 is present.
+        const bool through139 = std::find(heights_.begin(), heights_.end(), 139) != heights_.end();
         for (int a = 0; a < count; ++a) {
             for (int b = 0; b < count; ++b) {
                 for (const BrushTransitionRule& rule : brushTransitionRules()) {
+                    if (through139 && rule.lowerHeight == 85 && rule.upperHeight == 255) {
+                        continue;
+                    }
                     if (heights_[static_cast<std::size_t>(a)] == rule.lowerHeight && heights_[static_cast<std::size_t>(b)] == rule.upperHeight) {
                         styles_[index(a, b)] = rule.style;
                         styles_[index(b, a)] = rule.style;

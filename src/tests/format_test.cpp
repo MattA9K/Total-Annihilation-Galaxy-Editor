@@ -3013,6 +3013,17 @@ void testBrushCells() {
     BrushTestLattice metalPlateau(5, 5, 0, metalCliffs);
     metalPlateau.paint(2, 2, 1, 2);
     expect(metalPlateau.piece(2, 2) == "Base-219" && metalPlateau.piece(2, 1) == "Cliff-High-B" && metalPlateau.piece(1, 1) == "Cliff-High-BR" && !metalPlateau.steep(), "Base-219 uses the plain cliff pieces");
+
+    // Base-255 meets Base-139. Base-85 does not reach it directly, so a click on
+    // Base-85 inserts Base-139 between them.
+    const BrushGraph metalTop(std::vector<int>{85, 139, 219, 255});
+    expect(metalTop.style(1, 3) == TransitionStyle::Cliff && metalTop.style(0, 3) == TransitionStyle::None && !metalTop.compatible(0, 3), "Metal Base-255 joins Base-139 and leaves Base-85 for the chain");
+    BrushTestLattice metalCap(5, 5, 1, metalTop);
+    metalCap.paint(2, 2, 1, 3);
+    expect(metalCap.piece(2, 2) == "Base-255" && metalCap.piece(2, 1) == "Cliff-255-High-B" && metalCap.piece(1, 1) == "Cliff-255-High-BR" && !metalCap.steep(), "Base-255 meets Base-139 with its own cliff pieces");
+    BrushTestLattice metalRise(5, 5, 0, metalTop);
+    metalRise.paint(2, 2, 1, 3);
+    expect(metalRise.piece(2, 2) == "Base-255" && metalRise.piece(2, 1) == "Cliff-255-High-B" && metalRise.piece(2, 0) == "Cliff-139-High-B" && !metalRise.steep(), "Base-255 painted on Base-85 keeps Base-139 between them");
 }
 
 // A small grid of cells for the river rules. Each cell holds a label such as "Base-85".
@@ -3421,8 +3432,8 @@ struct SlopeTestGrid {
         return galaxy::classifyRiverLabel(labels[static_cast<std::size_t>(y * width + x)]);
     }
 
-    galaxy::RiverPlan slope(int x, int y, const std::function<bool(std::string_view)>& available = {}) {
-        const galaxy::RiverPlan plan = galaxy::planSlope(x, y, [&](int cx, int cy) { return look(cx, cy); }, available);
+    galaxy::RiverPlan slope(int x, int y, const std::function<bool(std::string_view)>& available = {}, int family = 0) {
+        const galaxy::RiverPlan plan = galaxy::planSlope(x, y, [&](int cx, int cy) { return look(cx, cy); }, available, family);
         if (plan.allowed()) {
             for (const galaxy::RiverEdit& edit : plan.edits) {
                 at(edit.x, edit.y) = edit.key;
@@ -3592,6 +3603,29 @@ void testSlopes() {
     marsPair.at(2, 1) = "Cliff-High-B-01";
     expect(marsPair.slope(1, 1, marsSlope).allowed() && marsPair.at(1, 1) == "Single-High-B" && marsPair.at(2, 1) == "Cliff-High-B-01", "the first Mars slope leaves the next cliff alone");
     expect(marsPair.slope(2, 1, marsSlope).allowed() && marsPair.at(1, 1) == "Single-High-B" && marsPair.at(2, 1) == "Single-High-B", "Mars slopes sit beside each other as singles, got " + marsPair.at(1, 1) + " and " + marsPair.at(2, 1));
+
+    // Metal's Base-139 to Base-255 slopes are four straight singles. A neighbour stays
+    // a cliff until it is clicked, and a corner cliff is refused.
+    const auto metal255 = [](std::string_view key) {
+        return key == "Single-255-High-B" || key == "Single-255-High-T" || key == "Single-255-High-L" || key == "Single-255-High-R";
+    };
+    SlopeTestGrid metal255Pair(4, 3, "Base-139");
+    metal255Pair.at(1, 1) = "Cliff-255-High-B";
+    metal255Pair.at(2, 1) = "Cliff-255-High-B";
+    expect(metal255Pair.slope(1, 1, metal255, 255).allowed() && metal255Pair.at(1, 1) == "Single-255-High-B" && metal255Pair.at(2, 1) == "Cliff-255-High-B", "the first Base-255 slope leaves the next cliff alone");
+    expect(metal255Pair.slope(2, 1, metal255, 255).allowed() && metal255Pair.at(1, 1) == "Single-255-High-B" && metal255Pair.at(2, 1) == "Single-255-High-B", "Base-255 slopes sit beside each other as singles");
+    SlopeTestGrid metal255Corner(3, 3, "Base-139");
+    metal255Corner.at(1, 1) = "Cliff-255-High-BR";
+    const galaxy::RiverPlan metal255Refused = metal255Corner.slope(1, 1, metal255, 255);
+    expect(!metal255Refused.allowed() && metal255Refused.reason.find("straight cliffs") != std::string::npos && metal255Corner.at(1, 1) == "Cliff-255-High-BR", "Base-255 slopes refuse a cliff corner");
+    SlopeTestGrid metal255Plain(3, 3, "Base-85");
+    metal255Plain.at(1, 1) = "Cliff-High-B";
+    const galaxy::RiverPlan metal255Wrong = metal255Plain.slope(1, 1, metal255, 255);
+    expect(!metal255Wrong.allowed() && metal255Wrong.reason.find("Base-139 and Base-255") != std::string::npos && metal255Plain.at(1, 1) == "Cliff-High-B", "the Base-255 slopes stay off a Base-219 cliff");
+    SlopeTestGrid plainOn255(3, 3, "Base-139");
+    plainOn255.at(1, 1) = "Cliff-255-High-B";
+    const galaxy::RiverPlan plainRefused = plainOn255.slope(1, 1);
+    expect(!plainRefused.allowed() && plainRefused.reason.find("Base-85 and Base-219") != std::string::npos && plainOn255.at(1, 1) == "Cliff-255-High-B", "the Base-219 slopes stay off a Base-255 cliff");
     SlopeTestGrid marsCorner(3, 3, "Base-85");
     marsCorner.at(1, 1) = "Cliff-Low-BR-01";
     const galaxy::RiverPlan marsLow = marsCorner.slope(1, 1, marsSlope);

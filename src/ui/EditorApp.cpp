@@ -3553,7 +3553,13 @@ void EditorApp::drawMap() {
         } else {
             const char* action = "Click to paint one 16 x 16 cell";
             if (armedBrushKind() == BrushKind::Slope) {
-                action = brushName_ == "Slope 85 to 219" ? "Click a Base-85 to Base-219 cliff to turn it into a slope" : "Click a cliff to turn it into a slope";
+                if (brushName_ == "Slope 139 to 255") {
+                    action = "Click a straight Base-139 to Base-255 cliff to turn it into a slope";
+                } else if (brushName_ == "Slope 85 to 219") {
+                    action = "Click a Base-85 to Base-219 cliff to turn it into a slope";
+                } else {
+                    action = "Click a cliff to turn it into a slope";
+                }
             }
             if (hoverOverMap_) {
                 ImGui::SetTooltip("%s\n%s\nEsc cancels\nHeight %d", what, action, hoverHeight_);
@@ -6646,6 +6652,8 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
     case BrushKind::Slope: {
         // The plan only asks for slope pieces this world actually has. Mars keeps
         // straight singles on neighbouring 16 x 16 cells and refuses corners.
+        // Metal's second slope button is the four straight Base-139 to Base-255 ramps.
+        const int family = brushName_ == "Slope 139 to 255" ? 255 : 0;
         const auto available = [&](std::string_view key) {
             for (const RiverSection& section : riverSections_) {
                 if (sameRiverKey(section.key, key)) {
@@ -6654,7 +6662,7 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
             }
             return false;
         };
-        return planSlope(cellX, cellY, lookup, available);
+        return planSlope(cellX, cellY, lookup, available, family);
     }
     case BrushKind::Base: break;
     }
@@ -7117,6 +7125,9 @@ void EditorApp::ensureBrushPaints() {
     // tilesets keep the shorter Slope button.
     const bool metalSlopes = lowerText(brushWorld_) == "metal";
     addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
+    if (metalSlopes) {
+        addRiverButton("Slope 139 to 255", "Single-255-High-B", BrushKind::Slope);
+    }
     if (!brushName_.empty()) {
         bool found = false;
         for (const BrushPaint& paint : brushPaints_) {
@@ -7285,9 +7296,13 @@ void EditorApp::drawTileBrush() {
             } else if (paint.kind == BrushKind::Spacer) {
                 hint = "Open a gap in a ridge\nSpacers only go on straight ridges";
             } else if (paint.kind == BrushKind::Slope) {
-                hint = paint.name == "Slope 85 to 219"
-                    ? "Turn a Base-85 to Base-219 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends"
-                    : "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                if (paint.name == "Slope 139 to 255") {
+                    hint = "Turn a straight Base-139 to Base-255 cliff into a slope\nEach slope stays on its own cliff";
+                } else if (paint.name == "Slope 85 to 219") {
+                    hint = "Turn a Base-85 to Base-219 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                } else {
+                    hint = "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                }
             }
             if (selected) {
                 hint = "Click again or press Esc to leave the brush";

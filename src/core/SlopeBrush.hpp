@@ -2,7 +2,9 @@
 
 // Slope brush. A slope is a cliff between Base-85 and Base-219 that a unit can
 // walk. Clicking a cliff turns that one cell into the slope with the same high
-// ground. Neighbouring slopes are redrawn so a run stays smooth:
+// ground. A family number, such as 255, is the same idea for another cliff:
+// Metal's Base-139 to Base-255 slopes are Single-255-High-B and the other three
+// straight edges. Neighbouring slopes are redrawn so a run stays smooth:
 //
 //   one cell            Single-High-B, Single-High-BL, ...
 //   the middle of a run Slope-High-B, and Slope-High-BL where two runs meet
@@ -111,26 +113,59 @@ inline const char* slopeEdgeLetter(int mask) {
     }
 }
 
-// "Cliff-High-BL-02" and "Slope-Low-TL-TransitionT" share one shape.
-inline SlopeShape parseSlopeShape(std::string_view label) {
+// "Single-High-B" stays plain. Family 255 names the same shape "Single-255-High-B".
+inline std::string slopeQualify(std::string name, int family) {
+    if (family <= 0 || name.empty()) {
+        return name;
+    }
+    const std::size_t dash = name.find('-');
+    if (dash == std::string::npos) {
+        return name;
+    }
+    name.insert(dash + 1, std::to_string(family) + "-");
+    return name;
+}
+
+// "Cliff-High-BL-02" and "Slope-Low-TL-TransitionT" share one shape. Family 0 is
+// that plain name. Family 255 reads Cliff-255-High-B and Single-255-High-B.
+inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
     SlopeShape shape;
     const std::string key = riverLowerText(riverKeyOf(label));
+    struct Taken {
+        bool matched = false;
+        std::string_view rest;
+    };
+    const auto take = [&](std::string_view prefix) {
+        Taken taken;
+        const std::string qualified = slopeQualify(std::string(prefix), family);
+        if (!key.starts_with(qualified)) {
+            return taken;
+        }
+        taken.matched = true;
+        taken.rest = std::string_view(key).substr(qualified.size());
+        return taken;
+    };
+    const Taken cliffHigh = take("cliff-high-");
+    const Taken cliffLow = take("cliff-low-");
+    const Taken slopeHigh = take("slope-high-");
+    const Taken slopeLow = take("slope-low-");
+    const Taken singleHigh = take("single-high-");
     std::string_view rest;
     bool low = false;
-    if (key.starts_with("cliff-high-")) {
-        rest = std::string_view(key).substr(11);
-    } else if (key.starts_with("cliff-low-")) {
-        rest = std::string_view(key).substr(10);
+    if (cliffHigh.matched) {
+        rest = cliffHigh.rest;
+    } else if (cliffLow.matched) {
+        rest = cliffLow.rest;
         low = true;
-    } else if (key.starts_with("slope-high-")) {
-        rest = std::string_view(key).substr(11);
+    } else if (slopeHigh.matched) {
+        rest = slopeHigh.rest;
         shape.slope = true;
-    } else if (key.starts_with("slope-low-")) {
-        rest = std::string_view(key).substr(10);
+    } else if (slopeLow.matched) {
+        rest = slopeLow.rest;
         shape.slope = true;
         low = true;
-    } else if (key.starts_with("single-high-")) {
-        rest = std::string_view(key).substr(12);
+    } else if (singleHigh.matched) {
+        rest = singleHigh.rest;
         shape.slope = true;
     } else {
         return {};
@@ -173,7 +208,7 @@ inline SlopeShape parseSlopeShape(std::string_view label) {
 
 // The slope tile for this high-ground mask. continuing is the kRiver* sides
 // whose neighbour is already a slope that should meet this cell smoothly.
-inline std::string slopePieceName(int mask, int continuing) {
+inline std::string slopePieceName(int mask, int continuing, int family = 0) {
     const int got = continuing & slopeCliffSides(mask);
     int count = 0;
     int only = 0;
@@ -189,12 +224,12 @@ inline std::string slopePieceName(int mask, int continuing) {
             return {};
         }
         if (count == 0) {
-            return std::string("Single-High-") + edge;
+            return slopeQualify(std::string("Single-High-") + edge, family);
         }
         if (count >= 2) {
-            return std::string("Slope-High-") + edge;
+            return slopeQualify(std::string("Slope-High-") + edge, family);
         }
-        return std::string("Slope-High-") + edge + "-Transition" + riverLetterOfSide(only);
+        return slopeQualify(std::string("Slope-High-") + edge + "-Transition" + riverLetterOfSide(only), family);
     }
     if (slopeCornerCount(mask) == 1) {
         const char* corner = slopeCornerLetters(mask);
@@ -202,9 +237,9 @@ inline std::string slopePieceName(int mask, int continuing) {
             return {};
         }
         if (count >= 2) {
-            return std::string("Slope-High-") + corner;
+            return slopeQualify(std::string("Slope-High-") + corner, family);
         }
-        return std::string("Single-High-") + corner;
+        return slopeQualify(std::string("Single-High-") + corner, family);
     }
     if (slopeCornerCount(mask) == 3) {
         const char* corner = slopeCornerLetters(kCornerAll & ~mask);
@@ -212,9 +247,9 @@ inline std::string slopePieceName(int mask, int continuing) {
             return {};
         }
         if (count == 1) {
-            return std::string("Slope-Low-") + corner + "-Transition" + riverLetterOfSide(only);
+            return slopeQualify(std::string("Slope-Low-") + corner + "-Transition" + riverLetterOfSide(only), family);
         }
-        return std::string("Slope-Low-") + corner;
+        return slopeQualify(std::string("Slope-Low-") + corner, family);
     }
     return {};
 }
@@ -224,21 +259,21 @@ inline std::string slopePieceName(int mask, int continuing) {
 // plans as if every piece exists, which is how the GreenWorld slopes behave.
 // A tileset that only has the straight singles (Mars) keeps those singles beside
 // each other on the 16 x 16 cells, and refuses a cliff corner.
-inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
+inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}, int family = 0) {
     RiverPlan plan;
-    const SlopeShape here = parseSlopeShape(lookup(x, y).label);
+    const SlopeShape here = parseSlopeShape(lookup(x, y).label, family);
     if (!here.valid) {
         const RiverCell cell = lookup(x, y);
         std::string text = "Slopes cannot go on ";
         text += cell.label.empty() ? "this tile" : cell.label;
-        text += "\nSlopes only go on cliffs between Base-85 and Base-219";
+        text += family == 255 ? "\nSlopes only go on cliffs between Base-139 and Base-255" : "\nSlopes only go on cliffs between Base-85 and Base-219";
         plan.reason = std::move(text);
         return plan;
     }
 
     // No Slope-High or Slope-Low pieces means the run cannot bend or meet in the
     // middle. Neighbouring straight slopes stay singles, one 16 x 16 cell each.
-    const bool straightOnly = static_cast<bool>(available) && !available("Slope-High-B") && !available("Slope-Low-TL");
+    const bool straightOnly = static_cast<bool>(available) && !available(slopeQualify("Slope-High-B", family)) && !available(slopeQualify("Slope-Low-TL", family));
     if (straightOnly && !slopeStraight(here.mask)) {
         const RiverCell cell = lookup(x, y);
         std::string text = "Slopes cannot go on ";
@@ -271,7 +306,7 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
                 if (slopes.find({nx, ny}) != slopes.end()) {
                     continue;
                 }
-                const SlopeShape next = parseSlopeShape(lookup(nx, ny).label);
+                const SlopeShape next = parseSlopeShape(lookup(nx, ny).label, family);
                 // A cliff the brush did not click stays a cliff. Slopes already placed join the run.
                 if (!next.valid || !next.slope || !slopeEdgesMatch(mask, next.mask, direction)) {
                     continue;
@@ -337,7 +372,7 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
     }
     for (const auto& cell : order) {
         const int mask = slopes[cell];
-        const std::string wanted = slopePieceName(mask, continuing(cell.first, cell.second, mask));
+        const std::string wanted = slopePieceName(mask, continuing(cell.first, cell.second, mask), family);
         if (wanted.empty()) {
             continue;
         }
