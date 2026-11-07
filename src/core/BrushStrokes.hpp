@@ -25,7 +25,8 @@ namespace galaxy {
 // with Cliff pieces. Base-85 and Base-255 join with Cliff pieces. Mars uses that
 // pair: its cliff flat is height 255. Base-85 and Base-170 join with Cliff pieces.
 // Ice uses that pair: water is Base-0, land is Base-85, and the high ground is
-// Base-170. Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
+// Base-170. Crystal uses the coast alone: water is Base-0 and land is Base-85.
+// Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
 // Base-85 and Base-139 join with Cliff pieces. Metal's raised ground is Base-139.
 // Base-85 also joins Base-219 with Cliff pieces. When one low ground has two cliff
 // tops, Base-219 keeps the plain Cliff-High name and the other top is
