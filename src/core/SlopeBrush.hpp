@@ -4,7 +4,14 @@
 // walk. Clicking a cliff turns that one cell into the slope with the same high
 // ground. A family number, such as 255, is the same idea for another cliff:
 // Metal's Base-139 to Base-255 slopes are Single-255-High-B and the other three
-// straight edges. Neighbouring slopes are redrawn so a run stays smooth:
+// straight edges. Family 202 is Archipelago's Base-86 to Base-202 slopes. Those
+// cliffs keep the plain Cliff-High names. Family 155 is Desert's Base-80 to
+// Base-155 slopes, and those cliffs keep the plain Cliff-High names too. Family
+// 230 is Desert's Base-155 to Base-230 slopes, and those read the Cliff-230
+// cliffs. Both Desert sets have the Mars set: four straight singles and four high-corner singles, with no
+// run pieces, so a neighbour stays a single and a corner cliff is refused. A
+// corner alone is Single-202-High-TL or Single-202-Low-BR. One neighbouring slope uses Slope-202-High-TL-TransitionT,
+// and both arms use Slope-202-High-TL. Neighbouring slopes are redrawn so a run stays smooth:
 //
 //   one cell            Single-High-B, Single-High-BL, ...
 //   the middle of a run Slope-High-B, and Slope-High-BL where two runs meet
@@ -135,9 +142,9 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
         bool matched = false;
         std::string_view rest;
     };
-    const auto take = [&](std::string_view prefix) {
+    const auto take = [&](std::string_view prefix, bool qualify) {
         Taken taken;
-        const std::string qualified = slopeQualify(std::string(prefix), family);
+        const std::string qualified = qualify ? slopeQualify(std::string(prefix), family) : std::string(prefix);
         if (!key.starts_with(qualified)) {
             return taken;
         }
@@ -145,31 +152,40 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
         taken.rest = std::string_view(key).substr(qualified.size());
         return taken;
     };
-    const Taken cliffHigh = take("cliff-high-");
-    const Taken cliffLow = take("cliff-low-");
-    const Taken slopeHigh = take("slope-high-");
-    const Taken slopeLow = take("slope-low-");
-    const Taken singleHigh = take("single-high-");
-    std::string_view rest;
-    bool low = false;
-    if (cliffHigh.matched) {
-        rest = cliffHigh.rest;
-    } else if (cliffLow.matched) {
-        rest = cliffLow.rest;
-        low = true;
-    } else if (slopeHigh.matched) {
-        rest = slopeHigh.rest;
-        shape.slope = true;
-    } else if (slopeLow.matched) {
-        rest = slopeLow.rest;
-        shape.slope = true;
-        low = true;
-    } else if (singleHigh.matched) {
-        rest = singleHigh.rest;
-        shape.slope = true;
-    } else {
-        return {};
-    }
+// Family 255 cliffs are Cliff-255-High. Family 230 cliffs are Cliff-230-High.
+// Archipelago's family 202 and Desert's family 155 read the plain Cliff-High
+// cliffs and keep the family number in the slope names only.
+const bool qualifiedCliffs = family == 255 || family == 230;
+const Taken cliffHigh = take("cliff-high-", qualifiedCliffs);
+const Taken cliffLow = take("cliff-low-", qualifiedCliffs);
+const Taken slopeHigh = take("slope-high-", true);
+const Taken slopeLow = take("slope-low-", true);
+const Taken singleHigh = take("single-high-", true);
+const Taken singleLow = take("single-low-", true);
+std::string_view rest;
+bool low = false;
+if (cliffHigh.matched) {
+    rest = cliffHigh.rest;
+} else if (cliffLow.matched) {
+    rest = cliffLow.rest;
+    low = true;
+} else if (slopeHigh.matched) {
+    rest = slopeHigh.rest;
+    shape.slope = true;
+} else if (slopeLow.matched) {
+    rest = slopeLow.rest;
+    shape.slope = true;
+    low = true;
+} else if (singleHigh.matched) {
+    rest = singleHigh.rest;
+    shape.slope = true;
+} else if (singleLow.matched) {
+    rest = singleLow.rest;
+    shape.slope = true;
+    low = true;
+} else {
+    return {};
+}
     const std::size_t transition = rest.find("-transition");
     if (transition != std::string_view::npos) {
         rest = rest.substr(0, transition);
@@ -239,6 +255,11 @@ inline std::string slopePieceName(int mask, int continuing, int family = 0) {
         if (count >= 2) {
             return slopeQualify(std::string("Slope-High-") + corner, family);
         }
+        // Archipelago has a one-sided corner for each arm. GreenWorld keeps the
+        // single until both arms are slopes.
+        if (count == 1 && family == 202) {
+            return slopeQualify(std::string("Slope-High-") + corner + "-Transition" + riverLetterOfSide(only), family);
+        }
         return slopeQualify(std::string("Single-High-") + corner, family);
     }
     if (slopeCornerCount(mask) == 3) {
@@ -248,6 +269,11 @@ inline std::string slopePieceName(int mask, int continuing, int family = 0) {
         }
         if (count == 1) {
             return slopeQualify(std::string("Slope-Low-") + corner + "-Transition" + riverLetterOfSide(only), family);
+        }
+        // An Archipelago corner that meets no other slope is a Single. The
+        // Slope-Low picture is the one used once both arms are slopes.
+        if (count == 0 && family == 202) {
+            return slopeQualify(std::string("Single-Low-") + corner, family);
         }
         return slopeQualify(std::string("Slope-Low-") + corner, family);
     }
@@ -266,7 +292,17 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         const RiverCell cell = lookup(x, y);
         std::string text = "Slopes cannot go on ";
         text += cell.label.empty() ? "this tile" : cell.label;
-        text += family == 255 ? "\nSlopes only go on cliffs between Base-139 and Base-255" : "\nSlopes only go on cliffs between Base-85 and Base-219";
+        const char* range = "\nSlopes only go on cliffs between Base-85 and Base-219";
+        if (family == 255) {
+            range = "\nSlopes only go on cliffs between Base-139 and Base-255";
+        } else if (family == 202) {
+            range = "\nSlopes only go on cliffs between Base-86 and Base-202";
+        } else if (family == 155) {
+            range = "\nSlopes only go on cliffs between Base-80 and Base-155";
+        } else if (family == 230) {
+            range = "\nSlopes only go on cliffs between Base-155 and Base-230";
+        }
+        text += range;
         plan.reason = std::move(text);
         return plan;
     }
@@ -334,6 +370,11 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
             }
         }
         if (slopeCornerCount(mask) == 1) {
+            // Family 202's one-sided corner is itself a joining slope, so the
+            // arm beside it becomes a transition too.
+            if (family == 202 && (present & back) != 0) {
+                return true;
+            }
             return present == slopeCliffSides(mask);
         }
         if (present == 0) {
@@ -372,9 +413,26 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
     }
     for (const auto& cell : order) {
         const int mask = slopes[cell];
-        const std::string wanted = slopePieceName(mask, continuing(cell.first, cell.second, mask), family);
+        std::string wanted = slopePieceName(mask, continuing(cell.first, cell.second, mask), family);
         if (wanted.empty()) {
             continue;
+        }
+        // A tileset that has no picture for one join uses the slope that meets
+        // on both sides, then the single. The click still places a real slope.
+        if (available && !available(wanted)) {
+            const std::string marker = "-Transition";
+            const auto cut = wanted.rfind(marker);
+            if (cut != std::string::npos) {
+                const std::string plain = wanted.substr(0, cut);
+                if (available(plain)) {
+                    wanted = plain;
+                } else if (plain.starts_with("Slope-")) {
+                    const std::string single = "Single-" + plain.substr(6);
+                    if (available(single)) {
+                        wanted = single;
+                    }
+                }
+            }
         }
         const std::string current = riverKeyOf(lookup(cell.first, cell.second).label);
         if (!sameRiverKey(current, wanted)) {

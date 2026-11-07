@@ -11,6 +11,8 @@
 //                     the side named, and the river enters from the opposite side.
 //   Bridge pieces     RiverB-Horizontal, RiverB-Vertical, RiverB-R-B, ... mirror the
 //                     River- names, so a bridge goes where the River- name matches.
+//                     RiverB-4way is the bridge for a 4-way crossing. A tileset that
+//                     has no such section keeps the crossing without a bridge.
 //
 // Ridges follow the same rules with their own names:
 //   Ridge pieces      Ridge-Base, Ridge-End-X, Ridge-Horizontal, Ridge-Vertical,
@@ -44,8 +46,10 @@ inline constexpr int kRiverBottom = 4;
 inline constexpr int kRiverLeft = 8;
 inline constexpr int kRiverAllSides = 15;
 
-// The only flat base a river may be painted on.
+// The only flat bases a river may be painted on. Most lands are Base-85.
+// Desert land is Base-80.
 inline constexpr std::string_view kRiverLandBase = "Base-85";
+inline constexpr std::string_view kRiverDesertLand = "Base-80";
 
 inline int oppositeRiverSide(int side) {
     switch (side) {
@@ -67,6 +71,10 @@ inline std::string riverLowerText(std::string_view text) {
 
 inline bool sameRiverKey(std::string_view left, std::string_view right) {
     return riverLowerText(left) == riverLowerText(right);
+}
+
+inline bool riverLandLabel(std::string_view label) {
+    return sameRiverKey(label, kRiverLandBase) || sameRiverKey(label, kRiverDesertLand);
 }
 
 // Drops a trailing "-NN" variation number: "River-Horizontal-02" -> "River-Horizontal".
@@ -174,6 +182,12 @@ inline RiverPiece parseRiverPiece(std::string_view name) {
         return piece;
     }
     if (lowered.starts_with("riverb-")) {
+        if (riverLowerText(key.substr(7)) == "4way") {
+            piece.valid = true;
+            piece.bridge = true;
+            piece.sides = kRiverAllSides;
+            return piece;
+        }
         const int sides = riverSidesFromShape(key.substr(7));
         if (sides <= 0) {
             return RiverPiece{};
@@ -316,13 +330,16 @@ inline std::string riverMouthKey(int waterSide) {
     return std::string("River-Mouth-") + riverLetterOfSide(waterSide);
 }
 
-// "River-Horizontal" -> "RiverB-Horizontal". Only the straights and the four bends
-// have a bridge, so ponds, junctions and mouths give an empty name.
+// "River-Horizontal" -> "RiverB-Horizontal". Straights, the four bends, and a 4-way
+// crossing have a bridge. Ponds, 3-way junctions and mouths give an empty name.
 inline std::string riverBridgeKey(const RiverPiece& piece) {
     if (!piece.valid || piece.bridge || piece.mouth) {
         return {};
     }
     const std::string lowered = riverLowerText(piece.key);
+    if (lowered == "riverintersect-4way") {
+        return "RiverB-4way";
+    }
     if (!lowered.starts_with("river-") || lowered == "river-base") {
         return {};
     }
@@ -430,7 +447,7 @@ struct RiverCell {
 inline RiverCell classifyRiverLabel(std::string_view label) {
     RiverCell cell;
     cell.label = std::string(label);
-    if (sameRiverKey(label, kRiverLandBase)) {
+    if (riverLandLabel(label)) {
         cell.kind = RiverCell::Kind::Land;
         return cell;
     }
@@ -512,15 +529,15 @@ inline RiverCell::Kind mouthKind(LineFamily family) {
 inline std::string noPlace(LineFamily family, const RiverCell& here) {
     return family == LineFamily::Ridge
         ? cannotPlace("Ridges", here, "Ridges only go on Base-85 and cliff edges")
-        : cannotPlace("Rivers", here, "Rivers only go on Base-85 and coast edges");
+        : cannotPlace("Rivers", here, "Rivers only go on Base-85, Base-80 and coast edges");
 }
 
 }  // namespace river_detail
 
-// Rivers go on Base-85 and on the straight coasts. Ridges go on Base-85 and on the
+// Rivers go on Base-85 or Base-80 and on the straight coasts. Ridges go on Base-85 and on the
 // straight cliffs. A cell that already holds one is rebuilt, and so are the plain
 // cells of the same kind that now join it.
-inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lookup) {
+inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
     const bool ridge = family == LineFamily::Ridge;
     const RiverCell::Kind lineKind = river_detail::lineKind(family);
     RiverPlan plan;
@@ -575,6 +592,10 @@ inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lo
         // A lone cell that is already drawn keeps its shape.
         wanted = (sides == 0 && here.kind == lineKind) ? centre : parseLinePiece(lineKeyForSides(family, sides));
     }
+    // A tileset without a pond starts a lone river as a straight run.
+    if (available && !available(wanted.key) && sameRiverKey(wanted.key, "River-Base") && available("River-Horizontal")) {
+        wanted = parseLinePiece("River-Horizontal");
+    }
     if (here.kind != lineKind || !sameRiverKey(here.piece.key, wanted.key)) {
         placed[{x, y}] = wanted;
         plan.edits.push_back(RiverEdit{x, y, wanted.key});
@@ -611,7 +632,7 @@ inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lo
 // A bridge or a spacer only goes on a plain cell of its own kind. A bridge takes the
 // same shape (River-Horizontal becomes RiverB-Horizontal), and a spacer fills the
 // straight piece it sits on.
-inline RiverPlan planLineOverlay(LineFamily family, int x, int y, const RiverLookup& lookup) {
+inline RiverPlan planLineOverlay(LineFamily family, int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
     const bool ridge = family == LineFamily::Ridge;
     RiverPlan plan;
     const RiverCell here = lookup(x, y);
@@ -625,7 +646,7 @@ inline RiverPlan planLineOverlay(LineFamily family, int x, int y, const RiverLoo
         return plan;
     }
     const std::string key = lineOverlayKey(here.piece);
-    if (key.empty()) {
+    if (key.empty() || (available && !available(key))) {
         plan.reason = ridge ? river_detail::cannotPlace("Ridge spacers", here, "Spacers go on straight ridges")
                             : river_detail::cannotPlace("River bridges", here, "Bridges go on straight rivers and bends");
         return plan;
@@ -634,8 +655,12 @@ inline RiverPlan planLineOverlay(LineFamily family, int x, int y, const RiverLoo
     return plan;
 }
 
-inline RiverPlan planRiver(int x, int y, const RiverLookup& lookup) { return planLine(LineFamily::River, x, y, lookup); }
-inline RiverPlan planRiverBridge(int x, int y, const RiverLookup& lookup) { return planLineOverlay(LineFamily::River, x, y, lookup); }
+inline RiverPlan planRiver(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
+    return planLine(LineFamily::River, x, y, lookup, available);
+}
+inline RiverPlan planRiverBridge(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
+    return planLineOverlay(LineFamily::River, x, y, lookup, available);
+}
 inline RiverPlan planRidge(int x, int y, const RiverLookup& lookup) { return planLine(LineFamily::Ridge, x, y, lookup); }
 inline RiverPlan planRidgeSpacer(int x, int y, const RiverLookup& lookup) { return planLineOverlay(LineFamily::Ridge, x, y, lookup); }
 

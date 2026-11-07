@@ -2984,6 +2984,85 @@ void testBrushCells() {
     iceHigh.paint(2, 2, 1, 2);
     expect(iceHigh.piece(2, 2) == "Base-170" && iceHigh.piece(2, 1) == "Cliff-High-B" && iceHigh.piece(1, 1) == "Cliff-High-BR" && !iceHigh.steep(), "Ice high ground meets Base-85 with cliff pieces");
 
+    // Acid is Base-0 water and Base-85 land, joined by coast pieces.
+    const BrushGraph acid(std::vector<int>{0, 85});
+    expect(acid.style(0, 1) == TransitionStyle::Coast && acid.compatible(0, 1), "Acid joins water to Base-85 with coasts");
+    BrushTestLattice acidLand(5, 5, 0, acid);
+    acidLand.paint(2, 2, 1, 1);
+    expect(acidLand.piece(2, 2) == "Base-85" && acidLand.piece(2, 1) == "Coast-Water-T" && acidLand.piece(1, 1) == "Coast-Land-BR" && !acidLand.steep(), "Acid land in the water uses coast pieces");
+
+    // Desert is Base-0 water and Base-80 land, joined by coast pieces.
+    const BrushGraph desert(std::vector<int>{0, 80});
+    expect(desert.style(0, 1) == TransitionStyle::Coast && desert.compatible(0, 1), "Desert joins water to Base-80 with coasts");
+    BrushTestLattice desertLand(5, 5, 0, desert);
+    desertLand.paint(2, 2, 1, 1);
+    expect(desertLand.piece(2, 2) == "Base-80" && desertLand.piece(2, 1) == "Coast-Water-T" && desertLand.piece(1, 1) == "Coast-Land-BR" && !desertLand.steep(), "Desert land in the water uses coast pieces");
+    const BrushGraph desertCliff(std::vector<int>{0, 80, 155});
+    expect(desertCliff.style(1, 2) == TransitionStyle::Cliff && desertCliff.style(0, 2) == TransitionStyle::None && desertCliff.distance(0, 2) == 2, "Desert Base-155 sits on Base-80");
+    BrushTestLattice desertPlateau(5, 5, 1, desertCliff);
+    desertPlateau.paint(2, 2, 1, 2);
+    expect(desertPlateau.piece(2, 2) == "Base-155" && desertPlateau.piece(2, 1) == "Cliff-High-B" && desertPlateau.piece(1, 1) == "Cliff-High-BR" && !desertPlateau.steep(), "Desert Base-155 meets Base-80 with cliff pieces");
+    BrushTestLattice desertFromWater(5, 5, 0, desertCliff);
+    desertFromWater.paint(2, 2, 1, 2);
+    expect(desertFromWater.piece(2, 2) == "Base-155" && desertFromWater.piece(2, 1) == "Cliff-High-B" && desertFromWater.piece(2, 0) == "Coast-Water-T" && !desertFromWater.steep(), "Base-155 painted on water keeps Base-80 between them");
+    const BrushGraph desertMesa(std::vector<int>{0, 80, 155, 230});
+    expect(desertMesa.style(2, 3) == TransitionStyle::Cliff && desertMesa.style(1, 3) == TransitionStyle::None && desertMesa.distance(1, 3) == 2 && desertMesa.distance(0, 3) == 3, "Desert Base-230 sits on Base-155");
+    expect(brushPieceName(desertMesa, {2, 2, 3, 3}) == "Cliff-230-High-B" && brushPieceName(desertMesa, {1, 1, 2, 2}) == "Cliff-High-B", "the upper desert cliff is named apart from the Base-155 cliff");
+    BrushTestLattice desertTop(5, 5, 2, desertMesa);
+    desertTop.paint(2, 2, 1, 3);
+    expect(desertTop.piece(2, 2) == "Base-230" && desertTop.piece(2, 1) == "Cliff-230-High-B" && desertTop.piece(1, 1) == "Cliff-230-High-BR" && !desertTop.steep(), "Desert Base-230 meets Base-155 with its own cliff pieces");
+    BrushTestLattice desertTopOnLand(5, 5, 1, desertMesa);
+    desertTopOnLand.paint(2, 2, 1, 3);
+    expect(desertTopOnLand.piece(2, 2) == "Base-230" && desertTopOnLand.piece(2, 1) == "Cliff-230-High-B" && desertTopOnLand.piece(2, 0) == "Cliff-High-B" && !desertTopOnLand.steep(), "Base-230 painted on Base-80 keeps Base-155 between them");
+
+    // Base-68 meets Base-80 with shallow coasts. Base-0 still meets Base-68 with
+    // the shallow-deep pieces, and the ocean coast stays on Base-80.
+    const BrushGraph desertShore(std::vector<int>{0, 68, 80, 155, 230});
+    expect(desertShore.style(1, 2) == TransitionStyle::ShallowCoast && desertShore.style(0, 2) == TransitionStyle::Coast && desertShore.style(0, 1) == TransitionStyle::ShallowDeep && desertShore.distance(0, 1) == 1, "Desert Base-68 joins Base-80 with a shallow coast and Base-0 with shallow-deep pieces");
+    BrushTestLattice desertPool(5, 5, 2, desertShore);
+    desertPool.paint(2, 2, 1, 1);
+    expect(desertPool.piece(2, 2) == "Base-68" && desertPool.piece(2, 1) == "ShallowCoast-Water-B" && desertPool.piece(1, 1) == "ShallowCoast-Water-BR" && !desertPool.steep(), "Desert shallow water meets Base-80 with shallow coast pieces");
+    BrushTestLattice desertStillCoast(5, 5, 0, desertShore);
+    desertStillCoast.paint(2, 2, 1, 2);
+    expect(desertStillCoast.piece(2, 2) == "Base-80" && desertStillCoast.piece(2, 1) == "Coast-Water-T" && desertStillCoast.piece(1, 1) == "Coast-Land-BR" && !desertStillCoast.steep(), "Base-80 painted on water keeps the ocean coast");
+    BrushTestLattice desertPoolOnWater(5, 5, 0, desertShore);
+    desertPoolOnWater.paint(2, 2, 1, 1);
+    expect(desertPoolOnWater.piece(2, 2) == "Base-68" && desertPoolOnWater.piece(2, 1) == "ShallowDeep-Shallow-B" && desertPoolOnWater.piece(1, 1) == "ShallowDeep-Shallow-BR" && !desertPoolOnWater.steep(), "Base-68 painted on water meets it with ShallowDeep pieces");
+    expect(brushPieceName(desertShore, {2, 1, 0, 0}) == "DSL-Land-TL-Shallow-TR-Water-B", "Desert corners on 80, 68 and 0 pick a CoastDSL section");
+    BrushTestLattice desertMixed(9, 9, 2, desertShore);
+    desertMixed.paint(3, 3, 1, 1);
+    desertMixed.paint(4, 3, 1, 0);
+    bool desertDsl = false;
+    std::string desertDslOutside;
+    const auto desertDslKnown = [](const std::string& name) {
+        const char* known[] = {
+            "DSL-Land-L-Shallow-BR-Water-TR", "DSL-Land-L-Shallow-TR-Water-BR", "DSL-Land-R-Shallow-BL-Water-TL", "DSL-Land-R-Shallow-TL-Water-BL",
+            "DSL-Land-T-Shallow-BR-Water-BL", "DSL-Land-T-Shallow-BL-Water-BR", "DSL-Land-B-Shallow-TR-Water-TL", "DSL-Land-B-Shallow-TL-Water-TR",
+            "DSL-Land-BR-Shallow-TR-Water-L", "DSL-Land-BR-Shallow-BL-Water-T",
+            "DSL-Land-BL-Shallow-TL-Water-R", "DSL-Land-BL-Shallow-BR-Water-T",
+            "DSL-Land-TL-Shallow-BL-Water-R", "DSL-Land-TL-Shallow-TR-Water-B",
+            "DSL-Land-TR-Shallow-BR-Water-L", "DSL-Land-TR-Shallow-TL-Water-B"};
+        for (const char* piece : known) {
+            if (name == piece) {
+                return true;
+            }
+        }
+        return false;
+    };
+    for (int cy = 0; cy < 9; ++cy) {
+        for (int cx = 0; cx < 9; ++cx) {
+            const std::string name = desertMixed.piece(cx, cy);
+            if (name.rfind("DSL-", 0) != 0) {
+                continue;
+            }
+            desertDsl = true;
+            if (!desertDslKnown(name)) {
+                desertDslOutside = name;
+            }
+        }
+    }
+    expect(desertDsl && desertDslOutside.empty() && !desertMixed.steep(), "a Base-80 island can hold a Base-0 coast and a Base-68 coast, got " + desertDslOutside);
+
     // Archipelago is Base-0 water and Base-86 land, joined by the same coast shapes.
     const BrushGraph archipelago(std::vector<int>{0, 86});
     expect(archipelago.style(0, 1) == TransitionStyle::Coast && archipelago.compatible(0, 1), "Archipelago joins water to Base-86 with coasts");
@@ -2998,6 +3077,49 @@ void testBrushCells() {
     BrushTestLattice archFromWater(5, 5, 0, archRavine);
     archFromWater.paint(2, 2, 1, 2);
     expect(archFromWater.piece(2, 2) == "Base-202" && archFromWater.piece(2, 1) == "Cliff-High-B" && archFromWater.piece(2, 0) == "Coast-Water-T" && !archFromWater.steep(), "Base-202 painted on water keeps Base-86 between them");
+    const BrushGraph archShelf(std::vector<int>{0, 72, 86, 202});
+    expect(archShelf.style(0, 1) == TransitionStyle::ShallowDeep && archShelf.style(1, 2) == TransitionStyle::ShallowCoast && archShelf.style(0, 2) == TransitionStyle::Coast && archShelf.style(2, 3) == TransitionStyle::Cliff, "Archipelago Base-72 joins Base-0 and Base-86 and leaves the deep coast");
+    expect(archShelf.distance(0, 2) == 1 && archShelf.distance(0, 3) == 2, "Base-86 stays one coast from the water when Base-72 is also a paint");
+    BrushTestLattice archShallow(5, 5, 0, archShelf);
+    archShallow.paint(2, 2, 1, 1);
+    expect(archShallow.piece(2, 2) == "Base-72" && archShallow.piece(2, 1) == "ShallowDeep-Shallow-B" && !archShallow.steep(), "Base-72 in the water uses shallow-deep pieces");
+    BrushTestLattice archShelfLand(5, 5, 1, archShelf);
+    archShelfLand.paint(2, 2, 1, 2);
+    expect(archShelfLand.piece(2, 2) == "Base-86" && archShelfLand.piece(2, 1) == "ShallowCoast-Water-T" && !archShelfLand.steep(), "Base-86 in Base-72 uses shallow coast pieces");
+    BrushTestLattice archDeepCoast(5, 5, 0, archShelf);
+    archDeepCoast.paint(2, 2, 1, 2);
+    expect(archDeepCoast.piece(2, 2) == "Base-86" && archDeepCoast.piece(2, 1) == "Coast-Water-T" && archDeepCoast.piece(2, 0) == "Base-0" && !archDeepCoast.steep(), "Base-86 painted on water still uses the deep coast");
+    expect(brushPieceName(archShelf, {2, 1, 0, 0}) == "DSL-Land-TL-Shallow-TR-Water-B", "Archipelago corners on 86, 72 and 0 pick a CoastDSL section");
+    BrushTestLattice archMixed(9, 9, 2, archShelf);
+    archMixed.paint(3, 3, 1, 1);
+    archMixed.paint(4, 3, 1, 0);
+    bool archDsl = false;
+    for (int cy = 0; cy < 9; ++cy) {
+        for (int cx = 0; cx < 9; ++cx) {
+            archDsl = archDsl || archMixed.piece(cx, cy).rfind("DSL-", 0) == 0;
+        }
+    }
+    expect(archDsl && !archMixed.steep(), "a Base-86 island can hold a Base-0 coast and a Base-72 coast");
+
+    // GreenWorld Base-85 meets Archipelago Base-86 with blend pieces named for the
+    // Archipelago side. Archipelago water still reaches its own land in one coast.
+    const BrushGraph greenArchi(std::vector<int>{85, 86}, {"Green", "Archi"});
+    expect(greenArchi.style(0, 1) == TransitionStyle::WorldBlend && greenArchi.compatible(0, 1), "GreenWorld Base-85 and Archipelago Base-86 join with blend pieces");
+    expect(transitionPieceName(TransitionStyle::WorldBlend, kCornerTopLeft | kCornerTopRight, "Water", "Archi") == "Blend-Archi-T" && transitionPieceName(TransitionStyle::WorldBlend, kCornerAll & ~kCornerBottomRight, "Water", "Archi") == "Blend-Archi-Low-BR", "archipelago blend pieces name the archipelago side");
+    BrushTestLattice archOnGreen(5, 5, 0, greenArchi);
+    archOnGreen.paint(2, 2, 1, 1);
+    expect(archOnGreen.piece(2, 2) == "Base-86" && archOnGreen.piece(2, 1) == "Blend-Archi-B" && archOnGreen.piece(1, 2) == "Blend-Archi-R" && archOnGreen.piece(1, 1) == "Blend-Archi-BR" && !archOnGreen.steep(), "Archipelago painted on grass is ringed by archipelago blend pieces");
+    BrushTestLattice greenOnArchi(5, 5, 1, greenArchi);
+    greenOnArchi.paint(2, 2, 1, 0);
+    expect(greenOnArchi.piece(2, 2) == "Base-85" && greenOnArchi.piece(2, 1) == "Blend-Archi-T" && greenOnArchi.piece(1, 1) == "Blend-Archi-Low-BR" && !greenOnArchi.steep(), "grass painted on Archipelago is ringed by archipelago blend pieces");
+    const BrushGraph archWithGrass(std::vector<int>{0, 72, 85, 86, 202}, {"Archi", "Archi", "Green", "Archi", "Archi"});
+    expect(archWithGrass.style(0, 3) == TransitionStyle::Coast && archWithGrass.style(2, 3) == TransitionStyle::WorldBlend && archWithGrass.distance(0, 3) == 1, "Archipelago keeps its deep coast when GreenWorld Base-85 is a paint");
+    BrushTestLattice archCoastRemains(5, 5, 0, archWithGrass);
+    archCoastRemains.paint(2, 2, 1, 3);
+    expect(archCoastRemains.piece(2, 2) == "Base-86" && archCoastRemains.piece(2, 1) == "Coast-Water-T" && archCoastRemains.piece(2, 0) == "Base-0" && !archCoastRemains.steep(), "Archipelago land painted on its own water does not detour through grass");
+    const BrushGraph grassBesideArchi(std::vector<int>{0, 85, 86, 86}, {"Green", "Green", "Lava", "Archi"});
+    expect(grassBesideArchi.style(0, 2) == TransitionStyle::None && grassBesideArchi.style(0, 3) == TransitionStyle::None && grassBesideArchi.style(1, 2) == TransitionStyle::WorldBlend && grassBesideArchi.style(1, 3) == TransitionStyle::WorldBlend && grassBesideArchi.distance(0, 3) == 2, "GreenWorld water reaches Archipelago through Base-85 and still reaches Lava the same way");
+    expect(brushPieceName(grassBesideArchi, {1, 1, 3, 3}) == "Blend-Archi-B" && brushPieceName(grassBesideArchi, {1, 1, 2, 2}) == "Blend-Green-T", "grass against Archipelago and grass against Lava keep their own blend pieces");
     const BrushGraph waterThenLava(std::vector<int>{0, 85, 86}, {"Mars", "Mars", "Lava"});
     expect(waterThenLava.style(0, 1) == TransitionStyle::Coast && waterThenLava.style(1, 2) == TransitionStyle::WorldBlend && waterThenLava.style(0, 2) == TransitionStyle::None && waterThenLava.distance(0, 2) == 2, "water reaches Lava Base-86 through Base-85");
 
@@ -3136,7 +3258,10 @@ void testRivers() {
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Horizontal-03")) == "RiverB-Horizontal", "a bridge over River-Horizontal is RiverB-Horizontal");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-T-R-01")) == "RiverB-T-R", "a bridge over River-T-R is RiverB-T-R");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Base-01")).empty(), "a pond has no bridge");
-    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-4way-01")).empty(), "a junction has no bridge");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-4way-01")) == "RiverB-4way", "a 4-way crossing takes RiverB-4way");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-3way-T-L-R-01")).empty(), "a 3-way junction has no bridge");
+    const galaxy::RiverPiece fourBridge = galaxy::parseRiverPiece("RiverB-4way-02");
+    expect(fourBridge.valid && fourBridge.bridge && !fourBridge.flexible && fourBridge.sides == galaxy::kRiverAllSides, "RiverB-4way joins every side");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Mouth-B-01")).empty(), "a mouth has no bridge");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverB-Vertical-01")).empty(), "a bridge has no second bridge");
 
@@ -3146,6 +3271,8 @@ void testRivers() {
 
     // What a cell holds.
     expect(galaxy::classifyRiverLabel("Base-85").kind == galaxy::RiverCell::Kind::Land, "Base-85 takes rivers");
+    expect(galaxy::classifyRiverLabel("Base-80").kind == galaxy::RiverCell::Kind::Land, "Base-80 takes rivers");
+    expect(galaxy::classifyRiverLabel("Base-155").kind == galaxy::RiverCell::Kind::Other, "Base-155 does not take rivers");
     expect(galaxy::classifyRiverLabel("Base-68").kind == galaxy::RiverCell::Kind::Other && galaxy::classifyRiverLabel("Base-68").label == "Base-68", "Base-68 does not");
     expect(galaxy::classifyRiverLabel("Base-219").kind == galaxy::RiverCell::Kind::Other, "Base-219 does not");
     expect(galaxy::classifyRiverLabel("Coast-Water-B-01").kind == galaxy::RiverCell::Kind::Coast, "a straight coast takes a mouth");
@@ -3238,7 +3365,22 @@ void testRivers() {
     fork.river(1, 2);
     fork.river(3, 2);
     fork.river(2, 1);
-    expect(!fork.bridge(2, 2).allowed() && fork.at(2, 2) == "RiverIntersect-3way-T-L-R-01", "a junction takes no bridge");
+    expect(!fork.bridge(2, 2).allowed() && fork.at(2, 2) == "RiverIntersect-3way-T-L-R-01", "a 3-way junction takes no bridge");
+    RiverTestGrid crossing(5, 5, "Base-85");
+    crossing.at(2, 2) = "RiverIntersect-4way-01";
+    const auto noFour = [](std::string_view) { return false; };
+    const galaxy::RiverPlan refused = galaxy::planRiverBridge(2, 2, [&](int cx, int cy) { return crossing.look(cx, cy); }, noFour);
+    expect(!refused.allowed() && refused.reason.find("straight rivers and bends") != std::string::npos && crossing.at(2, 2) == "RiverIntersect-4way-01", "a 4-way without a bridge section stays a crossing");
+    const auto hasFour = [](std::string_view key) { return galaxy::sameRiverKey(key, "RiverB-4way"); };
+    const galaxy::RiverPlan crossed = galaxy::planRiverBridge(2, 2, [&](int cx, int cy) { return crossing.look(cx, cy); }, hasFour);
+    expect(crossed.allowed() && crossed.edits.size() == 1 && crossed.edits[0].key == "RiverB-4way", "a 4-way with a bridge section takes RiverB-4way");
+    RiverTestGrid acidStart(3, 3, "Base-85");
+    const auto noPond = [](std::string_view key) { return !galaxy::sameRiverKey(key, "River-Base"); };
+    const galaxy::RiverPlan started = galaxy::planRiver(1, 1, [&](int cx, int cy) { return acidStart.look(cx, cy); }, noPond);
+    expect(started.allowed() && started.edits.size() == 1 && started.edits[0].key == "River-Horizontal", "a tileset without a pond starts a river as a straight run");
+    RiverTestGrid desertRiver(3, 3, "Base-80");
+    const galaxy::RiverPlan desertStarted = galaxy::planRiver(1, 1, [&](int cx, int cy) { return desertRiver.look(cx, cy); }, noPond);
+    expect(desertStarted.allowed() && desertStarted.edits.size() == 1 && desertStarted.edits[0].key == "River-Horizontal", "a desert river starts on Base-80");
     RiverTestGrid bend(4, 4, "Base-85");
     bend.river(1, 1);
     bend.river(2, 1);
@@ -3651,12 +3793,104 @@ void testSlopes() {
     const galaxy::RiverPlan marsHigh = marsCorner.slope(1, 1, marsSlope);
     expect(!marsHigh.allowed() && marsHigh.reason.find("Cliff-High-BL") != std::string::npos && marsCorner.at(1, 1) == "Cliff-High-BL-01", "a Mars high corner is refused");
 
+    // Desert Base-80 to Base-155 slopes are the Mars set: straight singles stay
+    // singles beside each other, and a corner cliff is refused. The upper
+    // Cliff-230 pieces are a different cliff and stay out of this brush.
+    const auto desert155 = [](std::string_view key) {
+        return key == "Single-155-High-B" || key == "Single-155-High-T" || key == "Single-155-High-L" || key == "Single-155-High-R"
+            || key == "Single-155-High-TL" || key == "Single-155-High-TR" || key == "Single-155-High-BL" || key == "Single-155-High-BR";
+    };
+    const galaxy::SlopeShape desertCliff = galaxy::parseSlopeShape("Cliff-High-B-01", 155);
+    expect(desertCliff.valid && !desertCliff.slope && desertCliff.mask == (kCornerBottomLeft | kCornerBottomRight), "Desert slopes read the plain Base-155 cliff");
+    const galaxy::SlopeShape desertCornerSlope = galaxy::parseSlopeShape("Single-155-High-BR", 155);
+    expect(desertCornerSlope.valid && desertCornerSlope.slope && desertCornerSlope.mask == kCornerBottomRight, "a Desert corner single is the bottom-right high corner");
+    expect(!galaxy::parseSlopeShape("Cliff-230-High-B", 155).valid, "Desert slopes ignore the Base-230 cliff");
+    SlopeTestGrid desertPair(4, 3, "Base-80");
+    desertPair.at(1, 1) = "Cliff-High-B-01";
+    desertPair.at(2, 1) = "Cliff-High-B-01";
+    expect(desertPair.slope(1, 1, desert155, 155).allowed() && desertPair.at(1, 1) == "Single-155-High-B" && desertPair.at(2, 1) == "Cliff-High-B-01", "the first Desert slope leaves the next cliff alone");
+    expect(desertPair.slope(2, 1, desert155, 155).allowed() && desertPair.at(1, 1) == "Single-155-High-B" && desertPair.at(2, 1) == "Single-155-High-B", "Desert slopes sit beside each other as singles");
+    SlopeTestGrid desertCorner(3, 3, "Base-80");
+    desertCorner.at(1, 1) = "Cliff-High-BL-01";
+    const galaxy::RiverPlan desertHigh = desertCorner.slope(1, 1, desert155, 155);
+    expect(!desertHigh.allowed() && desertHigh.reason.find("straight") != std::string::npos && desertCorner.at(1, 1) == "Cliff-High-BL-01", "Desert slopes refuse a high corner");
+    desertCorner.at(1, 1) = "Cliff-Low-BR-01";
+    const galaxy::RiverPlan desertLow = desertCorner.slope(1, 1, desert155, 155);
+    expect(!desertLow.allowed() && desertLow.reason.find("Cliff-Low-BR") != std::string::npos && desertLow.reason.find("straight") != std::string::npos, "Desert slopes refuse a low corner");
+    SlopeTestGrid desertUpper(3, 3, "Base-155");
+    desertUpper.at(1, 1) = "Cliff-230-High-B";
+    const galaxy::RiverPlan desertMesa = desertUpper.slope(1, 1, desert155, 155);
+    expect(!desertMesa.allowed() && desertMesa.reason.find("Base-80 and Base-155") != std::string::npos && desertUpper.at(1, 1) == "Cliff-230-High-B", "the Base-155 slopes stay off a Base-230 cliff");
+    SlopeTestGrid desertLand(3, 3, "Base-80");
+    const galaxy::RiverPlan desertRefused = desertLand.slope(1, 1, desert155, 155);
+    expect(!desertRefused.allowed() && desertRefused.reason.find("Base-80 and Base-155") != std::string::npos && desertLand.at(1, 1) == "Base-80", "Desert slopes refuse Base-80");
+    SlopeTestGrid plainOnMesa(3, 3, "Base-155");
+    plainOnMesa.at(1, 1) = "Cliff-230-High-B";
+    const galaxy::RiverPlan plainMesa = plainOnMesa.slope(1, 1);
+    expect(!plainMesa.allowed() && plainMesa.reason.find("Base-85 and Base-219") != std::string::npos && plainOnMesa.at(1, 1) == "Cliff-230-High-B", "the Base-219 slopes stay off a Desert Base-230 cliff");
+
+    // Desert Base-155 to Base-230 slopes read Cliff-230 and stay singles. They
+    // leave the plain Base-80 cliffs alone.
+    const auto desert230 = [](std::string_view key) {
+        return key == "Single-230-High-B" || key == "Single-230-High-T" || key == "Single-230-High-L" || key == "Single-230-High-R"
+            || key == "Single-230-High-TL" || key == "Single-230-High-TR" || key == "Single-230-High-BL" || key == "Single-230-High-BR";
+    };
+    const galaxy::SlopeShape mesaCliff = galaxy::parseSlopeShape("Cliff-230-High-B", 230);
+    expect(mesaCliff.valid && !mesaCliff.slope && mesaCliff.mask == (kCornerBottomLeft | kCornerBottomRight), "the upper Desert slopes read Cliff-230-High-B");
+    expect(!galaxy::parseSlopeShape("Cliff-High-B", 230).valid && !galaxy::parseSlopeShape("Cliff-255-High-B", 230).valid, "the upper Desert slopes ignore the other cliff families");
+    SlopeTestGrid mesaPair(4, 3, "Base-155");
+    mesaPair.at(1, 1) = "Cliff-230-High-B-01";
+    mesaPair.at(2, 1) = "Cliff-230-High-B-01";
+    expect(mesaPair.slope(1, 1, desert230, 230).allowed() && mesaPair.at(1, 1) == "Single-230-High-B" && mesaPair.at(2, 1) == "Cliff-230-High-B-01", "the first upper Desert slope leaves the next cliff alone");
+    expect(mesaPair.slope(2, 1, desert230, 230).allowed() && mesaPair.at(1, 1) == "Single-230-High-B" && mesaPair.at(2, 1) == "Single-230-High-B", "upper Desert slopes sit beside each other as singles");
+    SlopeTestGrid mesaCorner(3, 3, "Base-155");
+    mesaCorner.at(1, 1) = "Cliff-230-High-BL";
+    const galaxy::RiverPlan mesaRefused = mesaCorner.slope(1, 1, desert230, 230);
+    expect(!mesaRefused.allowed() && mesaRefused.reason.find("straight") != std::string::npos && mesaCorner.at(1, 1) == "Cliff-230-High-BL", "the upper Desert slopes refuse a corner");
+    SlopeTestGrid mesaOnLower(3, 3, "Base-80");
+    mesaOnLower.at(1, 1) = "Cliff-High-B";
+    const galaxy::RiverPlan mesaLower = mesaOnLower.slope(1, 1, desert230, 230);
+    expect(!mesaLower.allowed() && mesaLower.reason.find("Base-155 and Base-230") != std::string::npos && mesaOnLower.at(1, 1) == "Cliff-High-B", "the upper Desert slopes stay off a Base-155 cliff");
+
     const auto everySlope = [](std::string_view) { return true; };
     SlopeTestGrid stillJoins(4, 3, "Base-85");
     stillJoins.at(1, 1) = "Cliff-High-B";
     stillJoins.at(2, 1) = "Cliff-High-B";
     stillJoins.slope(1, 1, everySlope);
     expect(stillJoins.slope(2, 1, everySlope).allowed() && stillJoins.at(1, 1) == "Slope-High-B-TransitionR" && stillJoins.at(2, 1) == "Slope-High-B-TransitionL", "a full slope set still joins neighbours");
+
+    // Archipelago slopes read the plain Base-86 cliffs and use family 202 in the slope names.
+    const galaxy::SlopeShape archCliff = galaxy::parseSlopeShape("Cliff-High-B", 202);
+    expect(archCliff.valid && !archCliff.slope && archCliff.mask == (kCornerBottomLeft | kCornerBottomRight), "Archipelago slopes read Cliff-High-B");
+    const galaxy::SlopeShape archRamp = galaxy::parseSlopeShape("Slope-202-High-B-TransitionL-01", 202);
+    expect(archRamp.valid && archRamp.slope && archRamp.mask == (kCornerBottomLeft | kCornerBottomRight), "a family 202 transition keeps the bottom cliff");
+    expect(!galaxy::parseSlopeShape("Cliff-High-B", 255).valid, "family 255 still ignores a plain cliff");
+    SlopeTestGrid archPair(4, 3, "Base-86");
+    archPair.at(1, 1) = "Cliff-High-B";
+    archPair.at(2, 1) = "Cliff-High-B";
+    expect(archPair.slope(1, 1, {}, 202).allowed() && archPair.at(1, 1) == "Single-202-High-B" && archPair.at(2, 1) == "Cliff-High-B", "the first Archipelago slope leaves the next cliff alone");
+    expect(archPair.slope(2, 1, {}, 202).allowed() && archPair.at(1, 1) == "Slope-202-High-B-TransitionR" && archPair.at(2, 1) == "Slope-202-High-B-TransitionL", "Archipelago slopes meet as family 202 transitions");
+    SlopeTestGrid archWrong(3, 3, "Base-85");
+    archWrong.at(1, 1) = "Cliff-255-High-B";
+    const galaxy::RiverPlan archRefused = archWrong.slope(1, 1, {}, 202);
+    expect(!archRefused.allowed() && archRefused.reason.find("Base-86 and Base-202") != std::string::npos && archWrong.at(1, 1) == "Cliff-255-High-B", "Archipelago slopes stay off a Base-255 cliff");
+
+    const galaxy::SlopeShape archSingleLow = galaxy::parseSlopeShape("Single-202-Low-BR-01", 202);
+    expect(archSingleLow.valid && archSingleLow.slope && archSingleLow.mask == (kCornerAll & ~kCornerBottomRight), "a family 202 single low corner is the bottom-right notch");
+    SlopeTestGrid archAlone(3, 3, "Base-86");
+    archAlone.at(1, 1) = "Cliff-Low-BR";
+    expect(archAlone.slope(1, 1, {}, 202).allowed() && archAlone.at(1, 1) == "Single-202-Low-BR", "an isolated Archipelago low corner is a single, got " + archAlone.at(1, 1));
+    SlopeTestGrid archArm(4, 4, "Base-86");
+    archArm.at(2, 2) = "Cliff-High-TL";
+    archArm.at(1, 2) = "Cliff-High-T";
+    expect(archArm.slope(2, 2, {}, 202).allowed() && archArm.at(2, 2) == "Single-202-High-TL" && archArm.at(1, 2) == "Cliff-High-T", "the first Archipelago corner leaves its arm alone");
+    expect(archArm.slope(1, 2, {}, 202).allowed() && archArm.at(2, 2) == "Slope-202-High-TL-TransitionL" && archArm.at(1, 2) == "Slope-202-High-T-TransitionR", "one arm uses the Archipelago corner transition, got " + archArm.at(2, 2) + " and " + archArm.at(1, 2));
+    SlopeTestGrid oneArm(4, 3, "Base-85");
+    oneArm.at(2, 1) = "Cliff-High-TR";
+    oneArm.at(3, 1) = "Cliff-High-T";
+    oneArm.slope(2, 1);
+    oneArm.slope(3, 1);
+    expect(oneArm.at(2, 1) == "Single-High-TR" && oneArm.at(3, 1) == "Single-High-T", "one arm of a GreenWorld high corner stays a single, got " + oneArm.at(2, 1) + " and " + oneArm.at(3, 1));
 }
 
 int main() {

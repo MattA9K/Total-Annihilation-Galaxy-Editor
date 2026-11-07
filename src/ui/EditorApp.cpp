@@ -3557,6 +3557,12 @@ void EditorApp::drawMap() {
                     action = "Click a straight Base-139 to Base-255 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 85 to 219") {
                     action = "Click a Base-85 to Base-219 cliff to turn it into a slope";
+                } else if (brushName_ == "Slope 86 to 202") {
+                    action = "Click a Base-86 to Base-202 cliff to turn it into a slope";
+                } else if (brushName_ == "Slope 80 to 155") {
+                    action = "Click a straight Base-80 to Base-155 cliff to turn it into a slope";
+                } else if (brushName_ == "Slope 155 to 230") {
+                    action = "Click a straight Base-155 to Base-230 cliff to turn it into a slope";
                 } else {
                     action = "Click a cliff to turn it into a slope";
                 }
@@ -6644,24 +6650,33 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
     }
     ensureRiverCatalog();
     const RiverLookup lookup = [&](int cx, int cy) { return riverCatalog_.classify(*map_, cx, cy); };
+    const auto available = [&](std::string_view key) {
+        for (const RiverSection& section : riverSections_) {
+            if (sameRiverKey(section.key, key)) {
+                return true;
+            }
+        }
+        return false;
+    };
     switch (kind) {
-    case BrushKind::River: return planRiver(cellX, cellY, lookup);
-    case BrushKind::Bridge: return planRiverBridge(cellX, cellY, lookup);
+    case BrushKind::River: return planRiver(cellX, cellY, lookup, available);
+    case BrushKind::Bridge: return planRiverBridge(cellX, cellY, lookup, available);
     case BrushKind::Ridge: return planRidge(cellX, cellY, lookup);
     case BrushKind::Spacer: return planRidgeSpacer(cellX, cellY, lookup);
     case BrushKind::Slope: {
         // The plan only asks for slope pieces this world actually has. Mars keeps
         // straight singles on neighbouring 16 x 16 cells and refuses corners.
         // Metal's second slope button is the four straight Base-139 to Base-255 ramps.
-        const int family = brushName_ == "Slope 139 to 255" ? 255 : 0;
-        const auto available = [&](std::string_view key) {
-            for (const RiverSection& section : riverSections_) {
-                if (sameRiverKey(section.key, key)) {
-                    return true;
-                }
-            }
-            return false;
-        };
+        int family = 0;
+        if (brushName_ == "Slope 139 to 255") {
+            family = 255;
+        } else if (brushName_ == "Slope 86 to 202") {
+            family = 202;
+        } else if (brushName_ == "Slope 80 to 155") {
+            family = 155;
+        } else if (brushName_ == "Slope 155 to 230") {
+            family = 230;
+        }
         return planSlope(cellX, cellY, lookup, available, family);
     }
     case BrushKind::Base: break;
@@ -6802,7 +6817,8 @@ void EditorApp::ensureBrushPaints() {
     }
     brushTilesetPath_ = source->path;
 
-    const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld";
+    const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
+        || lowerText(brushWorld_) == "archipelago";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         const bool blend = blendWorld && lowerText(section.world) == "blendtiles";
@@ -6875,8 +6891,9 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
-    // Lava Base-86 blends into Mars Base-85 and GreenWorld Base-85. A partner is a
-    // paint the graph can see, and a stroke it can place, without becoming a button.
+    // Lava Base-86 blends into Mars Base-85 and GreenWorld Base-85. Archipelago
+    // Base-86 blends into GreenWorld Base-85. A partner is a paint the graph can
+    // see, and a stroke it can place, without becoming a button.
     struct PartnerWant {
         const char* world;
         const char* name;
@@ -6887,6 +6904,11 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
     } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        if (lowerText(brushWorld_) == "greenworld") {
+            wanted.push_back(PartnerWant{"Archipelago", "Base-86"});
+        }
+    } else if (lowerText(brushWorld_) == "archipelago") {
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
     }
     for (const PartnerWant& want : wanted) {
         for (const TilesetSection& section : source->sections) {
@@ -7004,6 +7026,21 @@ void EditorApp::ensureBrushPaints() {
         const std::string lavaGroundName = lavaGround != nullptr ? lavaGround->name : std::string();
         for (const BrushPiece& piece : brushPieces_) {
             const std::string lowered = lowerText(piece.name);
+            if (lowered.starts_with("blend-archi-")) {
+                const BrushPaint* grass = nullptr;
+                const BrushPaint* archipelago = nullptr;
+                for (const BrushPaint* paint : pictured) {
+                    if (blendWorldName(paint->category) == "Green" && trailingNumber(paint->name) == 85) {
+                        grass = paint;
+                    } else if (blendWorldName(paint->category) == "Archi" && trailingNumber(paint->name) == 86) {
+                        archipelago = paint;
+                    }
+                }
+                if (grass != nullptr && archipelago != nullptr) {
+                    rememberPath(piece.sectionPath, grass->category, grass->name, true, archipelago->category, archipelago->name);
+                }
+                continue;
+            }
             const char* family = nullptr;
             if (lowered.starts_with("blend-green-")) {
                 family = "Green";
@@ -7124,7 +7161,15 @@ void EditorApp::ensureBrushPaints() {
     // Metal's slope sections are the walkable Base-85 to Base-219 cliffs. The other
     // tilesets keep the shorter Slope button.
     const bool metalSlopes = lowerText(brushWorld_) == "metal";
-    addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
+    const bool archipelagoSlopes = lowerText(brushWorld_) == "archipelago";
+    if (archipelagoSlopes) {
+        addRiverButton("Slope 86 to 202", "Slope-202-High-B-01", BrushKind::Slope);
+    } else if (lowerText(brushWorld_) == "desert") {
+        addRiverButton("Slope 80 to 155", "Single-155-High-B", BrushKind::Slope);
+        addRiverButton("Slope 155 to 230", "Single-230-High-B", BrushKind::Slope);
+    } else {
+        addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
+    }
     if (metalSlopes) {
         addRiverButton("Slope 139 to 255", "Single-255-High-B", BrushKind::Slope);
     }
@@ -7201,7 +7246,7 @@ void EditorApp::drawTileBrush() {
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
     if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
-        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert"}) {
             const bool selected = brushWorld_ == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;
@@ -7290,7 +7335,7 @@ void EditorApp::drawTileBrush() {
             if (paint.kind == BrushKind::River) {
                 hint = "Paint rivers on Base-85 and straight coasts\nRivers join the rivers beside them";
             } else if (paint.kind == BrushKind::Bridge) {
-                hint = "Place a bridge on a river\nBridges only go on rivers that are straight or bend";
+                hint = "Place a bridge on a river\nBridges go on straight rivers and bends, and on a 4-way crossing when the tileset has one";
             } else if (paint.kind == BrushKind::Ridge) {
                 hint = "Paint ridges on Base-85 and straight cliff edges\nRidges join the ridges beside them";
             } else if (paint.kind == BrushKind::Spacer) {
@@ -7300,6 +7345,12 @@ void EditorApp::drawTileBrush() {
                     hint = "Turn a straight Base-139 to Base-255 cliff into a slope\nEach slope stays on its own cliff";
                 } else if (paint.name == "Slope 85 to 219") {
                     hint = "Turn a Base-85 to Base-219 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                } else if (paint.name == "Slope 86 to 202") {
+                    hint = "Turn a Base-86 to Base-202 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                } else if (paint.name == "Slope 80 to 155") {
+                    hint = "Turn a straight Base-80 to Base-155 cliff into a slope\nEach slope stays on its own cliff";
+                } else if (paint.name == "Slope 155 to 230") {
+                    hint = "Turn a straight Base-155 to Base-230 cliff into a slope\nEach slope stays on its own cliff";
                 } else {
                     hint = "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
                 }
