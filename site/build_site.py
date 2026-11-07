@@ -2,8 +2,9 @@
 """Build the static multilingual Galaxy Editor site.
 
 English is the root page. Every other locale is a real directory with its
-own index.html. Nothing in the output redirects, and the pages do not depend
-on JavaScript for their text, links, or downloads.
+own index.html. Nothing in the output redirects. Text, links, and downloads
+do not depend on JavaScript. The screenshot gallery adds a full-viewport
+view when JavaScript is available; the pictures and captions stay in the HTML.
 
 The feature copy and the short description come from the README in that
 language. Download and install wording comes from site/i18n.json, which
@@ -14,6 +15,7 @@ READMEs still say every download includes the .hpi files; the .deb does not.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -54,6 +56,33 @@ STRING_KEYS = (
     "version_label",
     "splash_alt",
     "screenshot_alt",
+    "nav_screenshots",
+    "screenshots_title",
+    "screenshots_intro",
+    "shot_prev",
+    "shot_next",
+    "shot_close",
+    "shot_open",
+    "shot_dialog_label",
+    "shot_status",
+    "shot_status_label",
+    "shot_loading",
+    "shot_tilesets_alt",
+    "shot_tilesets_caption",
+    "shot_height_alt",
+    "shot_height_caption",
+    "shot_lava_alt",
+    "shot_lava_caption",
+    "shot_snow_alt",
+    "shot_snow_caption",
+    "shot_desert_alt",
+    "shot_desert_caption",
+    "shot_placed_alt",
+    "shot_placed_caption",
+    "shot_favorites_alt",
+    "shot_favorites_caption",
+    "shot_starts_alt",
+    "shot_starts_caption",
     "install_intro",
     "releases_sentence",
     "linux_title",
@@ -165,8 +194,19 @@ def load_strings(site_dir: Path) -> dict[str, dict[str, str]]:
         extra = sorted(set(strings) - set(STRING_KEYS))
         if missing or extra:
             raise SystemExit(f"{locale_id} string keys missing={missing} extra={extra}")
-        if locale_id != "en" and strings["install_intro"].startswith("On macOS"):
-            raise SystemExit(f"{locale_id} install_intro is still English")
+        for key in ("shot_status", "shot_status_label"):
+            if "{current}" not in strings[key] or "{total}" not in strings[key]:
+                raise SystemExit(f"{locale_id} {key} must contain {{current}} and {{total}}")
+        if locale_id != "en":
+            english = data["en"]
+            if strings["install_intro"].startswith("On macOS"):
+                raise SystemExit(f"{locale_id} install_intro is still English")
+            for key, value in strings.items():
+                if key == "shot_status":
+                    continue
+                if key.startswith("shot_") or key in {"nav_screenshots", "screenshots_title", "screenshots_intro"}:
+                    if value == english.get(key):
+                        raise SystemExit(f"{locale_id} {key} is still English")
     return data
 
 
@@ -297,6 +337,118 @@ def markdown_link_label(markdown: str) -> str:
     return match.group(1)
 
 
+def load_gallery(site_dir: Path) -> list[dict]:
+    manifest_path = site_dir / "screenshots" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    shots = manifest.get("shots")
+    if not isinstance(shots, list) or len(shots) != 8:
+        raise SystemExit("the screenshot gallery must contain eight pictures")
+    seen = set()
+    for shot in shots:
+        shot_id = shot.get("id", "")
+        if not re.fullmatch(r"[a-z0-9-]+", shot_id) or shot_id in seen:
+            raise SystemExit(f"invalid screenshot id {shot_id!r}")
+        seen.add(shot_id)
+        for kind, field in (("full", "full"), ("preview", "preview"), ("thumb", "thumb")):
+            path = site_dir / "screenshots" / kind / shot[field]
+            if not path.is_file() or path.stat().st_size == 0:
+                raise SystemExit(f"missing screenshot {path}")
+        full = site_dir / "screenshots" / "full" / shot["full"]
+        preview = site_dir / "screenshots" / "preview" / shot["preview"]
+        thumb = site_dir / "screenshots" / "thumb" / shot["thumb"]
+        digest = hashlib.sha256(full.read_bytes()).hexdigest()
+        if digest != shot.get("sha256"):
+            raise SystemExit(f"{shot_id} full image does not match its recorded sha256")
+        if png_size(full) != (int(shot["full_width"]), int(shot["full_height"])):
+            raise SystemExit(f"{shot_id} full image size does not match the manifest")
+        if preview.stat().st_size >= full.stat().st_size or thumb.stat().st_size >= preview.stat().st_size:
+            raise SystemExit(f"{shot_id} previews must be smaller than the full image")
+    omitted = manifest.get("omitted", {}).get("source")
+    if omitted != "galaxy-editor-06.png":
+        raise SystemExit("manifest is missing the omitted screenshot record")
+    return shots
+
+
+def render_gallery(base: str, strings: dict[str, str], shots: list[dict]) -> str:
+    total = len(shots)
+    slides = []
+    thumbs = []
+    for index, shot in enumerate(shots):
+        full = site_path(base, "assets", "screenshots", "full", shot["full"])
+        preview = site_path(base, "assets", "screenshots", "preview", shot["preview"])
+        thumb = site_path(base, "assets", "screenshots", "thumb", shot["thumb"])
+        alt = strings[f"shot_{shot['id']}_alt"]
+        caption = strings[f"shot_{shot['id']}_caption"]
+        loading = "eager" if index == 0 else "lazy"
+        current = ' aria-current="true"' if index == 0 else ""
+        slides.append(
+            f'<li class="shot-slide" id="shot-{html.escape(shot["id"], quote=True)}" '
+            f'data-full="{html.escape(full, quote=True)}" '
+            f'data-full-width="{int(shot["full_width"])}" data-full-height="{int(shot["full_height"])}">'
+            "<figure>"
+            f'<a class="shot-open" href="{html.escape(full, quote=True)}">'
+            f'<img src="{html.escape(preview, quote=True)}" alt="{html.escape(alt, quote=True)}" '
+            f'width="{int(shot["preview_width"])}" height="{int(shot["preview_height"])}" '
+            f'loading="{loading}" decoding="async">'
+            f'<span class="visually-hidden">{html.escape(strings["shot_open"], quote=False)}</span>'
+            "</a>"
+            f"<figcaption>{html.escape(caption, quote=False)}</figcaption>"
+            "</figure>"
+            "</li>"
+        )
+        thumbs.append(
+            "<button type=\"button\" class=\"shot-thumb\""
+            f"{current} aria-label=\"{html.escape(caption, quote=True)}\">"
+            f'<img src="{html.escape(thumb, quote=True)}" alt="" '
+            f'width="{int(shot["thumb_width"])}" height="{int(shot["thumb_height"])}" decoding="async">'
+            "</button>"
+        )
+    status = strings["shot_status"].replace("{current}", "1").replace("{total}", str(total))
+    status_label = strings["shot_status_label"].replace("{current}", "1").replace("{total}", str(total))
+    return (
+        '<section class="section" id="screenshots" aria-labelledby="screenshots-title">'
+        f'<h2 id="screenshots-title">{html.escape(strings["screenshots_title"], quote=False)}</h2>'
+        f"<p>{html.escape(strings['screenshots_intro'], quote=False)}</p>"
+        '<div class="shot-gallery" data-shot-gallery '
+        f'data-count-template="{html.escape(strings["shot_status"], quote=True)}" '
+        f'data-label-template="{html.escape(strings["shot_status_label"], quote=True)}">'
+        '<div class="shot-frame">'
+        '<div class="shot-viewport"><ol class="shot-track">'
+        + "".join(slides)
+        + "</ol></div>"
+        '<div class="shot-controls">'
+        f'<button type="button" class="shot-control shot-prev" aria-label="{html.escape(strings["shot_prev"], quote=True)}">'
+        '<span aria-hidden="true">‹</span></button>'
+        '<p class="shot-status" aria-live="polite">'
+        f'<span class="shot-count">{html.escape(status, quote=False)}</span>'
+        f'<span class="visually-hidden shot-count-label">{html.escape(status_label, quote=False)}</span></p>'
+        f'<button type="button" class="shot-control shot-next" aria-label="{html.escape(strings["shot_next"], quote=True)}">'
+        '<span aria-hidden="true">›</span></button>'
+        "</div>"
+        f'<div class="shot-thumbs" role="group" aria-label="{html.escape(strings["screenshots_title"], quote=True)}">'
+        + "".join(thumbs)
+        + "</div></div>"
+        f'<dialog id="shot-dialog" class="shot-dialog" aria-modal="true" aria-label="{html.escape(strings["shot_dialog_label"], quote=True)}">'
+        '<div class="shot-dialog-bar">'
+        f'<button type="button" class="shot-control shot-dialog-prev" aria-label="{html.escape(strings["shot_prev"], quote=True)}">'
+        '<span aria-hidden="true">‹</span></button>'
+        '<p class="shot-status"><span class="shot-dialog-count">'
+        f"{html.escape(status, quote=False)}</span>"
+        f'<span class="visually-hidden shot-dialog-count-label">{html.escape(status_label, quote=False)}</span></p>'
+        f'<button type="button" class="shot-control shot-dialog-next" aria-label="{html.escape(strings["shot_next"], quote=True)}">'
+        '<span aria-hidden="true">›</span></button>'
+        f'<button type="button" class="shot-control shot-close" aria-label="{html.escape(strings["shot_close"], quote=True)}">'
+        '<span aria-hidden="true">×</span></button>'
+        "</div>"
+        '<div class="shot-dialog-stage"><div class="shot-dialog-image">'
+        '<img class="shot-dialog-img" alt="">'
+        f'<p class="shot-loading">{html.escape(strings["shot_loading"], quote=False)}</p>'
+        "</div></div>"
+        '<p class="shot-dialog-caption"></p>'
+        "</dialog></div></section>"
+    )
+
+
 def png_size(path: Path) -> tuple[int, int]:
     header = path.read_bytes()[:24]
     if header[:8] != b"\x89PNG\r\n\x1a\n":
@@ -419,6 +571,8 @@ def render_page(context: dict) -> str:
     schema_json = json.dumps(schema, ensure_ascii=False).replace("<", "\\u003c")
     splash_w, splash_h = context["splash_size"]
     shot_w, shot_h = context["shot_size"]
+    gallery = render_gallery(base, strings, context["gallery"])
+    gallery_js = context["gallery_js"]
     return f"""<!DOCTYPE html>
 <html lang="{html.escape(locale["html_lang"])}">
 <head>
@@ -459,6 +613,7 @@ def render_page(context: dict) -> str:
 <nav class="site-nav" aria-label="{html.escape(strings["nav_label"], quote=True)}">
 <ul>
 <li><a href="{html.escape(page, quote=True)}#features">{html.escape(readme["features_heading"])}</a></li>
+<li><a href="{html.escape(page, quote=True)}#screenshots">{html.escape(strings["nav_screenshots"])}</a></li>
 <li><a href="{html.escape(page, quote=True)}#download">{html.escape(readme["download_heading"])}</a></li>
 <li><a href="{html.escape(page, quote=True)}#linux">{html.escape(strings["linux_title"])}</a></li>
 <li><a href="{html.escape(REPO, quote=True)}">{html.escape(strings["source"])}</a></li>
@@ -493,6 +648,7 @@ def render_page(context: dict) -> str:
 <img src="{html.escape(screenshot, quote=True)}" alt="{html.escape(strings["screenshot_alt"], quote=True)}" width="{shot_w}" height="{shot_h}">
 <figcaption aria-hidden="true">{html.escape(strings["screenshot_alt"])}</figcaption>
 </figure>
+{gallery}
 <section class="section" id="features" aria-labelledby="features-title">
 <h2 id="features-title">{html.escape(readme["features_heading"])}</h2>
 <div class="features">
@@ -547,6 +703,9 @@ def render_page(context: dict) -> str:
 </nav>
 </div>
 </footer>
+<script>
+{gallery_js}
+</script>
 </body>
 </html>
 """
@@ -667,12 +826,21 @@ def build(root: Path, out: Path, base: str, origin: str) -> None:
             raise SystemExit(f"{locale['readme']}: {exc}") from exc
     assets = release_assets(version)
     names = asset_names(version)
+    gallery = load_gallery(root / "site")
+    gallery_js = (root / "site" / "static" / "gallery.js").read_text(encoding="utf-8")
+    if "</script" in gallery_js.lower():
+        raise SystemExit("gallery.js cannot contain a script end tag")
     splash_size = png_size(root / "src" / "SplashScreen.png")
     shot_size = png_size(root / "Screenshot.png")
     if out.exists():
         shutil.rmtree(out)
     (out / "assets").mkdir(parents=True)
     shutil.copyfile(root / "site" / "static" / "style.css", out / "assets" / "style.css")
+    for shot in gallery:
+        for kind, field in (("full", "full"), ("preview", "preview"), ("thumb", "thumb")):
+            destination = out / "assets" / "screenshots" / kind / shot[field]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root / "site" / "screenshots" / kind / shot[field], destination)
     shutil.copyfile(root / "src" / "SplashScreen.png", out / "assets" / "splash.png")
     shutil.copyfile(root / "Screenshot.png", out / "assets" / "screenshot.png")
     shutil.copyfile(root / "assets" / "icons" / "AppIcon.png", out / "assets" / "icon.png")
@@ -687,6 +855,8 @@ def build(root: Path, out: Path, base: str, origin: str) -> None:
         "strings_by_id": strings_by_id,
         "splash_size": splash_size,
         "shot_size": shot_size,
+        "gallery": gallery,
+        "gallery_js": gallery_js,
     }
     for locale in LOCALES:
         page = render_page({**shared, "locale": locale, "strings": strings_by_id[locale["id"]], "readme": parsed[locale["id"]]})

@@ -2,7 +2,9 @@
 
 Static multilingual site for GitHub Pages. English is served at the project
 root. The other languages are separate pages. The HTML is the page: there is
-no language redirect and no analytics.
+no language redirect and no analytics. Pictures, captions, and download
+links do not need JavaScript. With JavaScript, the screenshot gallery can
+open a picture across the viewport.
 
 The intended public URL, after GitHub Pages is turned on, is:
 
@@ -50,10 +52,16 @@ python3 site/test_site.py --check-downloads
   - `GalaxyEditor-1.1.6-windows-x64.zip`
   - `GalaxyEditor-1.1.6-linux-x64.tar.gz`
   - `galaxy-editor_1.1.6_amd64.deb`
-- Screenshots and icons are copied from `src/SplashScreen.png`,
-  `Screenshot.png`, and `assets/icons/`. The screenshot is the editor on a
+- The opening screenshot and icons are copied from `src/SplashScreen.png`,
+  `Screenshot.png`, and `assets/icons/`. That screenshot is the editor on a
   map. Its window title still says v1.0.0, so the site does not claim it is
   a picture of the current release.
+- The gallery pictures live in `site/screenshots/`. `full/` holds
+  byte-for-byte copies of eight editor screenshots. `preview/` and `thumb/`
+  are smaller JPEG derivatives. Do not recompress the files in `full/`.
+  `manifest.json` records their hashes. A ninth screenshot, the dark
+  Favorites view, is omitted because the Favorites list is already shown
+  and the placed trees are shown in another picture.
 
 The Linux commands install a downloaded `.deb` from the current directory:
 
