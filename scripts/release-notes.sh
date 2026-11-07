@@ -20,6 +20,21 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.7" ]; then
+  cat <<EOF
+
+## New
+
+**Crystal.** The tile brush has a Crystal tileset. Base-0 is water and Base-85 is land, with shores between them.
+
+**Archipelago.** Base-0 is deep water, Base-68 is shallow water, and Base-78 is land. Shores join the deep water to the land. Shallow water sits between them, and one island can keep a deep shore on one side and a shallow shore on the other. Base-194 is the high ground above Base-78. Slope 78 to 194 turns those cliffs into walkable slopes. Archipelago land blends into GreenWorld Base-85.
+
+**Desert.** Base-0 is deep water, Base-68 is shallow water, and Base-80 is land. Base-155 rises off Base-80, and Base-230 rises off Base-155. Slope 80 to 155 and Slope 155 to 230 follow the straight cliffs. Rivers and river bridges run on the land and out to the shore.
+
+**Show Heights.** The grid lines are thicker, and the colors separate water, ground just above the sea, and the higher cliffs.
+EOF
+fi
+
 if [ "$version" = "1.1.6" ]; then
   cat <<EOF
 
