@@ -3551,7 +3551,10 @@ void EditorApp::drawMap() {
         if (riverBlocked) {
             ImGui::SetTooltip("%s\nHeight %d", riverHover.reason.c_str(), hoverHeight_);
         } else {
-            const char* action = armedBrushKind() == BrushKind::Slope ? "Click a cliff to turn it into a slope" : "Click to paint one 16 x 16 cell";
+            const char* action = "Click to paint one 16 x 16 cell";
+            if (armedBrushKind() == BrushKind::Slope) {
+                action = brushName_ == "Slope 85 to 219" ? "Click a Base-85 to Base-219 cliff to turn it into a slope" : "Click a cliff to turn it into a slope";
+            }
             if (hoverOverMap_) {
                 ImGui::SetTooltip("%s\n%s\nEsc cancels\nHeight %d", what, action, hoverHeight_);
             } else {
@@ -7110,7 +7113,10 @@ void EditorApp::ensureBrushPaints() {
     addRiverButton("River Bridge", "RiverB-Horizontal-01", BrushKind::Bridge);
     addRiverButton("Ridge", "Ridge-Horizontal-01", BrushKind::Ridge);
     addRiverButton("Ridge Spacer", "Ridge-L_R-Spacer-01", BrushKind::Spacer);
-    addRiverButton("Slope", "Slope-High-B-01", BrushKind::Slope);
+    // Metal's slope sections are the walkable Base-85 to Base-219 cliffs. The other
+    // tilesets keep the shorter Slope button.
+    const bool metalSlopes = lowerText(brushWorld_) == "metal";
+    addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
     if (!brushName_.empty()) {
         bool found = false;
         for (const BrushPaint& paint : brushPaints_) {
@@ -7279,7 +7285,9 @@ void EditorApp::drawTileBrush() {
             } else if (paint.kind == BrushKind::Spacer) {
                 hint = "Open a gap in a ridge\nSpacers only go on straight ridges";
             } else if (paint.kind == BrushKind::Slope) {
-                hint = "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
+                hint = paint.name == "Slope 85 to 219"
+                    ? "Turn a Base-85 to Base-219 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends"
+                    : "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
             }
             if (selected) {
                 hint = "Click again or press Esc to leave the brush";

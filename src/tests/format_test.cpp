@@ -2984,10 +2984,12 @@ void testBrushCells() {
     iceHigh.paint(2, 2, 1, 2);
     expect(iceHigh.piece(2, 2) == "Base-170" && iceHigh.piece(2, 1) == "Cliff-High-B" && iceHigh.piece(1, 1) == "Cliff-High-BR" && !iceHigh.steep(), "Ice high ground meets Base-85 with cliff pieces");
 
-    // Metal is deep water, shallow water, and metal land. Deep water meets land
-    // directly, the same way GreenWorld does, and shallow sits between the other two.
-    const BrushGraph metal(std::vector<int>{0, 68, 85});
+    // Metal is deep water, shallow water, metal land, and raised ground. Deep water
+    // meets land directly, the same way GreenWorld does, and shallow sits between
+    // the other two. Base-139 meets Base-85 with cliff pieces.
+    const BrushGraph metal(std::vector<int>{0, 68, 85, 139});
     expect(metal.style(0, 2) == TransitionStyle::Coast && metal.style(1, 2) == TransitionStyle::ShallowCoast && metal.style(0, 1) == TransitionStyle::ShallowDeep, "Metal joins deep water, shallow water, and land with the GreenWorld pieces");
+    expect(metal.style(2, 3) == TransitionStyle::Cliff && metal.style(0, 3) == TransitionStyle::None, "Metal Base-139 meets Base-85 with cliffs");
     BrushTestLattice metalLand(5, 5, 0, metal);
     metalLand.paint(2, 2, 1, 2);
     expect(metalLand.piece(2, 2) == "Base-85" && metalLand.piece(2, 1) == "Coast-Water-T" && metalLand.piece(1, 1) == "Coast-Land-BR" && !metalLand.steep(), "Metal land in deep water uses coast pieces");
@@ -2997,6 +2999,20 @@ void testBrushCells() {
     BrushTestLattice metalShelf(5, 5, 1, metal);
     metalShelf.paint(2, 2, 1, 2);
     expect(metalShelf.piece(2, 2) == "Base-85" && metalShelf.piece(2, 1) == "ShallowCoast-Water-T" && !metalShelf.steep(), "Metal land in shallow water uses shallow coast pieces");
+    BrushTestLattice metalHigh(5, 5, 2, metal);
+    metalHigh.paint(2, 2, 1, 3);
+    expect(metalHigh.piece(2, 2) == "Base-139" && metalHigh.piece(2, 1) == "Cliff-High-B" && metalHigh.piece(1, 1) == "Cliff-High-BR" && !metalHigh.steep(), "Metal high ground meets Base-85 with cliff pieces");
+
+    // Base-139 and Base-219 are both cliffs off Base-85. Base-219 keeps the plain
+    // cliff names, and Base-139 takes a height so the two sets do not share a file.
+    const BrushGraph metalCliffs(std::vector<int>{85, 139, 219});
+    expect(metalCliffs.style(0, 1) == TransitionStyle::Cliff && metalCliffs.style(0, 2) == TransitionStyle::Cliff, "Metal Base-85 joins both raised grounds with cliffs");
+    BrushTestLattice metalRamp(5, 5, 0, metalCliffs);
+    metalRamp.paint(2, 2, 1, 1);
+    expect(metalRamp.piece(2, 2) == "Base-139" && metalRamp.piece(2, 1) == "Cliff-139-High-B" && metalRamp.piece(1, 1) == "Cliff-139-High-BR" && !metalRamp.steep(), "Base-139 ramps keep a height in the cliff name");
+    BrushTestLattice metalPlateau(5, 5, 0, metalCliffs);
+    metalPlateau.paint(2, 2, 1, 2);
+    expect(metalPlateau.piece(2, 2) == "Base-219" && metalPlateau.piece(2, 1) == "Cliff-High-B" && metalPlateau.piece(1, 1) == "Cliff-High-BR" && !metalPlateau.steep(), "Base-219 uses the plain cliff pieces");
 }
 
 // A small grid of cells for the river rules. Each cell holds a label such as "Base-85".
@@ -3432,6 +3448,11 @@ void testSlopes() {
     const galaxy::SlopeShape single = galaxy::parseSlopeShape("Single-High-TR");
     expect(single.valid && single.slope && single.mask == kCornerTopRight, "Single-High-TR is the top-right high corner");
     expect(!galaxy::parseSlopeShape("Base-85").valid && !galaxy::parseSlopeShape("Coast-Water-T").valid && !galaxy::parseSlopeShape("Cliff-High-TL_and_BR").valid, "bases, coasts and diagonals are not slopes");
+    expect(!galaxy::parseSlopeShape("Cliff-139-High-B").valid && !galaxy::parseSlopeShape("Cliff-139-Low-TL").valid, "Base-139 ramps are not the Base-219 slope cliffs");
+    SlopeTestGrid metalRamp(3, 3, "Base-85");
+    metalRamp.at(1, 1) = "Cliff-139-High-B";
+    const galaxy::RiverPlan metalRefused = metalRamp.slope(1, 1);
+    expect(!metalRefused.allowed() && metalRefused.reason.find("Base-85 and Base-219") != std::string::npos && metalRamp.at(1, 1) == "Cliff-139-High-B", "the 85 to 219 slopes stay off a Base-139 ramp");
 
     // Every cliff shape, with every way its sides can already be slopes, names a real slope tile.
     const int masks[] = {

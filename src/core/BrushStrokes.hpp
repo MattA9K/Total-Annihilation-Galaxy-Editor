@@ -26,6 +26,10 @@ namespace galaxy {
 // pair: its cliff flat is height 255. Base-85 and Base-170 join with Cliff pieces.
 // Ice uses that pair: water is Base-0, land is Base-85, and the high ground is
 // Base-170. Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
+// Base-85 and Base-139 join with Cliff pieces. Metal's raised ground is Base-139.
+// Base-85 also joins Base-219 with Cliff pieces. When one low ground has two cliff
+// tops, Base-219 keeps the plain Cliff-High name and the other top is
+// Cliff-<height>-High, so Metal's ramps stay apart from its Base-219 cliffs.
 // Lava
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. A cell
 // holds one paint or two joined paints. Three paints
@@ -170,8 +174,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 11>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 11> rules = {{
+inline const std::array<BrushTransitionRule, 12>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 12> rules = {{
         {0, 85, TransitionStyle::Coast},
         {41, 86, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
@@ -181,6 +185,7 @@ inline const std::array<BrushTransitionRule, 11>& brushTransitionRules() {
         {85, 219, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
         {85, 170, TransitionStyle::Cliff},
+        {85, 139, TransitionStyle::Cliff},
         {86, 190, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
     }};
@@ -378,6 +383,29 @@ inline std::string dslPieceName(int landMask, int shallowMask) {
     return "DSL-Land-" + std::string(cornerRegion(landMask)) + "-Shallow-" + std::string(cornerRegion(shallowMask)) + "-Water-" + std::string(cornerRegion(deepMask));
 }
 
+// How many other paints join this one with cliff pieces.
+inline int cliffPartnerCount(const BrushGraph& graph, int level) {
+    int count = 0;
+    for (int other = 0; other < graph.size(); ++other) {
+        if (other != level && graph.style(level, other) == TransitionStyle::Cliff) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+// The cliff section for this high-ground mask. A low ground with one cliff top
+// uses Cliff-High-B. A low ground with several tops keeps that plain name for
+// Base-219 and names the others Cliff-<height>-High-B, so two cliff sets in one
+// tileset do not share a file.
+inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, int highLevel, int highMask) {
+    const std::string piece(cliffPieceName(highMask));
+    if (piece.empty() || piece.rfind("Cliff-", 0) != 0 || cliffPartnerCount(graph, lowLevel) <= 1 || graph.height(highLevel) == 219) {
+        return piece;
+    }
+    return "Cliff-" + std::to_string(graph.height(highLevel)) + "-" + piece.substr(6);
+}
+
 // The section a cell needs, from the level at each of its corners, without a
 // variation number. Empty for a flat cell and for a layout that has no section.
 // Two levels use the family that joins them. Base-0, Base-68 and Base-85
@@ -396,6 +424,9 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
     };
     if (distinct == 2) {
         const TransitionStyle style = graph.style(sorted[0], sorted[1]);
+        if (style == TransitionStyle::Cliff) {
+            return cliffTransitionName(graph, sorted[0], sorted[1], maskOf(sorted[1]));
+        }
         // Levels are stored from lowest height to highest. A world blend marks the
         // Mars or GreenWorld corners. Lava ground is Base-86, one step above those
         // lands, so that marked side is the lower level.
