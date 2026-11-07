@@ -16,6 +16,7 @@
 #include "format/TaPalette.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -155,21 +156,36 @@ void testHeightGrid() {
         return overlay.data() + (static_cast<std::size_t>(y) * 128 + static_cast<std::size_t>(x)) * 4;
     };
 
-    galaxy::renderHeightGrid(map, overlay.data(), 128, 128, 128.0f, 128.0f, 0.0f, 0.0f, 1.0f, 32);
-    const std::uint8_t* flat = at(16, 16);
+    const auto paint = [&](int height) {
+        std::fill(map.heights.begin(), map.heights.end(), static_cast<std::uint8_t>(height));
+        galaxy::renderHeightGrid(map, overlay.data(), 128, 128, 128.0f, 128.0f, 0.0f, 0.0f, 1.0f, 32);
+        const std::uint8_t* pixel = at(16, 16);
+        return std::array<std::uint8_t, 4>{pixel[0], pixel[1], pixel[2], pixel[3]};
+    };
+
+    const auto flat = paint(85);
     const std::uint8_t* line = at(31, 16);
+    const std::uint8_t* thicker = at(30, 16);
+    const std::uint8_t* fill = at(29, 16);
     expect(flat[1] > flat[0] && flat[1] > flat[2], "flat ground height is green");
-    expect(flat[3] > 0 && flat[3] < line[3], "height grid lines are stronger than the fill");
+    expect(flat[3] > 0 && flat[3] < line[3] && thicker[3] == line[3] && fill[3] == flat[3], "height grid lines are a pixel thicker than the fill");
 
-    std::fill(map.heights.begin(), map.heights.end(), 0);
-    galaxy::renderHeightGrid(map, overlay.data(), 128, 128, 128.0f, 128.0f, 0.0f, 0.0f, 1.0f, 32);
-    const std::uint8_t* water = at(16, 16);
-    expect(water[2] > water[0] && water[2] > water[1], "water height is blue");
-
-    std::fill(map.heights.begin(), map.heights.end(), 220);
-    galaxy::renderHeightGrid(map, overlay.data(), 128, 128, 128.0f, 128.0f, 0.0f, 0.0f, 1.0f, 32);
-    const std::uint8_t* high = at(16, 16);
-    expect(high[0] > high[2], "mountain height is warmer than the water blue");
+    const auto deep = paint(0);
+    expect(deep[2] > deep[0] && deep[2] > deep[1], "height 0 is blue");
+    const auto shore = paint(75);
+    expect(shore[1] > shore[0] && shore[2] > shore[0] && shore[2] > 100, "height 75 is blue-green");
+    const auto land = paint(76);
+    expect(land[1] > land[0] && land[1] > land[2] && land[2] < 80 && shore[2] > land[2] + 40, "height 76 jumps to dark green");
+    const auto yellowGreen = paint(125);
+    expect(yellowGreen[1] > yellowGreen[0] && yellowGreen[0] > yellowGreen[2], "height 125 is yellow-green");
+    const auto yellow = paint(139);
+    expect(yellow[0] > 180 && yellow[1] > 180 && yellow[2] < 80, "height 139 is yellow");
+    const auto orange = paint(175);
+    expect(orange[0] > orange[1] && orange[1] > orange[2], "height 175 is orange");
+    const auto red = paint(219);
+    expect(red[0] > red[1] && red[0] > red[2] && red[1] < 80, "height 219 is red");
+    const auto violet = paint(255);
+    expect(violet[2] > violet[1] && violet[0] > 100 && violet[2] > 150, "height 255 is violet");
 }
 
 void testSaveRoundTrip(const galaxy::LoadedMap& map, const std::filesystem::path& destination, const std::string& label);

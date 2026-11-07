@@ -1483,39 +1483,41 @@ std::uint8_t lerpByte(int from, int to, float t) {
 }
 
 void heightColor(int height, int seaLevel, std::uint8_t& red, std::uint8_t& green, std::uint8_t& blue) {
-    if (height < seaLevel) {
-        const float t = seaLevel <= 0 ? 1.0f : static_cast<float>(height) / static_cast<float>(seaLevel);
-        red = lerpByte(16, 48, t);
-        green = lerpByte(42, 140, t);
-        blue = lerpByte(120, 220, t);
-        return;
+    // Stops are absolute heights. Water runs from blue at 0 to blue-green at 75.
+    // Height 76 is one above the usual sea level and starts over at dark green.
+    (void)seaLevel;
+    const int h = std::clamp(height, 0, 255);
+    struct Stop {
+        int height;
+        int red;
+        int green;
+        int blue;
+    };
+    const Stop water[] = {
+        {0, 24, 64, 220},
+        {75, 20, 176, 168},
+    };
+    const Stop land[] = {
+        {76, 10, 72, 22},
+        {125, 150, 196, 36},
+        {139, 236, 214, 32},
+        {175, 236, 128, 24},
+        {219, 214, 32, 28},
+        {255, 156, 48, 214},
+    };
+    const Stop* stops = h <= 75 ? water : land;
+    const int count = h <= 75 ? 2 : 6;
+    int index = 0;
+    while (index + 1 < count && h > stops[index + 1].height) {
+        ++index;
     }
-    const int rise = height - seaLevel;
-    if (rise < 30) {
-        const float t = static_cast<float>(rise) / 30.0f;
-        red = lerpByte(40, 72, t);
-        green = lerpByte(125, 158, t);
-        blue = lerpByte(62, 48, t);
-        return;
-    }
-    if (rise < 70) {
-        const float t = static_cast<float>(rise - 30) / 40.0f;
-        red = lerpByte(72, 220, t);
-        green = lerpByte(158, 196, t);
-        blue = lerpByte(48, 42, t);
-        return;
-    }
-    if (rise < 130) {
-        const float t = static_cast<float>(rise - 70) / 60.0f;
-        red = lerpByte(220, 196, t);
-        green = lerpByte(196, 86, t);
-        blue = lerpByte(42, 32, t);
-        return;
-    }
-    const float t = static_cast<float>(rise - 130) / 55.0f;
-    red = lerpByte(196, 245, t);
-    green = lerpByte(86, 245, t);
-    blue = lerpByte(32, 245, t);
+    const Stop& from = stops[index];
+    const Stop& to = stops[std::min(index + 1, count - 1)];
+    const float span = static_cast<float>(to.height - from.height);
+    const float t = span <= 0.0f ? 0.0f : static_cast<float>(h - from.height) / span;
+    red = lerpByte(from.red, to.red, t);
+    green = lerpByte(from.green, to.green, t);
+    blue = lerpByte(from.blue, to.blue, t);
 }
 
 void renderHeightGrid(
@@ -1559,7 +1561,8 @@ void renderHeightGrid(
 
             const float distX = std::fabs(mapXf / static_cast<float>(grid) - std::round(mapXf / static_cast<float>(grid))) * static_cast<float>(grid);
             const float distY = std::fabs(mapYf / static_cast<float>(grid) - std::round(mapYf / static_cast<float>(grid))) * static_cast<float>(grid);
-            const bool onLine = distX * texelPerMapX <= 0.65f || distY * texelPerMapY <= 0.65f;
+            // 0.65 texels is the old line. One texel more makes that grid a pixel thicker.
+            const bool onLine = distX * texelPerMapX <= 1.65f || distY * texelPerMapY <= 1.65f;
 
             std::uint8_t red = 0;
             std::uint8_t green = 0;
