@@ -20,6 +20,17 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.8" ]; then
+  cat <<EOF
+
+## New
+
+**Lush.** The tile brush has a Lush tileset. Base-27 is water and Base-77 is land, with shores between them. Base-183 rises off Base-77, and Slope 77 to 183 follows the straight cliffs. Base-255 is the mountain ground above Base-77. Rivers and river bridges run on the land and out to the shore. A river cuts north to south through a mountain range when that range is an even number of cells tall.
+
+**Brush cursor.** A 32, 64, or 128 brush draws a square of that size. The pointer sits in the center of the square.
+EOF
+fi
+
 if [ "$version" = "1.1.7" ]; then
   cat <<EOF
 

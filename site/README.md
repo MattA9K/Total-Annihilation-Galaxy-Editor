@@ -46,12 +46,12 @@ python3 site/test_site.py --check-downloads
   are read from `README.md` and `README.<locale>.md` at build time.
 - Navigation, install instructions, image descriptions, and the language
   names that are not already in a README live in `site/i18n.json`.
-- Download URLs are built from `VERSION`. For 1.1.7 they are the four files
-  actually attached to the `v1.1.7` release:
-  - `GalaxyEditor-1.1.7-macos.dmg`
-  - `GalaxyEditor-1.1.7-windows-x64.zip`
-  - `GalaxyEditor-1.1.7-linux-x64.tar.gz`
-  - `galaxy-editor_1.1.7_amd64.deb`
+- Download URLs are built from `VERSION`. For 1.1.8 they are the four files
+  actually attached to the `v1.1.8` release:
+  - `GalaxyEditor-1.1.8-macos.dmg`
+  - `GalaxyEditor-1.1.8-windows-x64.zip`
+  - `GalaxyEditor-1.1.8-linux-x64.tar.gz`
+  - `galaxy-editor_1.1.8_amd64.deb`
 - The opening screenshot and icons are copied from `src/SplashScreen.png`,
   `Screenshot.png`, and `assets/icons/`. That screenshot is the editor on a
   map. Its window title still says v1.0.0, so the site does not claim it is
@@ -84,7 +84,7 @@ the macOS release workflow say.
 ## Update a release
 
 1. Publish the GitHub release with the same four filenames, with the new
-   version number in place of `1.1.7`.
+   version number in place of `1.1.8`.
 2. Make sure `VERSION` in the repository is that version.
 3. Update the download sections of the READMEs so the documentation matches.
 4. If the install steps changed, edit `site/i18n.json` in every language.

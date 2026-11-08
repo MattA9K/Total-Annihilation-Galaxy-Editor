@@ -14,10 +14,10 @@ Maluj kafelki, umieszczaj drzewa i metal, ustawiaj punkty startowe graczy i kszt
 
 | Platforma | Pobierz |
 | --- | --- |
-| macOS | [GalaxyEditor-1.1.7-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.7/GalaxyEditor-1.1.7-macos.dmg) |
-| Windows | [GalaxyEditor-1.1.7-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.7/GalaxyEditor-1.1.7-windows-x64.zip) |
-| Linux (archiwum) | [GalaxyEditor-1.1.7-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.7/GalaxyEditor-1.1.7-linux-x64.tar.gz) |
-| Debian / Ubuntu | [galaxy-editor_1.1.7_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.7/galaxy-editor_1.1.7_amd64.deb) |
+| macOS | [GalaxyEditor-1.1.8-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.8-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-windows-x64.zip) |
+| Linux (archiwum) | [GalaxyEditor-1.1.8-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-linux-x64.tar.gz) |
+| Debian / Ubuntu | [galaxy-editor_1.1.8_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/galaxy-editor_1.1.8_amd64.deb) |
 
 W macOS otwórz obraz dysku i przeciągnij folder Galaxy Editor do folderu Aplikacje. W Windows rozpakuj archiwum i uruchom `GalaxyEditor.exe`. W Linux możesz użyć pakietu `.deb` lub rozpakować archiwum `.tar.gz`. Każde pobranie zawiera `GE-Favorites-RandomMapGeneratorTiles.hpi` obok aplikacji. Pędzel kafelków odczytuje ten zestaw kafelków, więc trzymaj plik obok `GalaxyEditor.app`, `GalaxyEditor.exe` lub `galaxy-editor` na Linuksie. `GreenWorld.hpi` jest dołączony w ten sam sposób. Przy pierwszym uruchomieniu Galaxy Editor najpierw pyta o język, a potem o to, gdzie zainstalowano Total Annihilation. Każde wydanie jest wymienione na [stronie wydań](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,19 +25,19 @@ W macOS otwórz obraz dysku i przeciągnij folder Galaxy Editor do folderu Aplik
 
 **Opcja 1: Instalacja przez pakiet .deb (Debian/Ubuntu/Mint)**
 
-Download `galaxy-editor_1.1.7_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
+Download `galaxy-editor_1.1.8_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.7/galaxy-editor_1.1.7_amd64.deb
-sudo apt install ./galaxy-editor_1.1.7_amd64.deb
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/galaxy-editor_1.1.8_amd64.deb
+sudo apt install ./galaxy-editor_1.1.8_amd64.deb
 ```
 
 **Opcja 2: Użyj przenośnego archiwum**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.7/GalaxyEditor-1.1.7-linux-x64.tar.gz
-tar -xzf GalaxyEditor-1.1.7-linux-x64.tar.gz
-cd GalaxyEditor-1.1.7-linux-x64
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.8-linux-x64.tar.gz
+cd GalaxyEditor-1.1.8-linux-x64
 ./galaxy-editor
 ```
 

@@ -38,7 +38,7 @@ jobs:
 
       - name: Package tarball
         run: |
-          scripts/fetch-companion-hpi.sh hpi-1.1.7
+          scripts/fetch-companion-hpi.sh hpi-1.1.8
           scripts/package-linux.sh
           mkdir -p packages
           cp build/galaxy-editor_*_amd64.deb GalaxyEditor-*-linux-x64.tar.gz packages/
@@ -69,7 +69,7 @@ jobs:
 
       - name: Package zip
         run: |
-          scripts/fetch-companion-hpi.sh hpi-1.1.7
+          scripts/fetch-companion-hpi.sh hpi-1.1.8
           scripts/package-windows.sh
           mkdir -p packages
           cp GalaxyEditor-*-windows-x64.zip packages/
@@ -96,7 +96,7 @@ jobs:
 
       - name: Package disk image
         run: |
-          scripts/fetch-companion-hpi.sh hpi-1.1.7
+          scripts/fetch-companion-hpi.sh hpi-1.1.8
           scripts/package-macos.sh
           mkdir -p packages
           cp GalaxyEditor-*-macos.dmg packages/
