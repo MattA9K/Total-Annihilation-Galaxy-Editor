@@ -58,6 +58,7 @@ enum class ToolIcon {
     Undo,
     Redo,
     Opacity,
+    HeightOffset,
     Delete,
     HpiEditor,
     NewArchive,

@@ -179,6 +179,8 @@ private:
     void drawResizeMap();
     void applyResize();
     void drawModifyHeight();
+    void drawPlaceHeight();
+    int placeHeightDelta() const;
     void drawSelectionMenu();
     // Favorites: tiles the user keeps in GE-Favorites-<name>.hpi archives.
     void openAddToFavorites(SectionStamp stamp, std::string description, std::string note = {});
@@ -331,6 +333,8 @@ private:
     float featureMarqueeY1_ = 0.0f;
     int armedStartPlayer_ = 0;
     int draggingStartPlayer_ = 0;
+    // Set when a number key chooses a player, so that row scrolls into view.
+    int revealStartPlayer_ = 0;
     bool showHeightGrid_ = false;
     int gridTiles_ = 0;
     int heightGridSize_ = 32;
@@ -361,6 +365,7 @@ private:
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
     struct BrushStroke {
         std::string name;
+        std::string category;
         std::string sectionPath;
         std::optional<SectionStamp> stamp;
     };
@@ -499,6 +504,7 @@ private:
     int resizeTop_ = 0;
     int resizeBottom_ = 0;
     bool showModifyHeight_ = false;
+    bool showPlaceHeight_ = false;
     bool showClosePrompt_ = false;
     int modifyHeightMode_ = static_cast<int>(HeightAdjust::Set);
     int modifyHeightAmount_ = 85;
@@ -536,6 +542,10 @@ private:
     int ghostH_ = 0;
     bool canvasPressed_ = false;
     int placeOpacity_ = 100;
+    bool placeHeightAdd_ = true;
+    int placeHeightAmount_ = 0;
+    bool placeHeightDraftAdd_ = true;
+    int placeHeightDraftAmount_ = 0;
     int placeOffsetX_ = 0;
     int placeOffsetY_ = 0;
     int placementOffsetFor_ = -1;

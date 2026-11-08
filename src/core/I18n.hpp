@@ -168,6 +168,9 @@ enum class Text : int {
     Edited,
     SectionsIndexed,
     Copy,
+    HeightOffset,
+    HeightOffsetLabel,
+    TipHeightOffset,
     Count
 };
 

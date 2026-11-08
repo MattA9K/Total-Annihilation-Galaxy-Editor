@@ -86,7 +86,7 @@ std::vector<std::uint8_t> renderSectionRgba(const SectionStamp& section, int max
 // top-left tile. Cells that fall outside the map are skipped. opacityPercent
 // mixes the incoming picture and height into the tile already on the map;
 // 100 replaces it. Returns how many map tiles were written.
-int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper = nullptr, int opacityPercent = 100);
+int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper = nullptr, int opacityPercent = 100, int heightOffset = 0);
 
 // The tiles and heights inside one rectangle, plus the map's tile-pool size
 // at the time they were copied.
@@ -113,7 +113,7 @@ std::optional<TilePatch> captureTilePatch(const LoadedMap& map, int originTileX,
 
 // Stamps the section and returns the edit needed to undo it. An empty result
 // means nothing was written.
-std::optional<PlacementChange> stampSectionChange(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper = nullptr, int opacityPercent = 100);
+std::optional<PlacementChange> stampSectionChange(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper = nullptr, int opacityPercent = 100, int heightOffset = 0);
 
 void revertPlacement(LoadedMap& map, const PlacementChange& change);
 void reapplyPlacement(LoadedMap& map, const PlacementChange& change);

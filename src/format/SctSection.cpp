@@ -253,7 +253,7 @@ std::vector<std::uint8_t> renderSectionRgba(const SectionStamp& section, int max
     return rgba;
 }
 
-int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper, int opacityPercent) {
+int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper, int opacityPercent, int heightOffset) {
     require(section.tileWidth > 0 && section.tileHeight > 0, "Section has no tiles");
     const std::size_t cellCount = static_cast<std::size_t>(section.tileWidth) * static_cast<std::size_t>(section.tileHeight);
     const std::size_t heightCount = static_cast<std::size_t>(section.tileWidth) * 2 * static_cast<std::size_t>(section.tileHeight) * 2;
@@ -264,6 +264,9 @@ int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, i
     require(map.tileImages.size() >= static_cast<std::size_t>(map.tileCount) * 1024, "Map tile pool is incomplete");
 
     const int opacity = std::clamp(opacityPercent, 0, 100);
+    const auto shiftHeight = [&](std::uint8_t sample) -> std::uint8_t {
+        return static_cast<std::uint8_t>(std::clamp(static_cast<int>(sample) + heightOffset, 0, 255));
+    };
     if (section.heightsOnly) {
         if (opacity <= 0) {
             return 0;
@@ -287,7 +290,7 @@ int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, i
                             + static_cast<std::size_t>(sx * 2 + dx);
                         const std::size_t dst = static_cast<std::size_t>(my * 2 + dy) * static_cast<std::size_t>(mapStride)
                             + static_cast<std::size_t>(mx * 2 + dx);
-                        map.heights[dst] = blendByte(map.heights[dst], section.heights[src]);
+                        map.heights[dst] = blendByte(map.heights[dst], shiftHeight(section.heights[src]));
                     }
                 }
                 ++written;
@@ -460,7 +463,7 @@ int stampSection(LoadedMap& map, const SectionStamp& section, int originTileX, i
                     + static_cast<std::size_t>(cell.sx * 2 + dx);
                 const std::size_t dst = static_cast<std::size_t>(cell.my * 2 + dy) * static_cast<std::size_t>(mapStride)
                     + static_cast<std::size_t>(cell.mx * 2 + dx);
-                map.heights[dst] = blendByte(map.heights[dst], section.heights[src]);
+                map.heights[dst] = blendByte(map.heights[dst], shiftHeight(section.heights[src]));
             }
         }
     }
@@ -549,12 +552,12 @@ void requireSameRegion(const PlacementChange& change) {
 
 }  // namespace
 
-std::optional<PlacementChange> stampSectionChange(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper, int opacityPercent) {
+std::optional<PlacementChange> stampSectionChange(LoadedMap& map, const SectionStamp& section, int originTileX, int originTileY, TileDeduper* deduper, int opacityPercent, int heightOffset) {
     auto before = captureTilePatch(map, originTileX, originTileY, section.tileWidth, section.tileHeight);
     if (!before) {
         return std::nullopt;
     }
-    const int written = stampSection(map, section, originTileX, originTileY, deduper, opacityPercent);
+    const int written = stampSection(map, section, originTileX, originTileY, deduper, opacityPercent, heightOffset);
     if (written <= 0) {
         return std::nullopt;
     }

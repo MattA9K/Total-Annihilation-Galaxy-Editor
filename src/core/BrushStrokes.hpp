@@ -195,7 +195,7 @@ enum class TransitionStyle {
     ShallowDeep,
     CoastalCliffDeep,     // Base-219 beside Base-0
     CoastalCliffShallow,  // Base-219 beside Base-68
-    WorldBlend,           // Base-86 beside another world's Base-85
+    WorldBlend,           // two worlds meeting, such as Base-85 beside Lava Base-86
 };
 
 // Which pair of paints a family of pieces joins. Paints are named by height, so
@@ -206,8 +206,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 24>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 24> rules = {{
+inline const std::array<BrushTransitionRule, 26>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 26> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -232,6 +232,8 @@ inline const std::array<BrushTransitionRule, 24>& brushTransitionRules() {
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
+        {80, 86, TransitionStyle::WorldBlend},
+        {78, 86, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -265,7 +267,26 @@ inline std::string blendWorldName(std::string_view category) {
     if (lower.find("archipelago") != std::string::npos) {
         return "Archi";
     }
+    if (lower.find("desert") != std::string::npos) {
+        return "Desert";
+    }
+    if (lower.find("acid") != std::string::npos) {
+        return "Acid";
+    }
     return {};
+}
+
+// True when two paints use one height, such as Mars, GreenWorld, and Acid all
+// named Base-85. A later paint at another height does not erase an earlier match.
+inline bool paintsShareHeight(const std::vector<int>& heights) {
+    for (std::size_t i = 0; i < heights.size(); ++i) {
+        for (std::size_t j = i + 1; j < heights.size(); ++j) {
+            if (heights[i] == heights[j]) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // The section a mask needs for a family of pieces, without its variation number.
@@ -496,16 +517,22 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             return cliffTransitionName(graph, sorted[0], sorted[1], maskOf(sorted[1]));
         }
         // Levels are stored from lowest height to highest. A world blend marks the
-        // Mars or GreenWorld corners when the other land is Lava. Archipelago is
-        // Base-78, below GreenWorld's Base-85, and its blend pieces still mark
-        // the Archipelago corners.
+        // Mars, GreenWorld, Acid, or Desert corners when the other land is Lava.
+        // Archipelago beside GreenWorld is Blend-Archi. Archipelago beside Lava is
+        // Blend-ArchiLava, so the two blends do not share a file.
         int marked = sorted[1];
-        if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
+        std::string family;
+        if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 86) {
+            marked = sorted[0];
+            family = "ArchiLava";
+        } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
         } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
             marked = sorted[0];
         }
-        std::string_view family = graph.world(marked);
+        if (family.empty()) {
+            family = std::string(graph.world(marked));
+        }
         if (family.empty()) {
             family = "Mars";
         }

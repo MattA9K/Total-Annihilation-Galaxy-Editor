@@ -765,6 +765,20 @@ void EditorApp::drawToolbar() {
         }
         ImGui::EndPopup();
     }
+    next();
+    const int heightDelta = placeHeightDelta();
+    const std::string heightNumber = heightDelta > 0 ? "+" + std::to_string(heightDelta) : (heightDelta == 0 ? "+0" : std::to_string(heightDelta));
+    const std::string heightLabel = formatText(Text::HeightOffsetLabel, {heightNumber});
+    const std::string heightWidth = formatText(Text::HeightOffsetLabel, {"-255"});
+    if (theme::toolbarItem("height-offset", ToolIcon::HeightOffset, heightLabel.c_str(), heightDelta != 0, heightWidth.c_str())) {
+        placeHeightDraftAdd_ = placeHeightAdd_;
+        placeHeightDraftAmount_ = placeHeightAmount_;
+        showPlaceHeight_ = true;
+    }
+    usedRight = ImGui::GetItemRectMax().x;
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", text(Text::TipHeightOffset));
+    }
 
     if (featuresTab_) {
         theme::toolbarSeparator();
@@ -1115,7 +1129,8 @@ void EditorApp::placeSelected(int tileX, int tileY) {
             tileX,
             tileY,
             &deduper_,
-            placeOpacity_);
+            placeOpacity_,
+            placeHeightDelta());
         if (change) {
             rememberPlacement(std::move(*change));
             statusNote_.clear();
@@ -1417,7 +1432,7 @@ void EditorApp::pasteAt(int tileX, int tileY) {
     }
     try {
         const int tileCountBefore = map_->tileCount;
-        auto change = stampSectionChange(*map_, *clipboard_, tileX, tileY, &deduper_, placeOpacity_);
+        auto change = stampSectionChange(*map_, *clipboard_, tileX, tileY, &deduper_, placeOpacity_, placeHeightDelta());
         if (change) {
             rememberPlacement(std::move(*change));
             const std::string size = std::to_string(clipboard_->tileWidth) + " x " + std::to_string(clipboard_->tileHeight);
@@ -1557,7 +1572,7 @@ void EditorApp::clearHistory() {
 }
 
 void EditorApp::drawStartLocations() {
-    theme::helpText("Click a player, then click the map. Drag a pin to move it. Right-click a pin to remove it.");
+    theme::helpText("Press 1-9 for that player, or 0 for Player 10. Click the map to place the pin. Drag a pin to move it. Right-click a pin to remove it.");
     if (!map_) {
         ImGui::TextWrapped("Open a map before placing start locations.");
     }
@@ -1592,6 +1607,10 @@ void EditorApp::drawStartLocations() {
         if (ImGui::Selectable("##player", armed, 0, ImVec2(rowWidth, rowHeight))) {
             armedStartPlayer_ = player;
             pasteArmed_ = false;
+        }
+        if (revealStartPlayer_ == player) {
+            ImGui::SetScrollHereY(0.5f);
+            revealStartPlayer_ = 0;
         }
         const ImVec2 rowMin = ImGui::GetItemRectMin();
         ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -3758,7 +3777,7 @@ void EditorApp::drawStatus() {
                 map_->displayName.c_str(),
                 zoom_ * 100.0f);
         } else {
-            ImGui::Text("Start locations. Choose a player, then click the map.   %s   zoom %.0f%%", map_->displayName.c_str(), zoom_ * 100.0f);
+            ImGui::Text("Start locations. Press 1-9, or 0 for Player 10, then click the map.   %s   zoom %.0f%%", map_->displayName.c_str(), zoom_ * 100.0f);
         }
         finishStatus();
         return;
@@ -4866,6 +4885,58 @@ void EditorApp::drawModifyHeight() {
     ImGui::EndPopup();
 }
 
+int EditorApp::placeHeightDelta() const {
+    const int amount = std::clamp(placeHeightAmount_, 0, 255);
+    return placeHeightAdd_ ? amount : -amount;
+}
+
+void EditorApp::drawPlaceHeight() {
+    if (!showPlaceHeight_) {
+        return;
+    }
+    ImGui::OpenPopup("Height Offset");
+    ImGui::SetNextWindowSize(ImVec2(380.0f, 0.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Height Offset", &showPlaceHeight_, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    theme::helpText("Adds or subtracts this amount from every height sample of a tile as it is placed. The result stays between 0 and 255.");
+    ImGui::Spacing();
+    int mode = placeHeightDraftAdd_ ? 0 : 1;
+    if (ImGui::RadioButton("Add", &mode, 0)) {
+        placeHeightDraftAdd_ = true;
+    }
+    if (ImGui::RadioButton("Subtract", &mode, 1)) {
+        placeHeightDraftAdd_ = false;
+    }
+    ImGui::SetNextItemWidth(140.0f);
+    ImGui::InputInt("Value", &placeHeightDraftAmount_, 0, 0);
+
+    ImGui::Dummy(ImVec2(0.0f, 8.0f));
+    const float buttonWidth = theme::pushButtonWidth("Accept");
+    theme::alignRight(buttonWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x);
+    if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        showPlaceHeight_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (theme::defaultButton("Accept", ImVec2(buttonWidth, 0.0f))) {
+        placeHeightAdd_ = placeHeightDraftAdd_;
+        placeHeightAmount_ = std::clamp(placeHeightDraftAmount_, 0, 255);
+        const int delta = placeHeightDelta();
+        if (delta == 0) {
+            statusNote_ = "Placed tiles keep their height";
+        } else if (delta > 0) {
+            statusNote_ = "Placed tiles use height +" + std::to_string(delta);
+        } else {
+            statusNote_ = "Placed tiles use height " + std::to_string(delta);
+        }
+        showPlaceHeight_ = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 namespace {
 
 bool sameName(std::string_view a, std::string_view b) {
@@ -5964,6 +6035,32 @@ bool EditorApp::draw() {
                 statusNote_ = "Brush " + brushSizeLabel(brushSize_);
             }
         }
+        // 1-9 choose that start, and 0 chooses Player 10. The keypad does the same.
+        if (startLocationsTab_ && map_ && draggingStartPlayer_ == 0
+            && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyAlt && !ImGui::GetIO().KeySuper
+            && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
+            constexpr ImGuiKey kNumberKeys[10][2] = {
+                {ImGuiKey_0, ImGuiKey_Keypad0},
+                {ImGuiKey_1, ImGuiKey_Keypad1},
+                {ImGuiKey_2, ImGuiKey_Keypad2},
+                {ImGuiKey_3, ImGuiKey_Keypad3},
+                {ImGuiKey_4, ImGuiKey_Keypad4},
+                {ImGuiKey_5, ImGuiKey_Keypad5},
+                {ImGuiKey_6, ImGuiKey_Keypad6},
+                {ImGuiKey_7, ImGuiKey_Keypad7},
+                {ImGuiKey_8, ImGuiKey_Keypad8},
+                {ImGuiKey_9, ImGuiKey_Keypad9},
+            };
+            for (int number = 0; number <= 9; ++number) {
+                if (!ImGui::IsKeyPressed(kNumberKeys[number][0], false) && !ImGui::IsKeyPressed(kNumberKeys[number][1], false)) {
+                    continue;
+                }
+                const int player = number == 0 ? 10 : number;
+                armedStartPlayer_ = player;
+                pasteArmed_ = false;
+                revealStartPlayer_ = player;
+            }
+        }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) && !hpiEditor_.focused()
         && !showAddFavorite_ && !showCreateFavorites_ && !showDeleteFavorite_ && !showRenameTile_ && !selectionMenuOpen_) {
@@ -6100,6 +6197,11 @@ bool EditorApp::draw() {
             }
             if (ImGui::MenuItem(text(Text::DeleteFeatures), nullptr, featureDelete_, map_.has_value() && featuresTab_)) {
                 toggleDeleteMode();
+            }
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::HeightOffset)).c_str())) {
+                placeHeightDraftAdd_ = placeHeightAdd_;
+                placeHeightDraftAmount_ = placeHeightAmount_;
+                showPlaceHeight_ = true;
             }
             if (ImGui::BeginMenu(text(Text::TileOpacity))) {
                 for (int value = 5; value <= 100; value += 5) {
@@ -6258,6 +6360,7 @@ bool EditorApp::draw() {
     drawNewMap();
     drawResizeMap();
     drawModifyHeight();
+    drawPlaceHeight();
     drawAddFavorite();
     drawDeleteFavorite();
     drawRenameTile();
@@ -6331,12 +6434,17 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     }
 
     static std::mt19937 rng{std::random_device{}()};
-    const auto strokesFor = [&](const std::string& paint, int strokeSize) {
+    // category keeps Base-85 strokes of Mars, GreenWorld, and Acid apart. They share a name.
+    const auto strokesFor = [&](const std::string& paint, int strokeSize, const std::string& category) {
         std::vector<BrushStroke*> matches;
         for (BrushStroke& stroke : brushStrokes_) {
-            if (brushStrokeVariation(stroke.name, paint, strokeSize) >= 0) {
-                matches.push_back(&stroke);
+            if (brushStrokeVariation(stroke.name, paint, strokeSize) < 0) {
+                continue;
             }
+            if (!category.empty() && !brushCategoryMatches(stroke.category, category)) {
+                continue;
+            }
+            matches.push_back(&stroke);
         }
         return matches;
     };
@@ -6360,11 +6468,11 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     std::vector<BrushStroke*> blockStrokes;
     bool repeatCell = false;
     if (!cornerBrush) {
-        blockStrokes = strokesFor(brushName_, size);
+        blockStrokes = strokesFor(brushName_, size, brushWorld_);
         // A tileset with only a 16 x 16 base, such as Lava, repeats that cell across a larger brush.
         repeatCell = blockStrokes.empty() && size > cell;
         if (repeatCell) {
-            blockStrokes = strokesFor(brushName_, cell);
+            blockStrokes = strokesFor(brushName_, cell, brushWorld_);
         }
         if (blockStrokes.empty()) {
             statusNote_ = "No " + brushName_ + " " + brushSizeLabel(repeatCell ? cell : size) + " brush stroke";
@@ -6562,7 +6670,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                 const BrushPaint* lower = levels[static_cast<std::size_t>(ringCell.level)];
                 if (ringCell.mask == 0) {
                     // Flat ground: the cell is all one base again.
-                    const std::vector<BrushStroke*> flat = strokesFor(lower->name, cell);
+                    const std::vector<BrushStroke*> flat = strokesFor(lower->name, cell, lower->category);
                     if (flat.empty()) {
                         noteMissing(lower->name + " " + brushSizeLabel(cell) + " brush stroke");
                         continue;
@@ -6913,7 +7021,7 @@ void EditorApp::ensureBrushPaints() {
     brushTilesetPath_ = source->path;
 
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
-        || lowerText(brushWorld_) == "archipelago";
+        || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         const bool blend = blendWorld && lowerText(section.world) == "blendtiles";
@@ -6925,6 +7033,7 @@ void EditorApp::ensureBrushPaints() {
         } else if (isBrushStrokeWorld(section.world)) {
             BrushStroke stroke;
             stroke.name = section.name;
+            stroke.category = section.category;
             stroke.sectionPath = section.archivePath;
             brushStrokes_.push_back(std::move(stroke));
         } else if (isRiverWorld(section.world)) {
@@ -6971,7 +7080,8 @@ void EditorApp::ensureBrushPaints() {
             if (stamp.tileWidth == kBrushCellTiles && stamp.tileHeight == kBrushCellTiles) {
                 bool hasCell = false;
                 for (const BrushStroke& stroke : brushStrokes_) {
-                    if (brushStrokeVariation(stroke.name, section->name, kBrushCellTiles) >= 0) {
+                    if (brushStrokeVariation(stroke.name, section->name, kBrushCellTiles) >= 0
+                        && brushCategoryMatches(stroke.category, section->category)) {
                         hasCell = true;
                         break;
                     }
@@ -6979,6 +7089,7 @@ void EditorApp::ensureBrushPaints() {
                 if (!hasCell) {
                     BrushStroke stroke;
                     stroke.name = section->name + "-" + std::to_string(kBrushCellTiles) + "x" + std::to_string(kBrushCellTiles) + "-01";
+                    stroke.category = section->category;
                     stroke.sectionPath = section->archivePath;
                     brushStrokes_.push_back(std::move(stroke));
                 }
@@ -6986,9 +7097,10 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
-    // Lava Base-86 blends into Mars Base-85 and GreenWorld Base-85. Archipelago
-    // Base-78 blends into GreenWorld Base-85. A partner is a paint the graph can
-    // see, and a stroke it can place, without becoming a button.
+    // Lava Base-86 blends into Mars, GreenWorld, and Acid at Base-85, into Desert
+    // at Base-80, and into Archipelago at Base-78. Archipelago Base-78 also blends
+    // into GreenWorld Base-85. A partner is a paint the graph can see, and a
+    // stroke it can place, without becoming a button.
     struct PartnerWant {
         const char* world;
         const char* name;
@@ -6997,6 +7109,9 @@ void EditorApp::ensureBrushPaints() {
     if (lowerText(brushWorld_) == "lava") {
         wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+        wanted.push_back(PartnerWant{"Acid", "Base-85"});
+        wanted.push_back(PartnerWant{"Desert", "Base-80"});
+        wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
     } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         if (lowerText(brushWorld_) == "greenworld") {
@@ -7004,6 +7119,9 @@ void EditorApp::ensureBrushPaints() {
         }
     } else if (lowerText(brushWorld_) == "archipelago") {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+        wanted.push_back(PartnerWant{"Lava", "Base-86"});
+    } else if (lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid") {
+        wanted.push_back(PartnerWant{"Lava", "Base-86"});
     }
     for (const PartnerWant& want : wanted) {
         for (const TilesetSection& section : source->sections) {
@@ -7015,13 +7133,41 @@ void EditorApp::ensureBrushPaints() {
             partner.name = section.name;
             partner.category = section.category;
             brushPartners_.push_back(std::move(partner));
-            bool haveStroke = false;
-            for (const BrushStroke& stroke : brushStrokes_) {
-                haveStroke = haveStroke || stroke.sectionPath == section.archivePath;
+            // GreenWorld's 16 x 16 ground is a brush stroke, not the 8 x 8 base.
+            // The flat fill has to use that stroke, or it stamps the wrong land.
+            for (const TilesetSection& strokeSection : source->sections) {
+                if (!isBrushStrokeWorld(strokeSection.world) || lowerText(strokeSection.category) != lowerText(section.category)) {
+                    continue;
+                }
+                bool named = false;
+                for (const int size : {1, 2, 4, 8, 16, 32, 64, 128}) {
+                    named = named || brushStrokeVariation(strokeSection.name, section.name, size) >= 0;
+                }
+                if (!named) {
+                    continue;
+                }
+                bool have = false;
+                for (const BrushStroke& stroke : brushStrokes_) {
+                    have = have || stroke.sectionPath == strokeSection.archivePath;
+                }
+                if (have) {
+                    continue;
+                }
+                BrushStroke stroke;
+                stroke.name = strokeSection.name;
+                stroke.category = strokeSection.category;
+                stroke.sectionPath = strokeSection.archivePath;
+                brushStrokes_.push_back(std::move(stroke));
             }
-            if (!haveStroke) {
+            bool haveCell = false;
+            for (const BrushStroke& stroke : brushStrokes_) {
+                haveCell = haveCell || (brushCategoryMatches(stroke.category, section.category)
+                    && brushStrokeVariation(stroke.name, section.name, kBrushCellTiles) >= 0);
+            }
+            if (!haveCell) {
                 BrushStroke stroke;
                 stroke.name = section.name + "-" + std::to_string(kBrushCellTiles) + "x" + std::to_string(kBrushCellTiles) + "-01";
+                stroke.category = section.category;
                 stroke.sectionPath = section.archivePath;
                 brushStrokes_.push_back(std::move(stroke));
             }
@@ -7037,12 +7183,12 @@ void EditorApp::ensureBrushPaints() {
     for (const BrushPaint& partner : brushPartners_) {
         pictured.push_back(&partner);
     }
-    bool sharedHeight = false;
-    for (std::size_t i = 0; i < pictured.size() && !sharedHeight; ++i) {
-        for (std::size_t j = i + 1; j < pictured.size(); ++j) {
-            sharedHeight = trailingNumber(pictured[i]->name) == trailingNumber(pictured[j]->name);
-        }
+    std::vector<int> picturedHeights;
+    picturedHeights.reserve(pictured.size());
+    for (const BrushPaint* paint : pictured) {
+        picturedHeights.push_back(trailingNumber(paint->name));
     }
+    const bool sharedHeight = paintsShareHeight(picturedHeights);
     if (sharedHeight) {
         // The shore and the world blend belong to Base-86. Base-190 is a higher
         // plateau, so the tallest Lava paint is not the ground those pictures join.
@@ -7121,6 +7267,38 @@ void EditorApp::ensureBrushPaints() {
         const std::string lavaGroundName = lavaGround != nullptr ? lavaGround->name : std::string();
         for (const BrushPiece& piece : brushPieces_) {
             const std::string lowered = lowerText(piece.name);
+            const auto paintAt = [&](const char* family, int height) -> const BrushPaint* {
+                for (const BrushPaint* paint : pictured) {
+                    if (blendWorldName(paint->category) == family && trailingNumber(paint->name) == height) {
+                        return paint;
+                    }
+                }
+                return nullptr;
+            };
+            if (lowered.starts_with("blend-archilava-")) {
+                const BrushPaint* archipelago = paintAt("Archi", 78);
+                const BrushPaint* lava = paintAt("Lava", 86);
+                if (archipelago != nullptr && lava != nullptr) {
+                    rememberPath(piece.sectionPath, archipelago->category, archipelago->name, true, lava->category, lava->name);
+                }
+                continue;
+            }
+            if (lowered.starts_with("blend-desert-")) {
+                const BrushPaint* desert = paintAt("Desert", 80);
+                const BrushPaint* lava = paintAt("Lava", 86);
+                if (desert != nullptr && lava != nullptr) {
+                    rememberPath(piece.sectionPath, desert->category, desert->name, true, lava->category, lava->name);
+                }
+                continue;
+            }
+            if (lowered.starts_with("blend-acid-")) {
+                const BrushPaint* acid = paintAt("Acid", 85);
+                const BrushPaint* lava = paintAt("Lava", 86);
+                if (acid != nullptr && lava != nullptr) {
+                    rememberPath(piece.sectionPath, acid->category, acid->name, true, lava->category, lava->name);
+                }
+                continue;
+            }
             if (lowered.starts_with("blend-archi-")) {
                 const BrushPaint* grass = nullptr;
                 const BrushPaint* archipelago = nullptr;

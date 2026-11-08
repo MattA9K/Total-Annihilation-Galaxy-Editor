@@ -311,6 +311,13 @@ void drawOpacity(const Canvas& c, const Palette& p) {
     c.line(16.0f, 4.5f, 16.0f, 27.5f, p.ink, 1.2f);
 }
 
+void drawHeightOffset(const Canvas& c, const Palette& p) {
+    c.rect(3.5f, 12.0f, 20.5f, 29.0f, p.green, p.ink, 2.0f, 1.5f);
+    c.line(25.0f, 7.5f, 25.0f, 24.5f, p.blue, 2.6f);
+    c.polygon({ImVec2(25.0f, 3.0f), ImVec2(20.8f, 9.0f), ImVec2(29.2f, 9.0f)}, p.blue, 0, 0.0f);
+    c.polygon({ImVec2(25.0f, 29.0f), ImVec2(20.8f, 23.0f), ImVec2(29.2f, 23.0f)}, p.blue, 0, 0.0f);
+}
+
 void drawDelete(const Canvas& c, const Palette& p) {
     c.rect(12.5f, 3.6f, 19.5f, 8.0f, 0, p.ink, 1.5f, 1.6f);
     c.polygon({ImVec2(7.8f, 11.0f), ImVec2(24.2f, 11.0f), ImVec2(22.0f, 29.0f), ImVec2(10.0f, 29.0f)}, p.red, p.ink, 1.5f);
@@ -420,6 +427,7 @@ void drawIcon(ToolIcon icon, const Canvas& canvas, const Canvas& flipped) {
     case ToolIcon::Undo: drawUndo(canvas, p); break;
     case ToolIcon::Redo: drawUndo(flipped, p); break;
     case ToolIcon::Opacity: drawOpacity(canvas, p); break;
+    case ToolIcon::HeightOffset: drawHeightOffset(canvas, p); break;
     case ToolIcon::Delete: drawDelete(canvas, p); break;
     case ToolIcon::HpiEditor: drawHpiEditor(canvas, p); break;
     case ToolIcon::NewArchive: drawNewArchive(canvas, p); break;
