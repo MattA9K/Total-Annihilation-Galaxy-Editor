@@ -13,6 +13,10 @@
 //                     River- names, so a bridge goes where the River- name matches.
 //                     RiverB-4way is the bridge for a 4-way crossing. A tileset that
 //                     has no such section keeps the crossing without a bridge.
+//   Mountain passes   Pass-N, Pass-Mid and Pass-S are 32 x 32. A river crosses a
+//                     Base-255 range when that range is an even number of 16 x 16
+//                     cells tall: Pass-N at the north, Pass-S at the south, and
+//                     Pass-Mid between them when the range is taller than two cells.
 //
 // Ridges follow the same rules with their own names:
 //   Ridge pieces      Ridge-Base, Ridge-End-X, Ridge-Horizontal, Ridge-Vertical,
@@ -47,9 +51,10 @@ inline constexpr int kRiverLeft = 8;
 inline constexpr int kRiverAllSides = 15;
 
 // The only flat bases a river may be painted on. Most lands are Base-85.
-// Desert land is Base-80.
+// Desert land is Base-80. Lush land is Base-77.
 inline constexpr std::string_view kRiverLandBase = "Base-85";
 inline constexpr std::string_view kRiverDesertLand = "Base-80";
+inline constexpr std::string_view kRiverLushLand = "Base-77";
 
 inline int oppositeRiverSide(int side) {
     switch (side) {
@@ -74,7 +79,13 @@ inline bool sameRiverKey(std::string_view left, std::string_view right) {
 }
 
 inline bool riverLandLabel(std::string_view label) {
-    return sameRiverKey(label, kRiverLandBase) || sameRiverKey(label, kRiverDesertLand);
+    return sameRiverKey(label, kRiverLandBase) || sameRiverKey(label, kRiverDesertLand) || sameRiverKey(label, kRiverLushLand);
+}
+
+// Base-255 and the Cliff-255 pieces around it. Lush uses these for mountains.
+inline bool riverMountainLabel(std::string_view label) {
+    const std::string key = riverLowerText(label);
+    return key == "base-255" || key.starts_with("cliff-255-");
 }
 
 // Drops a trailing "-NN" variation number: "River-Horizontal-02" -> "River-Horizontal".
@@ -472,6 +483,17 @@ inline RiverCell classifyRiverLabel(std::string_view label) {
         cell.label = piece.key;
         return cell;
     }
+    const std::string lowered = riverLowerText(label);
+    if (lowered == "pass-mouth-n" || lowered == "pass-mouth-s") {
+        RiverPiece mouth;
+        mouth.valid = true;
+        mouth.sides = lowered == "pass-mouth-n" ? kRiverTop : kRiverBottom;
+        mouth.key = lowered == "pass-mouth-n" ? "Pass-Mouth-N" : "Pass-Mouth-S";
+        cell.kind = RiverCell::Kind::River;
+        cell.piece = mouth;
+        cell.label = mouth.key;
+        return cell;
+    }
     // Base names end in their height, which is not a variation number.
     cell.label = riverLowerText(label).starts_with("base") ? std::string(label) : riverKeyOf(label);
     return cell;
@@ -529,12 +551,12 @@ inline RiverCell::Kind mouthKind(LineFamily family) {
 inline std::string noPlace(LineFamily family, const RiverCell& here) {
     return family == LineFamily::Ridge
         ? cannotPlace("Ridges", here, "Ridges only go on Base-85 and cliff edges")
-        : cannotPlace("Rivers", here, "Rivers only go on Base-85, Base-80 and coast edges");
+        : cannotPlace("Rivers", here, "Rivers only go on Base-85, Base-80, Base-77 and coast edges");
 }
 
 }  // namespace river_detail
 
-// Rivers go on Base-85 or Base-80 and on the straight coasts. Ridges go on Base-85 and on the
+// Rivers go on Base-85, Base-80, or Base-77 and on the straight coasts. Ridges go on Base-85 and on the
 // straight cliffs. A cell that already holds one is rebuilt, and so are the plain
 // cells of the same kind that now join it.
 inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
@@ -655,7 +677,104 @@ inline RiverPlan planLineOverlay(LineFamily family, int x, int y, const RiverLoo
     return plan;
 }
 
+// A 32 x 32 pass cut through a Base-255 range. The range has to be an even number
+// of 16 x 16 cells tall, and two columns wide. Pass-N covers the north edge and
+// the land just above it, Pass-S covers the south edge and the land just below
+// it, and each extra pair of mountain cells takes a Pass-Mid.
+inline RiverPlan planMountainRiver(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available) {
+    RiverPlan plan;
+    const auto mountain = [&](int cx, int cy) { return riverMountainLabel(lookup(cx, cy).label); };
+    int top = y;
+    while (mountain(x, top - 1)) {
+        --top;
+    }
+    int bottom = y;
+    while (mountain(x, bottom + 1)) {
+        ++bottom;
+    }
+    const int height = bottom - top + 1;
+    if (height < 2 || height % 2 != 0) {
+        plan.reason = "This mountain is " + std::to_string(height) + (height == 1 ? " tile tall" : " tiles tall");
+        plan.reason += "\nRivers cross mountains an even number of tiles tall";
+        return plan;
+    }
+    const auto sameRun = [&](int column) {
+        for (int row = top; row <= bottom; ++row) {
+            if (!mountain(column, row)) {
+                return false;
+            }
+        }
+        return !mountain(column, top - 1) && !mountain(column, bottom + 1);
+    };
+    int left = x;
+    if (sameRun(x + 1)) {
+        left = x;
+    } else if (sameRun(x - 1)) {
+        left = x - 1;
+    } else {
+        plan.reason = "A mountain river needs two columns of mountain the same height";
+        return plan;
+    }
+    const auto approach = [&](int cx, int cy) {
+        const RiverCell cell = lookup(cx, cy);
+        if (cell.label.empty()) {
+            return false;
+        }
+        if (riverLandLabel(cell.label)) {
+            return true;
+        }
+        return cell.kind == RiverCell::Kind::River && cell.piece.flexible;
+    };
+    if (!approach(left, top - 1) || !approach(left + 1, top - 1) || !approach(left, bottom + 1) || !approach(left + 1, bottom + 1)) {
+        plan.reason = "A mountain river needs flat land above and below the mountains";
+        return plan;
+    }
+    const int pieces = height / 2 + 1;
+    if (pieces > 2 && available && !available("Pass-Mid")) {
+        plan.reason = "The tileset needs Pass-Mid for this mountain";
+        return plan;
+    }
+    for (int piece = 0; piece < pieces; ++piece) {
+        const char* key = piece == 0 ? "Pass-N" : (piece + 1 == pieces ? "Pass-S" : "Pass-Mid");
+        plan.edits.push_back(RiverEdit{left, top - 1 + piece * 2, key});
+    }
+    const auto retarget = [&](int cx, int cy, int extraSide) {
+        const RiverCell cell = lookup(cx, cy);
+        if (cell.kind != RiverCell::Kind::River || !cell.piece.flexible) {
+            return;
+        }
+        int sides = extraSide;
+        for (const auto& [side, step] : kRiverNeighbours) {
+            if (side == extraSide) {
+                continue;
+            }
+            const RiverCell next = lookup(cx + step.first, cy + step.second);
+            if (next.kind == RiverCell::Kind::River && river_detail::permits(next.piece, oppositeRiverSide(side))) {
+                sides |= side;
+            }
+        }
+        const std::string key = riverKeyForSides(sides);
+        if (!sameRiverKey(cell.piece.key, key) && (!available || available(key))) {
+            plan.edits.push_back(RiverEdit{cx, cy, key});
+        }
+    };
+    retarget(left, top - 2, kRiverBottom);
+    retarget(left + 1, bottom + 2, kRiverTop);
+    return plan;
+}
+
 inline RiverPlan planRiver(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
+    if (available && available("Pass-N") && available("Pass-S")) {
+        const RiverCell here = lookup(x, y);
+        if (riverMountainLabel(here.label)) {
+            return planMountainRiver(x, y, lookup, available);
+        }
+        if (riverLowerText(here.label).starts_with("pass-")) {
+            RiverPlan placed;
+            placed.reason = "A mountain river is already here";
+            return placed;
+        }
+    }
     return planLine(LineFamily::River, x, y, lookup, available);
 }
 inline RiverPlan planRiverBridge(int x, int y, const RiverLookup& lookup, const std::function<bool(std::string_view)>& available = {}) {
@@ -776,16 +895,21 @@ public:
     void add(const SectionStamp& stamp, const std::string& label) {
         for (int y = 0; y + kRiverCellTiles <= stamp.tileHeight; y += kRiverCellTiles) {
             for (int x = 0; x + kRiverCellTiles <= stamp.tileWidth; x += kRiverCellTiles) {
-                const std::uint64_t signature = riverStampSignature(stamp, x, y);
-                if (signature == 0) {
-                    continue;
-                }
-                std::vector<Entry>& candidates = entries_[signature];
-                const bool known = std::any_of(candidates.begin(), candidates.end(), [&](const Entry& entry) { return entry.label == label; });
-                if (!known) {
-                    candidates.push_back(Entry{label, riverStampHeight(stamp, x, y)});
-                }
+                addAt(stamp, x, y, label);
             }
+        }
+    }
+
+    // One 16 x 16 quadrant of a larger section, under its own label.
+    void addAt(const SectionStamp& stamp, int tileX, int tileY, const std::string& label) {
+        const std::uint64_t signature = riverStampSignature(stamp, tileX, tileY);
+        if (signature == 0) {
+            return;
+        }
+        std::vector<Entry>& candidates = entries_[signature];
+        const bool known = std::any_of(candidates.begin(), candidates.end(), [&](const Entry& entry) { return entry.label == label; });
+        if (!known) {
+            candidates.push_back(Entry{label, riverStampHeight(stamp, tileX, tileY)});
         }
     }
 

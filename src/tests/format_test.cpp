@@ -2925,6 +2925,18 @@ void testBrushCells() {
     expect(galaxy::brushCornerNode(15, 23, 8, 8, cornerX, cornerY) && cornerX == 1 && cornerY == 1, "tiles around that meeting stay on it");
     expect(galaxy::brushCornerNode(24, 40, 8, 8, cornerX, cornerY) && cornerX == 2 && cornerY == 3, "the next meetings are one cell apart");
     expect(galaxy::brushCornerNode(200, 4, 8, 8, cornerX, cornerY) && cornerX == 7 && cornerY == 1, "a click past the last meeting stays on a point shared by four cells");
+    int originX = 0;
+    int originY = 0;
+    galaxy::brushBlockOrigin(20, 36, 16, 10, 10, originX, originY);
+    expect(originX == 1 && originY == 2, "a 16 brush is the cell under the pointer");
+    galaxy::brushBlockOrigin(20, 36, 32, 10, 10, originX, originY);
+    expect(originX == 0 && originY == 1 && originX + 1 == (20 + 8) / 16 && originY + 1 == (36 + 8) / 16, "a 32 brush is centered on the nearest corner");
+    galaxy::brushBlockOrigin(20, 36, 64, 10, 10, originX, originY);
+    expect(originX == -1 && originY == 0, "a 64 brush extends two cells on every side of that corner");
+    galaxy::brushBlockOrigin(20, 36, 128, 10, 10, originX, originY);
+    expect(originX == -3 && originY == -2, "a 128 brush extends four cells on every side of that corner");
+    galaxy::brushBlockOrigin(4, 4, 32, 10, 10, originX, originY);
+    expect(originX == -1 && originY == -1, "a centered brush may hang off the top-left of the map");
     const BrushGraph coast(std::vector<int>{0, 85, 219});
     BrushTestLattice dot(6, 6, 0, coast);
     const BrushPlan corners = dot.paintCorner(3, 3, 1);
@@ -3013,6 +3025,33 @@ void testBrushCells() {
     BrushTestLattice acidLand(5, 5, 0, acid);
     acidLand.paint(2, 2, 1, 1);
     expect(acidLand.piece(2, 2) == "Base-85" && acidLand.piece(2, 1) == "Coast-Water-T" && acidLand.piece(1, 1) == "Coast-Land-BR" && !acidLand.steep(), "Acid land in the water uses coast pieces");
+
+    // Lush ocean is Base-27 and the lowest ground is Base-77, joined by coast pieces.
+    const BrushGraph lush(std::vector<int>{27, 77});
+    expect(lush.style(0, 1) == TransitionStyle::Coast && lush.compatible(0, 1), "Lush joins Base-27 to Base-77 with coasts");
+    BrushTestLattice lushLand(5, 5, 0, lush);
+    lushLand.paint(2, 2, 1, 1);
+    expect(lushLand.piece(2, 2) == "Base-77" && lushLand.piece(2, 1) == "Coast-Water-T" && lushLand.piece(1, 1) == "Coast-Land-BR" && !lushLand.steep(), "Lush land in the ocean uses coast pieces");
+    const BrushGraph lushCliff(std::vector<int>{27, 77, 183});
+    expect(lushCliff.style(1, 2) == TransitionStyle::Cliff && lushCliff.style(0, 2) == TransitionStyle::None && lushCliff.distance(0, 2) == 2, "Lush Base-183 sits on Base-77");
+    BrushTestLattice lushPlateau(5, 5, 1, lushCliff);
+    lushPlateau.paint(2, 2, 1, 2);
+    expect(lushPlateau.piece(2, 2) == "Base-183" && lushPlateau.piece(2, 1) == "Cliff-High-B" && lushPlateau.piece(1, 1) == "Cliff-High-BR" && !lushPlateau.steep(), "Lush Base-183 meets Base-77 with cliff pieces");
+    BrushTestLattice lushFromOcean(5, 5, 0, lushCliff);
+    lushFromOcean.paint(2, 2, 1, 2);
+    expect(lushFromOcean.piece(2, 2) == "Base-183" && lushFromOcean.piece(2, 1) == "Cliff-High-B" && lushFromOcean.piece(2, 0) == "Coast-Water-T" && !lushFromOcean.steep(), "Base-183 painted on the ocean keeps Base-77 between them");
+    const BrushGraph lushTops(std::vector<int>{27, 77, 183, 255});
+    expect(lushTops.style(1, 2) == TransitionStyle::Cliff && lushTops.style(1, 3) == TransitionStyle::Cliff && lushTops.style(2, 3) == TransitionStyle::None && lushTops.distance(2, 3) == 2, "Lush Base-183 and Base-255 both rise from Base-77");
+    expect(brushPieceName(lushTops, {1, 1, 2, 2}) == "Cliff-183-High-B" && brushPieceName(lushTops, {1, 1, 3, 3}) == "Cliff-255-High-B", "the two Lush cliffs are named apart");
+    BrushTestLattice lushPeak(5, 5, 1, lushTops);
+    lushPeak.paint(2, 2, 1, 3);
+    expect(lushPeak.piece(2, 2) == "Base-255" && lushPeak.piece(2, 1) == "Cliff-255-High-B" && lushPeak.piece(1, 1) == "Cliff-255-High-BR" && !lushPeak.steep(), "Lush Base-255 meets Base-77 with its own cliff pieces");
+    BrushTestLattice lushPeakFromOcean(5, 5, 0, lushTops);
+    lushPeakFromOcean.paint(2, 2, 1, 3);
+    expect(lushPeakFromOcean.piece(2, 2) == "Base-255" && lushPeakFromOcean.piece(2, 1) == "Cliff-255-High-B" && lushPeakFromOcean.piece(2, 0) == "Coast-Water-T" && !lushPeakFromOcean.steep(), "Base-255 painted on the ocean keeps Base-77 between them");
+    BrushTestLattice lushMesa(5, 5, 1, lushTops);
+    lushMesa.paint(2, 2, 1, 2);
+    expect(lushMesa.piece(2, 2) == "Base-183" && lushMesa.piece(2, 1) == "Cliff-183-High-B" && lushMesa.piece(1, 1) == "Cliff-183-High-BR" && !lushMesa.steep(), "Base-183 keeps Cliff-183 pieces beside Base-255");
 
     // Desert is Base-0 water and Base-80 land, joined by coast pieces.
     const BrushGraph desert(std::vector<int>{0, 80});
@@ -3295,6 +3334,8 @@ void testRivers() {
     // What a cell holds.
     expect(galaxy::classifyRiverLabel("Base-85").kind == galaxy::RiverCell::Kind::Land, "Base-85 takes rivers");
     expect(galaxy::classifyRiverLabel("Base-80").kind == galaxy::RiverCell::Kind::Land, "Base-80 takes rivers");
+    expect(galaxy::classifyRiverLabel("Base-77").kind == galaxy::RiverCell::Kind::Land, "Base-77 takes rivers");
+    expect(galaxy::classifyRiverLabel("Base-183").kind == galaxy::RiverCell::Kind::Other, "Base-183 does not take rivers");
     expect(galaxy::classifyRiverLabel("Base-155").kind == galaxy::RiverCell::Kind::Other, "Base-155 does not take rivers");
     expect(galaxy::classifyRiverLabel("Base-68").kind == galaxy::RiverCell::Kind::Other && galaxy::classifyRiverLabel("Base-68").label == "Base-68", "Base-68 does not");
     expect(galaxy::classifyRiverLabel("Base-219").kind == galaxy::RiverCell::Kind::Other, "Base-219 does not");
@@ -3404,6 +3445,68 @@ void testRivers() {
     RiverTestGrid desertRiver(3, 3, "Base-80");
     const galaxy::RiverPlan desertStarted = galaxy::planRiver(1, 1, [&](int cx, int cy) { return desertRiver.look(cx, cy); }, noPond);
     expect(desertStarted.allowed() && desertStarted.edits.size() == 1 && desertStarted.edits[0].key == "River-Horizontal", "a desert river starts on Base-80");
+    RiverTestGrid lushRiver(3, 3, "Base-77");
+    const galaxy::RiverPlan lushStarted = galaxy::planRiver(1, 1, [&](int cx, int cy) { return lushRiver.look(cx, cy); }, noPond);
+    expect(lushStarted.allowed() && lushStarted.edits.size() == 1 && lushStarted.edits[0].key == "River-Horizontal", "a lush river starts on Base-77");
+    RiverTestGrid lushSpan(4, 3, "Base-77");
+    lushSpan.at(1, 1) = "River-Horizontal-01";
+    const auto lushBridges = [](std::string_view key) {
+        return galaxy::sameRiverKey(key, "RiverB-Horizontal") || galaxy::sameRiverKey(key, "RiverB-Vertical");
+    };
+    const galaxy::RiverPlan lushBridge = galaxy::planRiverBridge(1, 1, [&](int cx, int cy) { return lushSpan.look(cx, cy); }, lushBridges);
+    expect(lushBridge.allowed() && lushBridge.edits.size() == 1 && lushBridge.edits[0].key == "RiverB-Horizontal", "a lush bridge crosses a straight river");
+    lushSpan.at(1, 1) = "River-R-B-01";
+    const galaxy::RiverPlan lushBend = galaxy::planRiverBridge(1, 1, [&](int cx, int cy) { return lushSpan.look(cx, cy); }, lushBridges);
+    expect(!lushBend.allowed() && lushSpan.at(1, 1) == "River-R-B-01", "a lush bend has no bridge");
+    RiverTestGrid lushCliff(3, 3, "Base-183");
+    const galaxy::RiverPlan lushRefused = galaxy::planRiver(1, 1, [&](int cx, int cy) { return lushCliff.look(cx, cy); });
+    expect(!lushRefused.allowed() && lushRefused.reason.find("Base-77") != std::string::npos, "Lush rivers stay off Base-183");
+    RiverTestGrid passShort(6, 6, "Base-77");
+    for (int column = 1; column <= 3; ++column) {
+        passShort.at(column, 2) = "Base-255";
+        passShort.at(column, 3) = "Cliff-255-High-B-01";
+    }
+    const galaxy::RiverPlan cut = galaxy::planRiver(1, 2, [&](int cx, int cy) { return passShort.look(cx, cy); }, noPond);
+    expect(cut.allowed() && cut.edits.size() == 2 && cut.edits[0].key == "Pass-N" && cut.edits[0].x == 1 && cut.edits[0].y == 1
+            && cut.edits[1].key == "Pass-S" && cut.edits[1].x == 1 && cut.edits[1].y == 3,
+        "a two-tile mountain gets a north and south pass");
+    RiverTestGrid passOdd(6, 7, "Base-77");
+    for (int column = 1; column <= 2; ++column) {
+        for (int row = 2; row <= 4; ++row) {
+            passOdd.at(column, row) = "Base-255";
+        }
+    }
+    const galaxy::RiverPlan oddCut = galaxy::planRiver(1, 3, [&](int cx, int cy) { return passOdd.look(cx, cy); }, noPond);
+    expect(!oddCut.allowed() && oddCut.reason.find("even") != std::string::npos, "a three-tile mountain takes no river");
+    RiverTestGrid passTall(6, 8, "Base-77");
+    for (int column = 1; column <= 2; ++column) {
+        for (int row = 2; row <= 5; ++row) {
+            passTall.at(column, row) = "Base-255";
+        }
+    }
+    const galaxy::RiverPlan tallCut = galaxy::planRiver(2, 4, [&](int cx, int cy) { return passTall.look(cx, cy); }, noPond);
+    expect(tallCut.allowed() && tallCut.edits.size() == 3 && tallCut.edits[0].key == "Pass-N" && tallCut.edits[0].x == 1 && tallCut.edits[0].y == 1
+            && tallCut.edits[1].key == "Pass-Mid" && tallCut.edits[1].y == 3 && tallCut.edits[2].key == "Pass-S" && tallCut.edits[2].y == 5,
+        "a four-tile mountain gets a middle pass");
+    RiverTestGrid oneColumn(4, 6, "Base-77");
+    oneColumn.at(1, 2) = "Base-255";
+    oneColumn.at(1, 3) = "Base-255";
+    const galaxy::RiverPlan narrow = galaxy::planRiver(1, 2, [&](int cx, int cy) { return oneColumn.look(cx, cy); }, noPond);
+    expect(!narrow.allowed() && narrow.reason.find("two columns") != std::string::npos, "a one-column mountain takes no river");
+    RiverTestGrid bareMountain(3, 3, "Base-255");
+    const galaxy::RiverPlan barePass = galaxy::planRiver(1, 1, [&](int cx, int cy) { return bareMountain.look(cx, cy); });
+    expect(!barePass.allowed() && barePass.reason.find("Base-77") != std::string::npos, "Base-255 without pass tiles takes no river");
+    RiverTestGrid passMouth(3, 4, "Base-77");
+    passMouth.at(1, 2) = "Pass-Mouth-N";
+    const galaxy::RiverPlan joinedPass = galaxy::planRiver(1, 1, [&](int cx, int cy) { return passMouth.look(cx, cy); }, noPond);
+    expect(joinedPass.allowed() && joinedPass.edits.size() == 1 && joinedPass.edits[0].key == "River-Vertical", "a river north of a mountain pass runs into it");
+    RiverTestGrid southMouth(3, 4, "Base-77");
+    southMouth.at(1, 1) = "Pass-Mouth-S";
+    const galaxy::RiverPlan joinedSouth = galaxy::planRiver(1, 2, [&](int cx, int cy) { return southMouth.look(cx, cy); }, noPond);
+    expect(joinedSouth.allowed() && joinedSouth.edits.size() == 1 && joinedSouth.edits[0].key == "River-Vertical", "a river south of a mountain pass runs out of it");
+    passMouth.at(1, 1) = "Pass-Body";
+    const galaxy::RiverPlan passBody = galaxy::planRiver(1, 1, [&](int cx, int cy) { return passMouth.look(cx, cy); }, noPond);
+    expect(!passBody.allowed() && passBody.reason.find("already here") != std::string::npos, "a mountain river is left in place");
     RiverTestGrid bend(4, 4, "Base-85");
     bend.river(1, 1);
     bend.river(2, 1);
@@ -3808,6 +3911,30 @@ void testSlopes() {
     plainOn255.at(1, 1) = "Cliff-255-High-B";
     const galaxy::RiverPlan plainRefused = plainOn255.slope(1, 1);
     expect(!plainRefused.allowed() && plainRefused.reason.find("Base-85 and Base-219") != std::string::npos && plainOn255.at(1, 1) == "Cliff-255-High-B", "the Base-219 slopes stay off a Base-255 cliff");
+
+    // Lush Base-77 to Base-183 slopes are four straight singles. A neighbour stays
+    // a cliff until it is clicked, and a corner cliff is refused.
+    const auto lush183 = [](std::string_view key) {
+        return key == "Single-183-High-B" || key == "Single-183-High-T" || key == "Single-183-High-L" || key == "Single-183-High-R";
+    };
+    const galaxy::SlopeShape lushCliffShape = galaxy::parseSlopeShape("Cliff-183-High-B-01", 183);
+    expect(lushCliffShape.valid && !lushCliffShape.slope && lushCliffShape.mask == (kCornerBottomLeft | kCornerBottomRight), "Lush slopes read the Cliff-183 cliff");
+    expect(!galaxy::parseSlopeShape("Cliff-High-B-01", 183).valid && !galaxy::parseSlopeShape("Cliff-255-High-B", 183).valid, "Lush slopes ignore the plain cliff and the Base-255 cliff");
+    expect(galaxy::slopePieceName(kCornerTopLeft | kCornerTopRight, 0, 183) == "Single-183-High-T"
+        && galaxy::slopePieceName(kCornerTopLeft | kCornerBottomLeft, 0, 183) == "Single-183-High-L"
+        && galaxy::slopePieceName(kCornerTopRight | kCornerBottomRight, 0, 183) == "Single-183-High-R", "Lush straight cliffs become Single-183 slopes");
+    SlopeTestGrid lushPair(4, 3, "Base-77");
+    lushPair.at(1, 1) = "Cliff-183-High-B-01";
+    lushPair.at(2, 1) = "Cliff-183-High-B-01";
+    expect(lushPair.slope(1, 1, lush183, 183).allowed() && lushPair.at(1, 1) == "Single-183-High-B" && lushPair.at(2, 1) == "Cliff-183-High-B-01", "the first Lush slope leaves the next cliff alone");
+    expect(lushPair.slope(2, 1, lush183, 183).allowed() && lushPair.at(1, 1) == "Single-183-High-B" && lushPair.at(2, 1) == "Single-183-High-B", "Lush slopes sit beside each other as singles");
+    SlopeTestGrid lushCorner(3, 3, "Base-77");
+    lushCorner.at(1, 1) = "Cliff-183-High-BL-01";
+    const galaxy::RiverPlan lushRefused = lushCorner.slope(1, 1, lush183, 183);
+    expect(!lushRefused.allowed() && lushRefused.reason.find("straight") != std::string::npos && lushCorner.at(1, 1) == "Cliff-183-High-BL-01", "Lush slopes refuse a cliff corner");
+    SlopeTestGrid lushLand(3, 3, "Base-77");
+    const galaxy::RiverPlan lushFlat = lushLand.slope(1, 1, lush183, 183);
+    expect(!lushFlat.allowed() && lushFlat.reason.find("Base-77 and Base-183") != std::string::npos, "Lush slopes only go on the Base-183 cliff");
     SlopeTestGrid marsCorner(3, 3, "Base-85");
     marsCorner.at(1, 1) = "Cliff-Low-BR-01";
     const galaxy::RiverPlan marsLow = marsCorner.slope(1, 1, marsSlope);

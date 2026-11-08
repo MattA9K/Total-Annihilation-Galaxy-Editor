@@ -2970,18 +2970,20 @@ void EditorApp::drawMap() {
             if (brushSize_ < kBrushCellTiles) {
                 brushCornerNode(tileX, tileY, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_);
             } else {
-                brushStrokeX_ = tileX / kBrushCellTiles;
-                brushStrokeY_ = tileY / kBrushCellTiles;
+                brushBlockOrigin(tileX, tileY, brushSize_, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_);
             }
             brushStroking_ = true;
         } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             // A drag paints again when the snap point changes. The 8 x 8 brush follows the meeting of four cells.
+            // A larger even brush follows the same point, because that point is the center of its square.
             const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
             const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
             int stepX = tileX / kBrushCellTiles;
             int stepY = tileY / kBrushCellTiles;
             if (brushSize_ < kBrushCellTiles) {
                 brushCornerNode(tileX, tileY, cellsAcross, cellsDown, stepX, stepY);
+            } else if (brushSize_ > kBrushCellTiles) {
+                brushBlockOrigin(tileX, tileY, brushSize_, cellsAcross, cellsDown, stepX, stepY);
             }
             if (stepX != brushStrokeX_ || stepY != brushStrokeY_) {
                 paintBrushStroke(tileX, tileY);
@@ -3497,11 +3499,41 @@ void EditorApp::drawMap() {
     }
     const bool riverBlocked = riverTool && hoverOverMap_ && !riverHover.allowed();
     if (brushOwnsMap && hoverOverMap_) {
-        // Larger brushes sit on the 16 x 16 cell under the pointer. 8 x 8 is centered
-        // on the point where four of those cells meet.
+        // 8 x 8 is centered on the point where four cells meet. 16 x 16 is the cell
+        // under the pointer. Larger brushes are centered on that same point, so the
+        // pointer sits in the middle of the square.
         const int brushTiles = riverTool ? kBrushCellTiles : std::max(kBrushCellTiles / 2, brushSize_);
+        int originCellX = tileX / kBrushCellTiles;
+        int originCellY = tileY / kBrushCellTiles;
+        int spanCellsX = 1;
+        int spanCellsY = 1;
+        if (riverTool && riverHover.allowed()) {
+            bool pass = false;
+            int minX = originCellX;
+            int minY = originCellY;
+            int maxX = originCellX + 1;
+            int maxY = originCellY + 1;
+            for (const RiverEdit& edit : riverHover.edits) {
+                if (edit.key.rfind("Pass-", 0) != 0) {
+                    continue;
+                }
+                pass = true;
+                minX = std::min(minX, edit.x);
+                minY = std::min(minY, edit.y);
+                maxX = std::max(maxX, edit.x + 2);
+                maxY = std::max(maxY, edit.y + 2);
+            }
+            if (pass) {
+                originCellX = minX;
+                originCellY = minY;
+                spanCellsX = maxX - minX;
+                spanCellsY = maxY - minY;
+            }
+        }
         float x0 = 0.0f;
         float y0 = 0.0f;
+        float x1 = 0.0f;
+        float y1 = 0.0f;
         if (!riverTool && brushTiles < kBrushCellTiles) {
             const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
             const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
@@ -3511,12 +3543,29 @@ void EditorApp::drawMap() {
             const float halfPx = static_cast<float>(brushTiles / 2 * 32);
             x0 = static_cast<float>(nodeX * kBrushCellTiles * 32) - halfPx;
             y0 = static_cast<float>(nodeY * kBrushCellTiles * 32) - halfPx;
+            x1 = x0 + static_cast<float>(brushTiles * 32);
+            y1 = y0 + static_cast<float>(brushTiles * 32);
+        } else if (!riverTool) {
+            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
+            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+            int blockX = 0;
+            int blockY = 0;
+            brushBlockOrigin(tileX, tileY, brushTiles, cellsAcross, cellsDown, blockX, blockY);
+            const int blockCells = std::max(1, brushTiles / kBrushCellTiles);
+            x0 = static_cast<float>(blockX * kBrushCellTiles * 32);
+            y0 = static_cast<float>(blockY * kBrushCellTiles * 32);
+            x1 = x0 + static_cast<float>(blockCells * kBrushCellTiles * 32);
+            y1 = y0 + static_cast<float>(blockCells * kBrushCellTiles * 32);
         } else {
-            x0 = static_cast<float>(tileX / kBrushCellTiles * kBrushCellTiles * 32);
-            y0 = static_cast<float>(tileY / kBrushCellTiles * kBrushCellTiles * 32);
+            x0 = static_cast<float>(originCellX * kBrushCellTiles * 32);
+            y0 = static_cast<float>(originCellY * kBrushCellTiles * 32);
+            // A mountain pass covers every cell it stamps. A river stays on its one cell.
+            const bool mountainPass = spanCellsX != 1 || spanCellsY != 1;
+            const float width = mountainPass ? static_cast<float>(spanCellsX * kBrushCellTiles * 32) : static_cast<float>(brushTiles * 32);
+            const float height = mountainPass ? static_cast<float>(spanCellsY * kBrushCellTiles * 32) : static_cast<float>(brushTiles * 32);
+            x1 = x0 + width;
+            y1 = y0 + height;
         }
-        const float x1 = x0 + static_cast<float>(brushTiles * 32);
-        const float y1 = y0 + static_cast<float>(brushTiles * 32);
         const ImVec2 brushMin = toScreen(x0, y0);
         const ImVec2 brushMax = toScreen(x1, y1);
         draw->AddRectFilled(brushMin, brushMax, riverBlocked ? IM_COL32(230, 50, 40, 70) : IM_COL32(255, 255, 255, 36));
@@ -3552,7 +3601,15 @@ void EditorApp::drawMap() {
             ImGui::SetTooltip("%s\nHeight %d", riverHover.reason.c_str(), hoverHeight_);
         } else {
             const char* action = "Click to paint one 16 x 16 cell";
-            if (armedBrushKind() == BrushKind::Slope) {
+            bool mountainPass = false;
+            for (const RiverEdit& edit : riverHover.edits) {
+                if (edit.key.rfind("Pass-", 0) == 0) {
+                    mountainPass = true;
+                }
+            }
+            if (mountainPass) {
+                action = "Click to cut a river through this mountain range";
+            } else if (armedBrushKind() == BrushKind::Slope) {
                 if (brushName_ == "Slope 139 to 255") {
                     action = "Click a straight Base-139 to Base-255 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 85 to 219") {
@@ -3563,6 +3620,8 @@ void EditorApp::drawMap() {
                     action = "Click a straight Base-80 to Base-155 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 155 to 230") {
                     action = "Click a straight Base-155 to Base-230 cliff to turn it into a slope";
+                } else if (brushName_ == "Slope 77 to 183") {
+                    action = "Click a straight Base-77 to Base-183 cliff to turn it into a slope";
                 } else {
                     action = "Click a cliff to turn it into a slope";
                 }
@@ -6251,19 +6310,22 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         return;
     }
     const int cell = kBrushCellTiles;
-    // 8 x 8 sets one corner. Larger brushes fill whole 16 x 16 cells.
+    // 8 x 8 sets one corner. Larger brushes fill whole 16 x 16 cells, centered on the pointer.
     const bool cornerBrush = brushSize_ < cell;
     const int size = cornerBrush ? brushSize_ : std::max(cell, brushSize_ / cell * cell);
     const int blockCells = cornerBrush ? 0 : size / cell;
-    const int blockX = tileX / cell;
-    const int blockY = tileY / cell;
     const int cellsX = (map_->tileWidth + cell - 1) / cell;
     const int cellsY = (map_->tileHeight + cell - 1) / cell;
+    int blockX = 0;
+    int blockY = 0;
+    if (!cornerBrush) {
+        brushBlockOrigin(tileX, tileY, size, cellsX, cellsY, blockX, blockY);
+    }
     int nodeX = 0;
     int nodeY = 0;
     if (tileX < 0 || tileY < 0 || tileX >= map_->tileWidth || tileY >= map_->tileHeight
         || (cornerBrush && !brushCornerNode(tileX, tileY, cellsX, cellsY, nodeX, nodeY))
-        || (!cornerBrush && (blockX >= cellsX || blockY >= cellsY))) {
+        || (!cornerBrush && (blockX >= cellsX || blockY >= cellsY || blockX + blockCells <= 0 || blockY + blockCells <= 0))) {
         statusNote_ = "The brush is outside the map";
         return;
     }
@@ -6613,6 +6675,29 @@ void EditorApp::ensureRiverCatalog() {
         }
     };
     for (const RiverSection& river : riverSections_) {
+        const std::string key = lowerText(river.key);
+        if (key == "pass-n" || key == "pass-s" || key == "pass-mid") {
+            try {
+                const HpiFile* file = source->archive().find(river.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                for (int cy = 0; cy < 2; ++cy) {
+                    for (int cx = 0; cx < 2; ++cx) {
+                        std::string label = "Pass-Body";
+                        if (key == "pass-n" && cx == 0 && cy == 0) {
+                            label = "Pass-Mouth-N";
+                        } else if (key == "pass-s" && cx == 1 && cy == 1) {
+                            label = "Pass-Mouth-S";
+                        }
+                        riverCatalog_.addAt(stamp, cx * kRiverCellTiles, cy * kRiverCellTiles, label);
+                    }
+                }
+            } catch (const std::exception&) {
+            }
+            continue;
+        }
         addSection(river.sectionPath, river.name);
     }
     for (const BrushPiece& piece : brushPieces_) {
@@ -6676,6 +6761,8 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
             family = 155;
         } else if (brushName_ == "Slope 155 to 230") {
             family = 230;
+        } else if (brushName_ == "Slope 77 to 183") {
+            family = 183;
         }
         return planSlope(cellX, cellY, lookup, available, family);
     }
@@ -6760,7 +6847,15 @@ void EditorApp::paintRiver(int tileX, int tileY, BrushKind kind) {
             statusNote_ = "The brush is outside the map";
         } else {
             std::string note = "Placed " + firstName;
-            if (plan.edits.size() > 1) {
+            bool mountainPass = false;
+            for (const RiverEdit& edit : plan.edits) {
+                if (edit.key.rfind("Pass-", 0) == 0) {
+                    mountainPass = true;
+                }
+            }
+            if (mountainPass) {
+                note = "Cut a river through the mountains";
+            } else if (plan.edits.size() > 1) {
                 const std::size_t others = plan.edits.size() - 1;
                 note += " and redrew " + std::to_string(others) + (others == 1 ? " neighbor" : " neighbors");
             }
@@ -7167,6 +7262,8 @@ void EditorApp::ensureBrushPaints() {
     } else if (lowerText(brushWorld_) == "desert") {
         addRiverButton("Slope 80 to 155", "Single-155-High-B", BrushKind::Slope);
         addRiverButton("Slope 155 to 230", "Single-230-High-B", BrushKind::Slope);
+    } else if (lowerText(brushWorld_) == "lush") {
+        addRiverButton("Slope 77 to 183", "Single-183-High-B", BrushKind::Slope);
     } else {
         addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
     }
@@ -7246,7 +7343,7 @@ void EditorApp::drawTileBrush() {
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
     if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
-        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush"}) {
             const bool selected = brushWorld_ == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;
@@ -7333,9 +7430,13 @@ void EditorApp::drawTileBrush() {
         if (ImGui::IsItemHovered()) {
             const char* hint = "Use this tile as the brush";
             if (paint.kind == BrushKind::River) {
-                hint = "Paint rivers on Base-85 and straight coasts\nRivers join the rivers beside them";
+                hint = lowerText(brushWorld_) == "lush"
+                    ? "Paint rivers on Base-77 and straight coasts\nAn even-height Base-255 range gets a mountain pass\nRivers join the rivers beside them"
+                    : "Paint rivers on Base-85 and straight coasts\nRivers join the rivers beside them";
             } else if (paint.kind == BrushKind::Bridge) {
-                hint = "Place a bridge on a river\nBridges go on straight rivers and bends, and on a 4-way crossing when the tileset has one";
+                hint = lowerText(brushWorld_) == "lush"
+                    ? "Place a bridge on a straight river\nBridges go on horizontal and vertical rivers"
+                    : "Place a bridge on a river\nBridges go on straight rivers and bends, and on a 4-way crossing when the tileset has one";
             } else if (paint.kind == BrushKind::Ridge) {
                 hint = "Paint ridges on Base-85 and straight cliff edges\nRidges join the ridges beside them";
             } else if (paint.kind == BrushKind::Spacer) {
@@ -7351,6 +7452,8 @@ void EditorApp::drawTileBrush() {
                     hint = "Turn a straight Base-80 to Base-155 cliff into a slope\nEach slope stays on its own cliff";
                 } else if (paint.name == "Slope 155 to 230") {
                     hint = "Turn a straight Base-155 to Base-230 cliff into a slope\nEach slope stays on its own cliff";
+                } else if (paint.name == "Slope 77 to 183") {
+                    hint = "Turn a straight Base-77 to Base-183 cliff into a slope\nEach slope stays on its own cliff";
                 } else {
                     hint = "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
                 }

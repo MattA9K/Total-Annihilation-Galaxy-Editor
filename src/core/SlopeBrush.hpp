@@ -8,7 +8,11 @@
 // cliffs keep the plain Cliff-High names. Family 155 is Desert's Base-80 to
 // Base-155 slopes, and those cliffs keep the plain Cliff-High names too. Family
 // 230 is Desert's Base-155 to Base-230 slopes, and those read the Cliff-230
-// cliffs. Both Desert sets have the Mars set: four straight singles and four high-corner singles, with no
+// cliffs. Family 183 is Lush's Base-77 to Base-183 slopes. Those cliffs are
+// Cliff-183, because Base-77 also joins Base-255. Lush has the four straight
+// singles and no run pieces, so a neighbour stays a single and a corner cliff
+// is refused. Both Desert sets
+// have the Mars set: four straight singles and four high-corner singles, with no
 // run pieces, so a neighbour stays a single and a corner cliff is refused. A
 // corner alone is Single-202-High-TL or Single-202-Low-BR. One neighbouring slope uses Slope-202-High-TL-TransitionT,
 // and both arms use Slope-202-High-TL. Neighbouring slopes are redrawn so a run stays smooth:
@@ -153,9 +157,10 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
         return taken;
     };
 // Family 255 cliffs are Cliff-255-High. Family 230 cliffs are Cliff-230-High.
-// Archipelago's family 202 and Desert's family 155 read the plain Cliff-High
-// cliffs and keep the family number in the slope names only.
-const bool qualifiedCliffs = family == 255 || family == 230;
+// Family 183 cliffs are Cliff-183-High. Archipelago's family 202 and Desert's
+// family 155 read the plain Cliff-High cliffs and keep the family number in the
+// slope names only.
+const bool qualifiedCliffs = family == 255 || family == 230 || family == 183;
 const Taken cliffHigh = take("cliff-high-", qualifiedCliffs);
 const Taken cliffLow = take("cliff-low-", qualifiedCliffs);
 const Taken slopeHigh = take("slope-high-", true);
@@ -301,6 +306,8 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
             range = "\nSlopes only go on cliffs between Base-80 and Base-155";
         } else if (family == 230) {
             range = "\nSlopes only go on cliffs between Base-155 and Base-230";
+        } else if (family == 183) {
+            range = "\nSlopes only go on cliffs between Base-77 and Base-183";
         }
         text += range;
         plan.reason = std::move(text);

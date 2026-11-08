@@ -26,7 +26,12 @@ namespace galaxy {
 // pair: its cliff flat is height 255. Base-85 and Base-170 join with Cliff pieces.
 // Ice uses that pair: water is Base-0, land is Base-85, and the high ground is
 // Base-170. Crystal and Acid use the coast alone: water is Base-0 and land is
-// Base-85. Desert water is Base-0 and land is Base-80, joined by Coast pieces.
+// Base-85. Lush water is Base-27 and land is Base-77, joined by Coast pieces.
+// Lush's Base-183 and Base-255 both join Base-77 with Cliff pieces. Two tops on
+// the same land use Cliff-183 and Cliff-255, so each cliff keeps its own
+// pictures. Painting either cliff on the ocean keeps Base-77 between the water
+// and the cliff.
+// Desert water is Base-0 and land is Base-80, joined by Coast pieces.
 // Desert's Base-155 joins Base-80 with Cliff pieces, so a click on water keeps
 // Base-80 between the water and the cliff. Desert's Base-230 joins Base-155
 // with pieces named Cliff-230, so the Base-80 cliff keeps the plain Cliff name.
@@ -201,10 +206,13 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 21>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 21> rules = {{
+inline const std::array<BrushTransitionRule, 24>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 24> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
+        {27, 77, TransitionStyle::Coast},
+        {77, 183, TransitionStyle::Cliff},
+        {77, 255, TransitionStyle::Cliff},
         {68, 80, TransitionStyle::ShallowCoast},
         {41, 86, TransitionStyle::Coast},
         {0, 78, TransitionStyle::Coast},
@@ -651,6 +659,30 @@ inline bool brushCornerNode(int tileX, int tileY, int cellsX, int cellsY, int& n
         nodeY = std::clamp(nodeY, 1, cellsY - 1);
     }
     return nodeX >= 0 && nodeY >= 0 && nodeX <= cellsX && nodeY <= cellsY;
+}
+
+// Top-left cell of a square brush centered on the pointer. 16 x 16 is the cell
+// under the pointer. 32, 64 and 128 cover an even number of cells, so the center
+// is the nearest point where four cells meet and the block reaches the same
+// distance on every side of that point.
+inline void brushBlockOrigin(int tileX, int tileY, int brushTiles, int cellsX, int cellsY, int& originX, int& originY) {
+    const int blockCells = std::max(1, brushTiles / kBrushCellTiles);
+    if (blockCells <= 1) {
+        originX = tileX / kBrushCellTiles;
+        originY = tileY / kBrushCellTiles;
+        return;
+    }
+    const int half = kBrushCellTiles / 2;
+    int nodeX = (tileX + half) / kBrushCellTiles;
+    int nodeY = (tileY + half) / kBrushCellTiles;
+    if (cellsX >= 0) {
+        nodeX = std::clamp(nodeX, 0, cellsX);
+    }
+    if (cellsY >= 0) {
+        nodeY = std::clamp(nodeY, 0, cellsY);
+    }
+    originX = nodeX - blockCells / 2;
+    originY = nodeY - blockCells / 2;
 }
 
 // Plans a stroke over a square block of cells. The painted cells become flat on
