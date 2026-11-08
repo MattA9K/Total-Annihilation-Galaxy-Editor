@@ -63,8 +63,9 @@ namespace galaxy {
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. Archipelago
 // Base-78 joins GreenWorld Base-85 the same way, with pieces named for the
 // Archipelago side. Archipelago Base-78 also joins Lush Base-77, with pieces
-// named Blend-ArchiLush so the grass blend keeps its own files. Archipelago's own coast from Base-0 stays, so grass beside
-// the water does not replace that coast. A cell
+// named Blend-ArchiLush so the grass blend keeps its own files. Archipelago's
+// own coast from Base-0 stays, so grass beside the water does not replace that
+// coast. A cell
 // holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
 // and Base-85 use a CoastDSL piece, Base-0, Base-68 and Base-78 use one too, and

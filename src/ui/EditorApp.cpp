@@ -7285,6 +7285,22 @@ void EditorApp::ensureBrushPaints() {
                 if (fringe && existing != brushPictures_.end()) {
                     continue;
                 }
+                // Base-85 and Base-219 share the grass picture, and Base-86 and
+                // Base-190 share the lava dirt. A later paint must not claim that
+                // picture outright, or flat ground is read as the cliff.
+                const std::string pictureWorld = blendWorldName(category);
+                const bool sameWorld = existing != brushPictures_.end() && !pictureWorld.empty()
+                    && blendWorldName(existing->second.category) == pictureWorld;
+                const bool sameName = existing != brushPictures_.end() && lowerText(existing->second.name) == lowerText(name);
+                const bool partnerSameWorld = existing != brushPictures_.end() && !existing->second.partnerCategory.empty()
+                    && blendWorldName(existing->second.partnerCategory) == pictureWorld;
+                if (!fringe && sameWorld && existing->second.fringe && sameName && partnerSameWorld) {
+                    continue;
+                }
+                if (!fringe && sameWorld && !existing->second.fringe && !sameName) {
+                    existing->second = BrushPictureHint{category, name, true, existing->second.category, existing->second.name};
+                    continue;
+                }
                 // Base-86 and Base-190 use the same dirt picture. The height chooses
                 // between them, and a repeated tile must not turn that choice back
                 // into a hard Base-190, or every Base-86 click is read as the plateau.
