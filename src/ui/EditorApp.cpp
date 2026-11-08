@@ -8,6 +8,7 @@
 #include "core/MapGenerator.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
+#include "format/TaPalette.hpp"
 #include "platform/FileDialog.hpp"
 #include "platform/SystemAppearance.hpp"
 #include "ui/Theme.hpp"
@@ -307,6 +308,43 @@ std::uint64_t hashBrushTile(const std::uint8_t* bytes) {
     return hash;
 }
 
+// Grass in the green-acid blend is much greener than the acid ground.
+bool greenAcidTileIsGrass(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
+    }
+    return score >= 20 * 1024;
+}
+
+// 0 is grass, 1 is lava, and 2 is acid. The three-way tiles share one height
+// band, so the picture is what tells the lands apart.
+int triTileLand(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
+    }
+    if (score >= 12 * 1024) {
+        return 0;
+    }
+    if (score <= -8 * 1024) {
+        return 1;
+    }
+    return 2;
+}
+
+// Lush ground is green. Archipelago sand in the same blend is pale.
+bool archiLushTileIsLush(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
+    }
+    return score >= 40 * 1024;
+}
+
 int trailingNumber(std::string_view name) {
     int value = -1;
     int current = 0;
@@ -329,7 +367,7 @@ std::string brushSizeLabel(int size) {
 }
 
 // Map tiles on a side. 8 paints one corner. The others fill whole 16 x 16 cells.
-constexpr int kBrushSizes[] = {8, 16, 32, 64, 128};
+constexpr int kBrushSizes[] = {8, 16, 32, 64, 128, 256, 512};
 constexpr int kBrushSizeCount = static_cast<int>(sizeof(kBrushSizes) / sizeof(kBrushSizes[0]));
 
 std::string fitLabel(const std::string& text, float width) {
@@ -4583,6 +4621,12 @@ void EditorApp::drawNewMap() {
             Text::NewMapSize,
             {std::to_string(pixelsWide), std::to_string(pixelsHigh), gameWide, gameHigh});
         ImGui::TextUnformatted(sizeLine.c_str());
+        // 960 tiles is game size 60. A larger map can still be created.
+        if (newWidth_ > 960 || newHeight_ > 960) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.76f, 0.32f, 1.0f));
+            ImGui::TextWrapped("%s", text(Text::NewMapGameLimit));
+            ImGui::PopStyleColor();
+        }
     } else {
         const std::string badSize = formatText(Text::NewMapBadSize, {std::to_string(kMinMapTiles), std::to_string(kMaxMapTiles)});
         ImGui::TextWrapped("%s", badSize.c_str());
@@ -6820,7 +6864,7 @@ void EditorApp::ensureRiverCatalog() {
                 continue;
             }
             bool matched = false;
-            for (const int size : {16, 32, 64, 128}) {
+            for (const int size : {16, 32, 64, 128, 256, 512}) {
                 if (brushStrokeVariation(stroke.name, paint.name, size) >= 0) {
                     matched = true;
                     break;
@@ -7021,7 +7065,8 @@ void EditorApp::ensureBrushPaints() {
     brushTilesetPath_ = source->path;
 
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
-        || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid";
+        || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
+        || lowerText(brushWorld_) == "lush";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         const bool blend = blendWorld && lowerText(section.world) == "blendtiles";
@@ -7099,8 +7144,9 @@ void EditorApp::ensureBrushPaints() {
     }
     // Lava Base-86 blends into Mars, GreenWorld, and Acid at Base-85, into Desert
     // at Base-80, and into Archipelago at Base-78. Archipelago Base-78 also blends
-    // into GreenWorld Base-85. A partner is a paint the graph can see, and a
-    // stroke it can place, without becoming a button.
+    // into GreenWorld Base-85 and Lush Base-77, and GreenWorld Base-85 blends into Acid Base-85.
+    // A partner is a paint the graph can see, and a stroke it can place, without
+    // becoming a button.
     struct PartnerWant {
         const char* world;
         const char* name;
@@ -7116,12 +7162,19 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         if (lowerText(brushWorld_) == "greenworld") {
             wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
+            wanted.push_back(PartnerWant{"Acid", "Base-85"});
         }
     } else if (lowerText(brushWorld_) == "archipelago") {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        wanted.push_back(PartnerWant{"Lush", "Base-77"});
+    } else if (lowerText(brushWorld_) == "lush") {
+        wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
     } else if (lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        if (lowerText(brushWorld_) == "acid") {
+            wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+        }
     }
     for (const PartnerWant& want : wanted) {
         for (const TilesetSection& section : source->sections) {
@@ -7140,7 +7193,7 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 bool named = false;
-                for (const int size : {1, 2, 4, 8, 16, 32, 64, 128}) {
+                for (const int size : {1, 2, 4, 8, 16, 32, 64, 128, 256, 512}) {
                     named = named || brushStrokeVariation(strokeSection.name, section.name, size) >= 0;
                 }
                 if (!named) {
@@ -7291,6 +7344,9 @@ void EditorApp::ensureBrushPaints() {
                 }
                 continue;
             }
+            if (lowered.starts_with("blend-greenacid-")) {
+                continue;
+            }
             if (lowered.starts_with("blend-acid-")) {
                 const BrushPaint* acid = paintAt("Acid", 85);
                 const BrushPaint* lava = paintAt("Lava", 86);
@@ -7342,7 +7398,7 @@ void EditorApp::ensureBrushPaints() {
                 const bool base = isBaseBrushTile(section.world, section.name) && lowerText(section.name) == lowerText(paint->name);
                 bool stroke = false;
                 if (isBrushStrokeWorld(section.world)) {
-                    constexpr int kStrokeSizes[] = {1, 2, 4, 8, 16, 32, 64, 128};
+                    constexpr int kStrokeSizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
                     for (const int size : kStrokeSizes) {
                         stroke = stroke || brushStrokeVariation(section.name, paint->name, size) >= 0;
                     }
@@ -7370,6 +7426,126 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 rememberPath(piece.sectionPath, lavaCliffHigh->category, lavaCliffHigh->name, true, lavaCliffLow->category, lavaCliffLow->name);
+            }
+        }
+        // Green and Acid are the same height, so a blend tile cannot be split by
+        // height. A picture that no base has claimed yet is grass or acid by color.
+        const BrushPaint* greenLand = nullptr;
+        const BrushPaint* acidLand = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            if (blendWorldName(paint->category) == "Green" && trailingNumber(paint->name) == 85) {
+                greenLand = paint;
+            } else if (blendWorldName(paint->category) == "Acid" && trailingNumber(paint->name) == 85) {
+                acidLand = paint;
+            }
+        }
+        if (greenLand != nullptr && acidLand != nullptr) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (!lowerText(piece.name).starts_with("blend-greenacid-")) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(piece.sectionPath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                        const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                        const std::uint64_t hash = hashBrushTile(pixels);
+                        if (brushPictures_.find(hash) != brushPictures_.end()) {
+                            continue;
+                        }
+                        const BrushPaint* land = greenAcidTileIsGrass(pixels) ? greenLand : acidLand;
+                        brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+        // Acid fills one side of a three-way tile and grass and lava split the
+        // other. Each picture is remembered as the land its color belongs to.
+        if (greenLand != nullptr && acidLand != nullptr && lavaGround != nullptr) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (!lowerText(piece.name).starts_with("blend-tri-")) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(piece.sectionPath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                        const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                        const std::uint64_t hash = hashBrushTile(pixels);
+                        if (brushPictures_.find(hash) != brushPictures_.end()) {
+                            continue;
+                        }
+                        const BrushPaint* land = greenLand;
+                        const int which = triTileLand(pixels);
+                        if (which == 1) {
+                            land = lavaGround;
+                        } else if (which == 2) {
+                            land = acidLand;
+                        }
+                        brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+    }
+    // Lush and Archipelago use different heights, and a lush rock can sit nearer
+    // another paint. The picture keeps each tile on the land its color belongs to.
+    const BrushPaint* lushLand = nullptr;
+    const BrushPaint* archiLand = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Lush" && trailingNumber(paint->name) == 77) {
+            lushLand = paint;
+        } else if (blendWorldName(paint->category) == "Archi" && trailingNumber(paint->name) == 78) {
+            archiLand = paint;
+        }
+    }
+    if (lushLand != nullptr && archiLand != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-archilush-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = archiLushTileIsLush(pixels) ? lushLand : archiLand;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
             }
         }
     }

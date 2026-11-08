@@ -160,6 +160,7 @@ enum class Text : int {
     HeightTiles,
     NewMapSize,
     NewMapBadSize,
+    NewMapGameLimit,
     Create,
     TabMap,
     TabWorld,

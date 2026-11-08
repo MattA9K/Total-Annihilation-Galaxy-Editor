@@ -62,12 +62,15 @@ namespace galaxy {
 // Lava
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. Archipelago
 // Base-78 joins GreenWorld Base-85 the same way, with pieces named for the
-// Archipelago side. Archipelago's own coast from Base-0 stays, so grass beside
+// Archipelago side. Archipelago Base-78 also joins Lush Base-77, with pieces
+// named Blend-ArchiLush so the grass blend keeps its own files. Archipelago's own coast from Base-0 stays, so grass beside
 // the water does not replace that coast. A cell
 // holds one paint or two joined paints. Three paints
 // may share a cell when a section draws that layout of corners: Base-0, Base-68
 // and Base-85 use a CoastDSL piece, Base-0, Base-68 and Base-78 use one too, and
 // Base-219 with Base-85 and either Base-0 or Base-68 uses a CoastalCliff piece.
+// GreenWorld, Acid and Lava share a cell when Acid fills one side and GreenWorld
+// and Lava split the other. Those pieces are Blend-Tri-Acid.
 inline constexpr int kBrushCellTiles = 16;
 
 // Corner bits of a cell mask.
@@ -206,8 +209,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 26>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 26> rules = {{
+inline const std::array<BrushTransitionRule, 28>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 28> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -234,6 +237,10 @@ inline const std::array<BrushTransitionRule, 26>& brushTransitionRules() {
         {85, 86, TransitionStyle::WorldBlend},
         {80, 86, TransitionStyle::WorldBlend},
         {78, 86, TransitionStyle::WorldBlend},
+        // Same height. The graph applies this only to GreenWorld beside Acid.
+        {85, 85, TransitionStyle::WorldBlend},
+        // The graph applies this only to Lush beside Archipelago.
+        {77, 78, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -272,6 +279,9 @@ inline std::string blendWorldName(std::string_view category) {
     }
     if (lower.find("acid") != std::string::npos) {
         return "Acid";
+    }
+    if (lower.find("lush") != std::string::npos) {
+        return "Lush";
     }
     return {};
 }
@@ -370,7 +380,17 @@ public:
                         const bool differentWorld = named && worlds_[static_cast<std::size_t>(a)] != worlds_[static_cast<std::size_t>(b)];
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
-                        if (foreignLand || foreignShallow) {
+                        // Base-85 beside Base-85 is the GreenWorld to Acid blend only.
+                        // Mars still reaches those lands through Lava.
+                        const bool greenAcid = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Acid")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Green"));
+                        // Base-77 beside Base-78 is the Lush to Archipelago blend only.
+                        const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Archi")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Archi" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
+                        if (foreignLand || foreignShallow || (rule.lowerHeight == rule.upperHeight && !greenAcid)
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 78 && !archiLush)) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
@@ -494,12 +514,66 @@ inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, in
     return "Cliff-" + std::to_string(graph.height(highLevel)) + "-" + piece.substr(6);
 }
 
+// GreenWorld, Acid and Lava in one cell. Acid fills one side. Grass and lava
+// split the opposite side, so the piece is Blend-Tri-Acid-R-Grass-B when acid
+// is on the right and grass is the bottom of the left side. Any other layout
+// of these three lands has no section.
+inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int greenLevel = -1;
+    int acidLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Green" && graph.height(level) == 85) {
+            greenLevel = level;
+        } else if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (greenLevel < 0 || acidLevel < 0 || lavaLevel < 0 || greenLevel == acidLevel || greenLevel == lavaLevel || acidLevel == lavaLevel) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const int acidMask = maskOf(acidLevel);
+    const int grassMask = maskOf(greenLevel);
+    const char* acidSide = nullptr;
+    if (acidMask == (kCornerTopLeft | kCornerTopRight)) {
+        acidSide = "T";
+    } else if (acidMask == (kCornerBottomLeft | kCornerBottomRight)) {
+        acidSide = "B";
+    } else if (acidMask == (kCornerTopLeft | kCornerBottomLeft)) {
+        acidSide = "L";
+    } else if (acidMask == (kCornerTopRight | kCornerBottomRight)) {
+        acidSide = "R";
+    }
+    if (acidSide == nullptr || cornerCount(grassMask) != 1) {
+        return {};
+    }
+    const char* grassSide = nullptr;
+    if (acidSide[0] == 'T' || acidSide[0] == 'B') {
+        grassSide = (grassMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L";
+    } else {
+        grassSide = (grassMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T";
+    }
+    return std::string("Blend-Tri-Acid-") + acidSide + "-Grass-" + grassSide;
+}
+
 // The section a cell needs, from the level at each of its corners, without a
 // variation number. Empty for a flat cell and for a layout that has no section.
 // Two levels use the family that joins them. Base-0, Base-68 and Base-85
 // together use a CoastDSL section, Base-0, Base-68 and Base-80 use one too,
 // Base-0, Base-68 and Base-78 use one too, and Base-219, Base-85 and either
-// Base-0 or Base-68 use a CoastalCliff section.
+// Base-0 or Base-68 use a CoastalCliff section. GreenWorld, Acid and Lava use
+// a Blend-Tri-Acid section when acid fills one side.
 inline std::string brushPieceName(const BrushGraph& graph, const std::array<int, 4>& corners, std::string_view coastLiquid = "Water") {
     std::array<int, 4> sorted = corners;
     std::sort(sorted.begin(), sorted.end());
@@ -525,10 +599,22 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 86) {
             marked = sorted[0];
             family = "ArchiLava";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 78
+            && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Archi")
+                || (graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Lush"))) {
+            // The mask marks the sand. Blend-ArchiLush-T has Archipelago along the top.
+            marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+            family = "ArchiLush";
         } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
         } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
             marked = sorted[0];
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Acid")
+                || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Green"))) {
+            // The mask marks the grass. Blend-GreenAcid-T has grass along the top.
+            marked = graph.world(sorted[0]) == "Green" ? sorted[0] : sorted[1];
+            family = "GreenAcid";
         }
         if (family.empty()) {
             family = std::string(graph.world(marked));
@@ -539,6 +625,10 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         return transitionPieceName(style, maskOf(marked), coastLiquid, family);
     }
     if (distinct == 3) {
+        const std::string tri = triBlendName(graph, corners);
+        if (!tri.empty()) {
+            return tri;
+        }
         const int low = graph.height(sorted[0]);
         const int middle = graph.height(sorted[1]);
         const int high = graph.height(sorted[2]);
@@ -689,9 +779,9 @@ inline bool brushCornerNode(int tileX, int tileY, int cellsX, int cellsY, int& n
 }
 
 // Top-left cell of a square brush centered on the pointer. 16 x 16 is the cell
-// under the pointer. 32, 64 and 128 cover an even number of cells, so the center
-// is the nearest point where four cells meet and the block reaches the same
-// distance on every side of that point.
+// under the pointer. 32, 64, 128, 256 and 512 cover an even number of cells, so
+// the center is the nearest point where four cells meet and the block reaches
+// the same distance on every side of that point.
 inline void brushBlockOrigin(int tileX, int tileY, int brushTiles, int cellsX, int cellsY, int& originX, int& originY) {
     const int blockCells = std::max(1, brushTiles / kBrushCellTiles);
     if (blockCells <= 1) {

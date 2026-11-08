@@ -2488,6 +2488,8 @@ void testBrushStrokeNames() {
     expect(brushStrokeVariation("Base-0-16x16-01", "Base-0", 16) == 1, "base 0 16x16 stroke");
     expect(brushStrokeVariation("Base-0-16x16-01", "Base-69", 16) < 0, "0 stroke is not a 69 stroke");
     expect(brushStrokeVariation("Base-85-128x128-01", "Base-85", 128) == 1, "128 stroke");
+    expect(brushStrokeVariation("Base-85-256x256-01", "Base-85", 256) == 1, "256 stroke");
+    expect(brushStrokeVariation("Base-85-512x512-02", "Base-85", 512) == 2, "512 stroke");
     expect(brushStrokeVariation("Base-85-16x16-10", "Base-85", 16) == 10, "variation 10");
     expect(brushStrokeVariation("Base-85-16x16-01", "Base-219", 16) < 0, "85 stroke is not a 219 stroke");
     expect(brushStrokeVariation("Base-85-32x32-01", "Base-85", 16) < 0, "32x32 is not a 16x16 stroke");
@@ -2946,6 +2948,10 @@ void testBrushCells() {
     expect(originX == -1 && originY == 0, "a 64 brush extends two cells on every side of that corner");
     galaxy::brushBlockOrigin(20, 36, 128, 10, 10, originX, originY);
     expect(originX == -3 && originY == -2, "a 128 brush extends four cells on every side of that corner");
+    galaxy::brushBlockOrigin(20, 36, 256, 10, 10, originX, originY);
+    expect(originX == -7 && originY == -6, "a 256 brush extends eight cells on every side of that corner");
+    galaxy::brushBlockOrigin(20, 36, 512, 10, 10, originX, originY);
+    expect(originX == -15 && originY == -14, "a 512 brush extends sixteen cells on every side of that corner");
     galaxy::brushBlockOrigin(4, 4, 32, 10, 10, originX, originY);
     expect(originX == -1 && originY == -1, "a centered brush may hang off the top-left of the map");
     const BrushGraph coast(std::vector<int>{0, 85, 219});
@@ -3036,7 +3042,8 @@ void testBrushCells() {
     expect(paintsShareHeight(lavaHeights) && !paintsShareHeight({41, 86, 190, 85, 80, 78}) && paintsShareHeight({85, 85}), "shared heights stay shared when a later partner uses another height");
     const BrushGraph lavaLands(lavaHeights, {"Lava", "Archi", "Desert", "Mars", "Green", "Acid", "Lava", "Lava"});
     expect(lavaLands.style(3, 6) == TransitionStyle::WorldBlend && lavaLands.style(4, 6) == TransitionStyle::WorldBlend && lavaLands.style(5, 6) == TransitionStyle::WorldBlend, "Mars, GreenWorld, and Acid each join Lava");
-    expect(!lavaLands.compatible(3, 4) && !lavaLands.compatible(3, 5) && !lavaLands.compatible(4, 5) && lavaLands.distance(3, 5) == 2, "the Base-85 lands meet only through Lava");
+    expect(!lavaLands.compatible(3, 4) && !lavaLands.compatible(3, 5) && lavaLands.distance(3, 5) == 2, "Mars meets GreenWorld and Acid only through Lava");
+    expect(lavaLands.compatible(4, 5) && lavaLands.style(4, 5) == TransitionStyle::WorldBlend, "GreenWorld Base-85 joins Acid Base-85");
     BrushTestLattice lavaOnAcidAll(5, 5, 5, lavaLands);
     lavaOnAcidAll.paint(2, 2, 1, 6);
     expect(lavaOnAcidAll.piece(2, 2) == "Base-86" && lavaOnAcidAll.piece(2, 1) == "Blend-Acid-T" && lavaOnAcidAll.piece(1, 2) == "Blend-Acid-L" && lavaOnAcidAll.piece(1, 1) == "Blend-Acid-Low-BR" && !lavaOnAcidAll.steep(), "lava painted on Acid stays on the Acid blend when Mars and GreenWorld are loaded");
@@ -3049,6 +3056,28 @@ void testBrushCells() {
     BrushTestLattice acidOnLavaAll(5, 5, 6, lavaLands);
     acidOnLavaAll.paint(2, 2, 1, 5);
     expect(acidOnLavaAll.piece(2, 2) == "Base-85" && acidOnLavaAll.piece(2, 1) == "Blend-Acid-B" && acidOnLavaAll.piece(1, 2) == "Blend-Acid-R" && acidOnLavaAll.piece(1, 1) == "Blend-Acid-BR" && !acidOnLavaAll.steep(), "Acid painted on lava stays on the Acid blend when Mars and GreenWorld are loaded");
+    BrushTestLattice acidOnGreenAll(5, 5, 4, lavaLands);
+    acidOnGreenAll.paint(2, 2, 1, 5);
+    expect(acidOnGreenAll.piece(2, 2) == "Base-85" && acidOnGreenAll.piece(2, 1) == "Blend-GreenAcid-T" && acidOnGreenAll.piece(1, 2) == "Blend-GreenAcid-L" && acidOnGreenAll.piece(1, 1) == "Blend-GreenAcid-Low-BR" && !acidOnGreenAll.steep(), "Acid painted on GreenWorld is ringed by green-acid blend pieces");
+    BrushTestLattice greenOnAcidAll(5, 5, 5, lavaLands);
+    greenOnAcidAll.paint(2, 2, 1, 4);
+    expect(greenOnAcidAll.piece(2, 2) == "Base-85" && greenOnAcidAll.piece(2, 1) == "Blend-GreenAcid-B" && greenOnAcidAll.piece(1, 2) == "Blend-GreenAcid-R" && greenOnAcidAll.piece(1, 1) == "Blend-GreenAcid-BR" && !greenOnAcidAll.steep(), "GreenWorld painted on Acid is ringed by green-acid blend pieces");
+
+    // Acid fills one side. Grass and lava split the other side. The eight ModFlat layouts.
+    expect(brushPieceName(lavaLands, {6, 5, 4, 5}) == "Blend-Tri-Acid-R-Grass-B", "acid on the right, grass at the bottom left");
+    expect(brushPieceName(lavaLands, {5, 6, 5, 4}) == "Blend-Tri-Acid-L-Grass-B", "acid on the left, grass at the bottom right");
+    expect(brushPieceName(lavaLands, {4, 5, 6, 5}) == "Blend-Tri-Acid-R-Grass-T", "acid on the right, grass at the top left");
+    expect(brushPieceName(lavaLands, {5, 4, 5, 6}) == "Blend-Tri-Acid-L-Grass-T", "acid on the left, grass at the top right");
+    expect(brushPieceName(lavaLands, {5, 5, 6, 4}) == "Blend-Tri-Acid-T-Grass-R", "acid along the top, grass at the bottom right");
+    expect(brushPieceName(lavaLands, {5, 5, 4, 6}) == "Blend-Tri-Acid-T-Grass-L", "acid along the top, grass at the bottom left");
+    expect(brushPieceName(lavaLands, {6, 4, 5, 5}) == "Blend-Tri-Acid-B-Grass-R", "acid along the bottom, grass at the top right");
+    expect(brushPieceName(lavaLands, {4, 6, 5, 5}) == "Blend-Tri-Acid-B-Grass-L", "acid along the bottom, grass at the top left");
+    expect(brushPieceName(lavaLands, {4, 4, 6, 5}).empty(), "grass filling one side has no three-way section");
+    expect(brushPieceName(lavaLands, {3, 5, 4, 5}).empty(), "Mars does not join the green, acid and lava piece");
+    BrushTestLattice acidOnGreenLava(6, 6, 4, lavaLands);
+    acidOnGreenLava.paint(3, 2, 1, 6);
+    acidOnGreenLava.paint(2, 3, 1, 5);
+    expect(acidOnGreenLava.piece(2, 2) == "Blend-Tri-Acid-B-Grass-L" && !acidOnGreenLava.steep(), "acid under a grass and lava edge uses the three-way piece");
 
     // Desert Base-80 meets Lava Base-86 directly. The ocean coast stays on Base-80.
     const BrushGraph desertLava(std::vector<int>{0, 80, 86}, {"Desert", "Desert", "Lava"});
@@ -3241,6 +3270,20 @@ void testBrushCells() {
     BrushTestLattice archiOnLava(5, 5, 1, archiLava);
     archiOnLava.paint(2, 2, 1, 0);
     expect(archiOnLava.piece(2, 2) == "Base-78" && archiOnLava.piece(2, 1) == "Blend-ArchiLava-B" && archiOnLava.piece(1, 1) == "Blend-ArchiLava-BR" && !archiOnLava.steep(), "Archipelago painted on lava is ringed by archipelago lava blend pieces");
+
+    // Lush Base-77 meets Archipelago Base-78. The pieces name the sand side, apart from the grass blend.
+    const BrushGraph bareLushArchi(std::vector<int>{77, 78});
+    expect(bareLushArchi.style(0, 1) == TransitionStyle::None, "Base-77 beside Base-78 joins only when the worlds are Lush and Archipelago");
+    const BrushGraph lushArchi(std::vector<int>{77, 78}, {"Lush", "Archi"});
+    expect(lushArchi.style(0, 1) == TransitionStyle::WorldBlend && lushArchi.compatible(0, 1), "Lush Base-77 and Archipelago Base-78 join with blend pieces");
+    expect(brushPieceName(lushArchi, {1, 1, 0, 0}) == "Blend-ArchiLush-T" && brushPieceName(lushArchi, {0, 0, 0, 1}) == "Blend-ArchiLush-BR", "the archipelago lush blend marks the sand");
+    expect(transitionVariation("Blend-ArchiLush-T-03", "Blend-ArchiLush-T") == 3 && transitionVariation("Blend-ArchiLush-TR-01", "Blend-ArchiLush-T") < 0 && transitionVariation("Blend-ArchiLush-T-01", "Blend-Archi") < 0, "an archipelago lush piece is not the grass blend");
+    BrushTestLattice lushOnArchi(5, 5, 1, lushArchi);
+    lushOnArchi.paint(2, 2, 1, 0);
+    expect(lushOnArchi.piece(2, 2) == "Base-77" && lushOnArchi.piece(2, 1) == "Blend-ArchiLush-T" && lushOnArchi.piece(1, 2) == "Blend-ArchiLush-L" && lushOnArchi.piece(1, 1) == "Blend-ArchiLush-Low-BR" && !lushOnArchi.steep(), "Lush painted on Archipelago is ringed by archipelago lush blend pieces");
+    BrushTestLattice archiOnLush(5, 5, 0, lushArchi);
+    archiOnLush.paint(2, 2, 1, 1);
+    expect(archiOnLush.piece(2, 2) == "Base-78" && archiOnLush.piece(2, 1) == "Blend-ArchiLush-B" && archiOnLush.piece(1, 2) == "Blend-ArchiLush-R" && archiOnLush.piece(1, 1) == "Blend-ArchiLush-BR" && !archiOnLush.steep(), "Archipelago painted on Lush is ringed by archipelago lush blend pieces");
     const BrushGraph waterThenLava(std::vector<int>{0, 85, 86}, {"Mars", "Mars", "Lava"});
     expect(waterThenLava.style(0, 1) == TransitionStyle::Coast && waterThenLava.style(1, 2) == TransitionStyle::WorldBlend && waterThenLava.style(0, 2) == TransitionStyle::None && waterThenLava.distance(0, 2) == 2, "water reaches Lava Base-86 through Base-85");
 
