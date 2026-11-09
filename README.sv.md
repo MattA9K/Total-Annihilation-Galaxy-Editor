@@ -14,10 +14,10 @@ Måla plattor, placera träd och metall, ställ in spelarstarter och forma marke
 
 | Plattform | Ladda ner |
 | --- | --- |
-| macOS | [GalaxyEditor-1.1.8-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-macos.dmg) |
-| Windows | [GalaxyEditor-1.1.8-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-windows-x64.zip) |
-| Linux (arkiv) | [GalaxyEditor-1.1.8-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-linux-x64.tar.gz) |
-| Debian / Ubuntu | [galaxy-editor_1.1.8_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/galaxy-editor_1.1.8_amd64.deb) |
+| macOS | [GalaxyEditor-1.1.9-macos.dmg](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.9/GalaxyEditor-1.1.9-macos.dmg) |
+| Windows | [GalaxyEditor-1.1.9-windows-x64.zip](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.9/GalaxyEditor-1.1.9-windows-x64.zip) |
+| Linux (arkiv) | [GalaxyEditor-1.1.9-linux-x64.tar.gz](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.9/GalaxyEditor-1.1.9-linux-x64.tar.gz) |
+| Debian / Ubuntu | [galaxy-editor_1.1.9_amd64.deb](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.9/galaxy-editor_1.1.9_amd64.deb) |
 
 På macOS, öppna diskavbildningen och dra Galaxy Editor-mappen till din Program-mapp. På Windows, packa upp arkivet och kör `GalaxyEditor.exe`. På Linux kan du använda `.deb`-paketet eller packa upp `.tar.gz`-arkivet. Varje nedladdning inkluderar `GE-Favorites-RandomMapGeneratorTiles.hpi` bredvid appen. Plattborsten läser det plattuppsättningen, så behåll filen bredvid `GalaxyEditor.app`, `GalaxyEditor.exe` eller Linux `galaxy-editor`. `GreenWorld.hpi` ingår på samma sätt. Första gången den startar frågar Galaxy Editor först om språket och sedan var Total Annihilation är installerat. Varje utgåva listas på [utgåvorsidan](https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases).
 
@@ -25,19 +25,19 @@ På macOS, öppna diskavbildningen och dra Galaxy Editor-mappen till din Program
 
 **Alternativ 1: Installera via .deb-paket (Debian/Ubuntu/Mint)**
 
-Download `galaxy-editor_1.1.8_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
+Download `galaxy-editor_1.1.9_amd64.deb` and install it. `apt` installs the command `galaxy-editor` and pulls in zlib, OpenGL, X11, and Zenity. Launch it from the application menu or by running `galaxy-editor`. The `.deb` does not include `GE-Favorites-RandomMapGeneratorTiles.hpi` or `GreenWorld.hpi`. Those files are in the portable archive, beside `galaxy-editor`.
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/galaxy-editor_1.1.8_amd64.deb
-sudo apt install ./galaxy-editor_1.1.8_amd64.deb
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.9/galaxy-editor_1.1.9_amd64.deb
+sudo apt install ./galaxy-editor_1.1.9_amd64.deb
 ```
 
 **Alternativ 2: Använd portabelt arkiv**
 
 ```bash
-wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.8/GalaxyEditor-1.1.8-linux-x64.tar.gz
-tar -xzf GalaxyEditor-1.1.8-linux-x64.tar.gz
-cd GalaxyEditor-1.1.8-linux-x64
+wget https://github.com/MattA9K/Total-Annihilation-Galaxy-Editor/releases/download/v1.1.9/GalaxyEditor-1.1.9-linux-x64.tar.gz
+tar -xzf GalaxyEditor-1.1.9-linux-x64.tar.gz
+cd GalaxyEditor-1.1.9-linux-x64
 ./galaxy-editor
 ```
 

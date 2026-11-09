@@ -20,6 +20,29 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.9" ]; then
+  cat <<EOF
+
+## New
+
+**Brush sizes.** The tile brush adds 256 and 512.
+
+**New Map.** A map larger than 63 x 63 shows a warning that Total Annihilation v3.1 may not be able to play it. The map can still be created.
+
+**Height Offset.** The toolbar places a tile with every height cell raised or lowered by the same amount.
+
+**Start locations.** On the Start Locations tab, 1 through 9 select that player and 0 selects Player 10.
+
+**World blends.** GreenWorld, Lava, and Acid can meet in one tile. Archipelago blends into Lush and into Acid. Lush blends into Lava, and into Ice with the height stepping from 77 to 85. Ice blends into Mars and into GreenWorld.
+
+**GreenWorld.** Hill-85 8x8 and Hill-85 16x16 place a random hill on Base-85. Rough-85 places a rough patch on an 8 x 8 block of Base-85. Island 8x8 places a 16 x 16 island on Base-0 water. Painting Base-85 stays on the grass.
+
+**Lava.** Hill-86 8x8 and Hill-86 16x16 place a random hill on Base-86.
+
+**Lush.** Pools 8x8 places a random pool on Base-77.
+EOF
+fi
+
 if [ "$version" = "1.1.8" ]; then
   cat <<EOF
 
