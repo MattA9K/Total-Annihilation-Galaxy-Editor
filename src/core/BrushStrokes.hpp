@@ -63,7 +63,15 @@ namespace galaxy {
 // Base-86 joins either Mars or GreenWorld Base-85 with blend pieces. Archipelago
 // Base-78 joins GreenWorld Base-85 the same way, with pieces named for the
 // Archipelago side. Archipelago Base-78 also joins Lush Base-77, with pieces
-// named Blend-ArchiLush so the grass blend keeps its own files. Archipelago's
+// named Blend-ArchiLush so the grass blend keeps its own files. Archipelago
+// Base-78 joins Acid Base-85 with pieces named Blend-ArchiAcid, so that blend
+// stays apart from the grass blend. Lush Base-77 joins Lava Base-86 with pieces
+// named Blend-Lush, and the mask marks the grass. Ice Base-85 joins Mars Base-85
+// with pieces named Blend-IceMars, and the mask marks the ice. Ice Base-85 also
+// joins GreenWorld Base-85 with pieces named Blend-IceGreen, and the mask marks
+// the ice. Lush Base-77 joins Ice Base-85 with pieces named Blend-LushIce, and
+// the mask marks the ice. Ice keeps its own
+// coast, so Mars beside the water does not replace that coast. Archipelago's
 // own coast from Base-0 stays, so grass beside the water does not replace that
 // coast. A cell
 // holds one paint or two joined paints. Three paints
@@ -210,8 +218,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 28>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 28> rules = {{
+inline const std::array<BrushTransitionRule, 30>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 30> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -238,10 +246,14 @@ inline const std::array<BrushTransitionRule, 28>& brushTransitionRules() {
         {85, 86, TransitionStyle::WorldBlend},
         {80, 86, TransitionStyle::WorldBlend},
         {78, 86, TransitionStyle::WorldBlend},
-        // Same height. The graph applies this only to GreenWorld beside Acid.
+        // Same height. The graph applies this to GreenWorld beside Acid, Ice beside Mars, and Ice beside GreenWorld.
         {85, 85, TransitionStyle::WorldBlend},
         // The graph applies this only to Lush beside Archipelago.
         {77, 78, TransitionStyle::WorldBlend},
+        // The graph applies this only to Lush beside Lava.
+        {77, 86, TransitionStyle::WorldBlend},
+        // The graph applies this only to Lush beside Ice.
+        {77, 85, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -283,6 +295,9 @@ inline std::string blendWorldName(std::string_view category) {
     }
     if (lower.find("lush") != std::string::npos) {
         return "Lush";
+    }
+    if (lower.find("ice") != std::string::npos) {
+        return "Ice";
     }
     return {};
 }
@@ -381,17 +396,46 @@ public:
                         const bool differentWorld = named && worlds_[static_cast<std::size_t>(a)] != worlds_[static_cast<std::size_t>(b)];
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
-                        // Base-85 beside Base-85 is the GreenWorld to Acid blend only.
-                        // Mars still reaches those lands through Lava.
+                        // Base-85 beside Base-85 is GreenWorld beside Acid, Ice beside Mars, or Ice beside GreenWorld.
+                        // Mars still reaches GreenWorld and Acid through Lava.
                         const bool greenAcid = rule.lowerHeight == 85 && rule.upperHeight == 85
                             && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Acid")
                                 || (worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Green"));
+                        const bool iceMars = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Mars")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Mars" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
+                        const bool iceGreen = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Green")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
+                        // Ice keeps its own coast and cliffs. Another land beside Ice water,
+                        // or Lava and Archipelago beside Ice, goes through the ground between them.
+                        const bool foreignIceCoast = rule.lowerHeight == 0 && rule.upperHeight == 85 && differentWorld
+                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice");
+                        const bool iceBesideLava = rule.lowerHeight == 85 && rule.upperHeight == 86
+                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice");
+                        const bool iceBesideArchi = rule.lowerHeight == 78 && rule.upperHeight == 85
+                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice");
+                        const bool foreignIceCliff = differentWorld
+                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice")
+                            && ((rule.lowerHeight == 85 && rule.upperHeight == 170) || (rule.lowerHeight == 85 && rule.upperHeight == 219)
+                                || (rule.lowerHeight == 85 && rule.upperHeight == 255));
                         // Base-77 beside Base-78 is the Lush to Archipelago blend only.
                         const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78
                             && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Archi")
                                 || (worlds_[static_cast<std::size_t>(a)] == "Archi" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
-                        if (foreignLand || foreignShallow || (rule.lowerHeight == rule.upperHeight && !greenAcid)
-                            || (rule.lowerHeight == 77 && rule.upperHeight == 78 && !archiLush)) {
+                        // Base-77 beside Base-86 is the Lush to Lava blend only.
+                        const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Lava")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Lava" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
+                        // Base-77 beside Base-85 is the Lush to Ice blend only.
+                        const bool lushIce = rule.lowerHeight == 77 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Ice")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
+                        if (foreignLand || foreignShallow || foreignIceCoast || iceBesideLava || iceBesideArchi || foreignIceCliff
+                            || (rule.lowerHeight == rule.upperHeight && !greenAcid && !iceMars && !iceGreen)
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 78 && !archiLush)
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 86 && !lushLava)
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lushIce)) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
@@ -592,9 +636,10 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             return cliffTransitionName(graph, sorted[0], sorted[1], maskOf(sorted[1]));
         }
         // Levels are stored from lowest height to highest. A world blend marks the
-        // Mars, GreenWorld, Acid, or Desert corners when the other land is Lava.
+        // Mars, GreenWorld, Acid, Desert, or Lush corners when the other land is Lava.
         // Archipelago beside GreenWorld is Blend-Archi. Archipelago beside Lava is
-        // Blend-ArchiLava, so the two blends do not share a file.
+        // Blend-ArchiLava, and Archipelago beside Acid is Blend-ArchiAcid, so those
+        // blends do not share a file.
         int marked = sorted[1];
         std::string family;
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 86) {
@@ -606,10 +651,36 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the sand. Blend-ArchiLush-T has Archipelago along the top.
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
             family = "ArchiLush";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Acid")
+                || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Archi"))) {
+            // The mask marks the sand. Blend-ArchiAcid-T has Archipelago along the top.
+            marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+            family = "ArchiAcid";
         } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
         } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
             marked = sorted[0];
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Mars")
+                || (graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Ice"))) {
+            // The mask marks the ice. Blend-IceMars-T has ice along the top.
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "IceMars";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Green")
+                || (graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Ice"))) {
+            // The mask marks the ice. Blend-IceGreen-T has ice along the top.
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "IceGreen";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 77))
+            && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Ice")
+                || (graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Lush"))) {
+            // The mask marks the ice. Blend-LushIce-T has ice along the top.
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "LushIce";
         } else if (style == TransitionStyle::WorldBlend
             && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Acid")
                 || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Green"))) {
@@ -801,6 +872,163 @@ inline void brushBlockOrigin(int tileX, int tileY, int brushTiles, int cellsX, i
     }
     originX = nodeX - blockCells / 2;
     originY = nodeY - blockCells / 2;
+}
+
+// "Green47" is 47. Names that do not start with Green and a number are ignored,
+// so NewHill_85_01 is not a Hill-85 file.
+inline bool greenHillNumber(std::string_view name, int& number) {
+    if (name.size() < 6) {
+        return false;
+    }
+    constexpr std::string_view prefix = "green";
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        char character = name[i];
+        if (character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+        }
+        if (character != prefix[i]) {
+            return false;
+        }
+    }
+    int value = 0;
+    for (std::size_t i = prefix.size(); i < name.size(); ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return false;
+        }
+        value = std::min(1000000, value * 10 + (name[i] - '0'));
+    }
+    number = value;
+    return true;
+}
+
+// Which Hill-85 button a GreenWorld hill number belongs to, from the file name.
+// 8, 16, or 0 when that number is not used. Green47 is listed with the 8 x 8
+// names; the section is 16 x 16, and the brush follows the section.
+inline int listedGreenHillSpan(int number) {
+    if ((number >= 1 && number <= 20) || (number >= 23 && number <= 28) || number == 30
+        || (number >= 35 && number <= 44) || (number >= 46 && number <= 55)) {
+        return 8;
+    }
+    if (number >= 56 && number <= 72) {
+        return 16;
+    }
+    return 0;
+}
+
+// Green21, Green22, Green29, Green31 through Green34, and Green45 are the Rough-85 set.
+inline bool listedGreenRough(int number) {
+    return number == 21 || number == 22 || number == 29 || (number >= 31 && number <= 34) || number == 45;
+}
+
+// "GreenIsland07" is 7. GreenIsland01 through GreenIsland10 are the Island button.
+inline bool greenIslandNumber(std::string_view name, int& number) {
+    constexpr std::string_view prefix = "greenisland";
+    if (name.size() <= prefix.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        char character = name[i];
+        if (character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+        }
+        if (character != prefix[i]) {
+            return false;
+        }
+    }
+    int value = 0;
+    for (std::size_t i = prefix.size(); i < name.size(); ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return false;
+        }
+        value = std::min(1000000, value * 10 + (name[i] - '0'));
+    }
+    number = value;
+    return number >= 1 && number <= 10;
+}
+
+// "Hill_21" is 21. Hill_01 through Hill_37 are the Lava Hill_ files.
+inline bool lavaHillNumber(std::string_view name, int& number) {
+    constexpr std::string_view prefix = "hill_";
+    if (name.size() <= prefix.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        char character = name[i];
+        if (character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+        }
+        if (character != prefix[i]) {
+            return false;
+        }
+    }
+    int value = 0;
+    for (std::size_t i = prefix.size(); i < name.size(); ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return false;
+        }
+        value = std::min(1000000, value * 10 + (name[i] - '0'));
+    }
+    number = value;
+    return number >= 1 && number <= 37;
+}
+
+// Which Hill-86 button a Lava hill belongs to. 8, 16, or 0 when the section is
+// another size. Hill_21 through Hill_29 are 16 x 16. Hill_18, Hill_30, Hill_31,
+// Hill_33, Hill_34, and Hill_35 are not 8 x 8 or 16 x 16.
+inline int listedLavaHillSpan(int number) {
+    if (number >= 21 && number <= 29) {
+        return 16;
+    }
+    if ((number >= 1 && number <= 17) || number == 19 || number == 20 || number == 32 || number == 36 || number == 37) {
+        return 8;
+    }
+    return 0;
+}
+
+// "LDt07_65" is 7. LDt01_65 through LDt08_65 are the Lush pool button.
+inline bool lushPoolNumber(std::string_view name, int& number) {
+    constexpr std::string_view prefix = "ldt";
+    constexpr std::string_view suffix = "_65";
+    if (name.size() <= prefix.size() + suffix.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        char character = name[i];
+        if (character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+        }
+        if (character != prefix[i]) {
+            return false;
+        }
+    }
+    if (name.substr(name.size() - suffix.size()) != suffix) {
+        return false;
+    }
+    int value = 0;
+    for (std::size_t i = prefix.size(); i < name.size() - suffix.size(); ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return false;
+        }
+        value = std::min(1000000, value * 10 + (name[i] - '0'));
+    }
+    number = value;
+    return number >= 1 && number <= 8;
+}
+
+// Top-left tile of a hill. 16 x 16 uses the brush cell under the pointer.
+// 8 x 8 uses the quadrant of that cell under the pointer.
+inline void hillStampOrigin(int tileX, int tileY, int span, int& originX, int& originY) {
+    const int cell = kBrushCellTiles;
+    originX = tileX >= 0 ? tileX / cell * cell : 0;
+    originY = tileY >= 0 ? tileY / cell * cell : 0;
+    if (span > 0 && span < cell && tileX >= 0 && tileY >= 0) {
+        if (tileX % cell >= span) {
+            originX += span;
+        }
+        if (tileY % cell >= span) {
+            originY += span;
+        }
+    }
 }
 
 // Plans a stroke over a square block of cells. The painted cells become flat on

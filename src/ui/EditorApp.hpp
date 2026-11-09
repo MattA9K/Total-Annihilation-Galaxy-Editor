@@ -17,6 +17,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -24,9 +25,10 @@ typedef unsigned int GLuint;
 
 namespace galaxy {
 
-// What a Tile Brush button paints. Base tiles use the brush strokes. The others place
-// one 16 x 16 piece chosen from the neighbouring cells.
-enum class BrushKind { Base, River, Bridge, Ridge, Spacer, Slope };
+// What a Tile Brush button paints. Base tiles use the brush strokes. Rivers, ridges
+// and slopes place one 16 x 16 piece chosen from the neighbouring cells. Hills drop
+// one random hill onto GreenWorld Base-85.
+enum class BrushKind { Base, River, Bridge, Ridge, Spacer, Slope, Hill };
 
 class EditorApp {
 public:
@@ -211,6 +213,21 @@ private:
     void ensureRiverCatalog();
     RiverPlan riverPlanAt(int cellX, int cellY, BrushKind kind);
     void paintRiver(int tileX, int tileY, BrushKind kind);
+    // 8 or 16 while a hill button is armed, otherwise 0.
+    int hillSpan() const;
+    // The top-left tile of the hill under the pointer.
+    bool hillCanPlace(int originX, int originY, int span, std::string& refusal) const;
+    void paintHill(int tileX, int tileY);
+    // True when this map tile's picture is the named flat base, or same-world ground closer to it.
+    bool tileMatchesBase(int tileX, int tileY, std::string_view world, std::string_view baseName, int baseHeight, bool sameWorldFringe) const;
+    // True when this map tile's picture is GreenWorld Base-85 ground.
+    bool tileIsGreenBase85(int tileX, int tileY) const;
+    // True when this map tile's picture is flat GreenWorld water, Base-0.
+    bool tileIsGreenBase0(int tileX, int tileY) const;
+    // True when this map tile's picture is Lava Base-86 ground.
+    bool tileIsLavaBase86(int tileX, int tileY) const;
+    // True when this map tile's picture is Lush Base-77 ground.
+    bool tileIsLushBase77(int tileX, int tileY) const;
     BrushKind armedBrushKind() const;
     bool lineBrushArmed() const;
     void pumpSectionLoads();
@@ -386,6 +403,17 @@ private:
         std::optional<SectionStamp> stamp;
     };
     std::vector<RiverSection> riverSections_;
+    // GreenWorld hills, Lava hills, and Lush pools. tiles is 8 or 16 once the section has been measured.
+    struct HillSection {
+        std::string name;
+        std::string sectionPath;
+        int tiles = 0;
+        bool rough = false;
+        bool island = false;
+        bool pool = false;
+        std::optional<SectionStamp> stamp;
+    };
+    std::vector<HillSection> hillSections_;
     RiverCatalog riverCatalog_;
     bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;
