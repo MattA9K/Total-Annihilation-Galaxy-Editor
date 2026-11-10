@@ -20,6 +20,29 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.10" ]; then
+  cat <<EOF
+
+## New
+
+**Saving.** File > Save and File > Save As write the map in the background, so a large map no longer freezes the editor. The map is blurred with a spinner until the file is written.
+
+**Grid.** View > Grid adds 64 x 64, 128 x 128, 256 x 256, and 512 x 512.
+
+**Tile Brush.** The window shows three buttons in each row.
+
+**Archipelago.** Hill-194 16x16 places a hill on Base-194. Hills-78 8x8 and Hills-78 16x16 place a hill on Base-78. Island-0 8x8, Rocky-0 8x8, Island-0 Medium, and Island-0 Large place an island on Base-0 water. Medium and Large islands come in several sizes, so the cursor shows the size of the next one, and N skips to another.
+
+**Lava.** Pool-86 8x8, Pool-86 16x16, and Pool-86 32x32 place a lava pool on Base-86.
+
+**Mars.** Hills-85 8x8, Pool-85 8x8, Pool-85 16x16, Rough-85 16x16, and Feature-85 place hills, pools, rough ground, and other features on Base-85. Island-0 8x8, Island-0 16x16, and Island-0 32x32 place an island on Base-0 water.
+
+**Ice.** Hills-85 8x8, Hills-85 16x16, and Pools-85 place hills and pools on Base-85. Island-0 8x8 and Island-0 16x16 place an island on Base-0 water.
+
+**Crystal.** Crater-85, Hills-85, Pond-85, and Rough-85 place craters, hills, ponds, and rough ground on Base-85. Island-85 and Reef-85 place islands and reefs on Base-0 water. Rough-85 mixes sizes, so the cursor shows the size of the next one, and N skips to another. Crystal water and coasts are now the dark Crystal water.
+EOF
+fi
+
 if [ "$version" = "1.1.9" ]; then
   cat <<EOF
 
