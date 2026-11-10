@@ -137,10 +137,11 @@ private:
         int texW = 0;
         int texH = 0;
     };
-    bool updateGlass(GlassPanel& panel, float left, float top, float width, float height);
+    // force draws the glass even when frosted glass is turned off or the 3D view is showing.
+    bool updateGlass(GlassPanel& panel, float left, float top, float width, float height, bool force = false);
     // Paints the glass over a screen rectangle. Returns false when there is no glass
     // to paint, so the caller can draw a flat color instead.
-    bool drawGlass(GlassPanel& panel, ImDrawList* draw, float left, float top, float right, float bottom, float rounding);
+    bool drawGlass(GlassPanel& panel, ImDrawList* draw, float left, float top, float right, float bottom, float rounding, bool force = false);
     bool drawGlass(GlassPanel& panel, float left, float top, float right, float bottom, float rounding);
     // The tooltip ImGui opens for a hovered control. Its flat fill stays when glass
     // cannot be made (the 3D view, the Frosted Glass menu off, or no map).
@@ -215,7 +216,14 @@ private:
     void paintRiver(int tileX, int tileY, BrushKind kind);
     // 8 or 16 while a hill button is armed, otherwise 0.
     int hillSpan() const;
-    // The top-left tile of the hill under the pointer.
+    // The top-left tile of the hill under the pointer. Island-0 Medium and Large are
+    // centered on the pointer; the other hills snap to the 8 x 8 or 16 x 16 grid.
+    void hillOrigin(int tileX, int tileY, int span, int& originX, int& originY) const;
+    // Island-0 Medium and Large place the island chosen ahead of time, so the cursor
+    // can show its size. This is that island's index in hillSections_, or -1.
+    int nextSeaIsland() const;
+    // Chooses another island of the armed size. N does this while the brush is armed.
+    void skipSeaIsland();
     bool hillCanPlace(int originX, int originY, int span, std::string& refusal) const;
     void paintHill(int tileX, int tileY);
     // True when this map tile's picture is the named flat base, or same-world ground closer to it.
@@ -228,6 +236,9 @@ private:
     bool tileIsLavaBase86(int tileX, int tileY) const;
     // True when this map tile's picture is Lush Base-77 ground.
     bool tileIsLushBase77(int tileX, int tileY) const;
+    bool tileIsArchipelagoBase194(int tileX, int tileY) const;
+    bool tileIsArchipelagoBase78(int tileX, int tileY) const;
+    bool tileIsArchipelagoBase0(int tileX, int tileY) const;
     BrushKind armedBrushKind() const;
     bool lineBrushArmed() const;
     void pumpSectionLoads();
@@ -279,7 +290,15 @@ private:
     void invalidateView();
     bool saveMap();
     bool saveMapAs();
+    // Starts writing the map on a background thread and returns at once. The map is
+    // copied first, so editing can go on while the file is written. True when the
+    // save started; the result arrives later through finishMapSave.
     bool saveMapTo(const std::filesystem::path& path);
+    bool savingMap() const { return mapSave_.valid(); }
+    // Picks up a finished background save. Called once a frame.
+    void finishMapSave();
+    // Blurs the map area and shows a spinner while a save runs.
+    void drawSavingOverlay(float left, float top, float right, float bottom);
     void markMapDirty();
     void autosaveIfDue();
     void warnIfPastVanillaTiles(int tileCountBefore);
@@ -411,9 +430,14 @@ private:
         bool rough = false;
         bool island = false;
         bool pool = false;
+        // Archipelago Hills, which sit on Base-78 rather than Base-194.
+        bool base78 = false;
+        // Archipelago Islands: 1 Island-0 8x8, 2 Rocky-0 8x8, 3 Island-0 Medium, 4 Island-0 Large.
+        int seaIsland = 0;
         std::optional<SectionStamp> stamp;
     };
     std::vector<HillSection> hillSections_;
+    mutable int nextSeaIsland_ = -1;
     RiverCatalog riverCatalog_;
     bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;
@@ -429,6 +453,13 @@ private:
     int brushStrokeY_ = -1;
     GlassPanel tileBrushGlass_;
     GlassPanel tooltipGlass_;
+    GlassPanel savingGlass_;
+    // The background save: an empty string on success, otherwise the error.
+    std::future<std::string> mapSave_;
+    std::filesystem::path mapSavePath_;
+    std::uint64_t mapSaveSerial_ = 0;
+    // Save and Exit, or closing the window during a save, quits once the save finishes.
+    bool quitAfterSave_ = false;
     bool miniDirty_ = true;
     bool heightDirty_ = true;
     bool quit_ = false;
