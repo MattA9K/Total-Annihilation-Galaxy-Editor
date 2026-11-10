@@ -432,7 +432,59 @@ int seaIslandKind(std::string_view brushName) {
     if (brushName == "Island-0 Large") {
         return 4;
     }
+    if (brushName == "Island-0 16x16") {
+        return 5;
+    }
+    if (brushName == "Island-0 32x32") {
+        return 6;
+    }
     return 0;
+}
+
+// Which Crystal button a Crystal.hpi section belongs to, from its folder and size.
+// Islands and Reefs sit in the water on Base-0; the others sit on Base-85.
+bool crystalBrushFor(std::string_view folder, int tiles, std::string& group, std::string& noun, std::string& baseName, int& baseHeight) {
+    const std::string size = std::to_string(tiles) + "x" + std::to_string(tiles);
+    const std::string name = lowerText(folder);
+    baseName = "base-85";
+    baseHeight = 85;
+    if (name == "craters" && (tiles == 8 || tiles == 16)) {
+        group = "Crater-85 " + size;
+        noun = "crater";
+    } else if (name == "hills" && (tiles == 16 || tiles == 32)) {
+        group = "Hills-85 " + size;
+        noun = "hill";
+    } else if (name == "islands" && (tiles == 16 || tiles == 32)) {
+        group = "Island-85 " + size;
+        noun = "island";
+        baseName = "base-0";
+        baseHeight = 0;
+    } else if (name == "ponds" && tiles == 16) {
+        group = "Pond-85";
+        noun = "pond";
+    } else if (name == "reefs" && (tiles == 16 || tiles == 32)) {
+        group = "Reef-85 " + size;
+        noun = "reef";
+        baseName = "base-0";
+        baseHeight = 0;
+    } else if (name == "roughs" && (tiles == 16 || tiles == 32)) {
+        // One button for every rough. The cursor takes the size of the next one.
+        group = "Rough-85";
+        noun = "rough patch";
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// Pool-85 (Mars) and Pools-85 (Ice) buttons.
+bool pool85Brush(std::string_view brushName) {
+    return brushName.rfind("Pool-85", 0) == 0 || brushName == "Pools-85";
+}
+
+// Mars-2.hpi and Ice.hpi Islands by size: one button each for 8 x 8, 16 x 16 and 32 x 32.
+int marsIslandKindOf(int tiles) {
+    return tiles == 8 ? 1 : (tiles == 16 ? 5 : (tiles == 32 ? 6 : 0));
 }
 
 // Medium and Large islands come in several sizes, so each one is chosen before it is placed.
@@ -964,15 +1016,37 @@ void EditorApp::drawToolbar() {
         usedRight = std::max(usedRight, ImGui::GetItemRectMax().x);
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
             const char* sizeTip = fixedSize ? text(Text::TipBrushFixed) : text(Text::TipBrushSize);
-            if (hillTiles > 0) {
+            std::string groupTip;
+            if (const HillSection* group = hillTiles > 0 ? groupHill() : nullptr) {
+                groupTip = brushVaries()
+                    ? "The size of the next " + group->noun + ". Press N to skip to another one"
+                    : brushName_ + " fills one " + brushSizeLabel(hillTiles) + " Base-" + std::to_string(group->baseHeight) + " block";
+                sizeTip = groupTip.c_str();
+            } else if (hillTiles > 0) {
                 const bool rough = brushName_.rfind("Rough", 0) == 0;
                 const bool island = brushName_ == "Island 8x8";
                 const bool lavaHill = brushName_.rfind("Hill-86", 0) == 0;
-                const bool pool = brushName_.rfind("Pools", 0) == 0;
+                const bool pool = brushName_ == "Pools 8x8";
                 const bool archipelagoHill = brushName_.rfind("Hill-194", 0) == 0;
                 const int seaIsland = seaIslandKind(brushName_);
                 sizeTip = island
                     ? "Island 8x8 places one 16 x 16 island on GreenWorld Base-0"
+                    : brushName_ == "Feature-85"
+                    ? "Feature-85 fills one 16 x 16 Mars Base-85 block"
+                    : brushName_ == "Rough-85 16x16"
+                    ? "Rough-85 16x16 fills one 16 x 16 Mars Base-85 block"
+                    : pool85Brush(brushName_)
+                    ? (hillTiles >= kBrushCellTiles ? "Fills one 16 x 16 Base-85 block with a pool"
+                        : "Fills one 8 x 8 Base-85 block with a pool")
+                    : brushName_.rfind("Hills-85", 0) == 0
+                    ? (hillTiles >= kBrushCellTiles ? "Hills-85 16x16 fills one 16 x 16 Base-85 block"
+                        : "Hills-85 8x8 fills one 8 x 8 Base-85 block")
+                    : brushName_.rfind("Pool-86", 0) == 0
+                    ? (hillTiles > kBrushCellTiles ? "Pool-86 32x32 fills one 32 x 32 Base-86 block"
+                        : hillTiles == kBrushCellTiles ? "Pool-86 16x16 fills one 16 x 16 Base-86 block"
+                        : "Pool-86 8x8 fills one 8 x 8 Base-86 block")
+                    : seaIsland == 5 ? "Island-0 16x16 fills one 16 x 16 Base-0 block"
+                    : seaIsland == 6 ? "Island-0 32x32 fills one 32 x 32 Base-0 block"
                     : seaIsland == 1 ? "Island-0 8x8 fills one 8 x 8 Base-0 block"
                     : seaIsland == 2 ? "Rocky-0 8x8 fills one 8 x 8 Base-0 block"
                     : seaIslandVaries(seaIsland) ? "The size of the next island. Press N to skip to another island"
@@ -3169,7 +3243,7 @@ void EditorApp::drawMap() {
             }
             brushStroking_ = true;
         } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left)
-            && !seaIslandVaries(seaIslandKind(brushName_))) {
+            && !brushVaries()) {
             // Medium and Large islands are one per click, since each click changes the island size.
             // A drag paints again when the snap point changes. The 8 x 8 brush follows the meeting of four cells.
             // A larger even brush follows the same point, because that point is the center of its square.
@@ -3821,26 +3895,39 @@ void EditorApp::drawMap() {
     } else if (hovered && hillTiles > 0) {
         const bool rough = brushName_.rfind("Rough", 0) == 0;
         const bool island = brushName_ == "Island 8x8";
-        const bool lavaHill = brushName_.rfind("Hill-86", 0) == 0;
-        const bool pool = brushName_.rfind("Pools", 0) == 0;
+        const bool lavaPool = brushName_.rfind("Pool-86", 0) == 0;
+        const bool lavaHill = brushName_.rfind("Hill-86", 0) == 0 || lavaPool;
+        const bool pool = brushName_ == "Pools 8x8";
         const bool archipelagoHill = brushName_.rfind("Hill-194", 0) == 0;
         const bool archipelagoLowHill = brushName_.rfind("Hills-78", 0) == 0;
         const int seaIsland = seaIslandKind(brushName_);
-        const char* piece = island || seaIsland == 1 ? "island" : (seaIsland == 2 ? "rocky island" : (pool ? "pool" : (rough ? "rough patch" : "hill")));
+        const char* piece = island || seaIsland == 1 ? "island" : (seaIsland == 2 ? "rocky island" : (brushName_ == "Feature-85" ? "feature" : lavaPool ? "lava pool" : pool || pool85Brush(brushName_) ? "pool" : (rough ? "rough patch" : "hill")));
         const char* ground = island || seaIsland != 0 ? "Base-0"
             : (pool ? "Base-77" : (lavaHill ? "Base-86" : (archipelagoHill ? "Base-194" : (archipelagoLowHill ? "Base-78" : "Base-85"))));
         const char* land = pool ? "Lush"
-            : (lavaHill ? "Lava" : (archipelagoHill || archipelagoLowHill || seaIsland != 0 ? "Archipelago" : "GreenWorld"));
+            : brushName_.rfind("Hills-85", 0) == 0 || pool85Brush(brushName_) || brushName_ == "Rough-85 16x16"
+                || brushName_ == "Feature-85" ? brushWorld_.c_str()
+            : seaIsland != 0 ? brushWorld_.c_str()
+            : (lavaHill ? "Lava" : (archipelagoHill || archipelagoLowHill ? "Archipelago" : "GreenWorld"));
         const int nextIsland = nextSeaIsland();
+        const HillSection* group = groupHill();
+        std::string groupGround;
+        if (group != nullptr) {
+            piece = group->noun.c_str();
+            groupGround = "Base-" + std::to_string(group->baseHeight);
+            ground = groupGround.c_str();
+            land = brushWorld_.c_str();
+        }
         if (nextIsland >= 0) {
-            // Medium and Large show the island that the next click places.
+            // Brushes that mix sizes show the tile that the next click places.
             const HillSection& next = hillSections_[static_cast<std::size_t>(nextIsland)];
+            const std::string nextNoun = next.noun.empty() ? std::string("island") : next.noun;
             if (hillBlocked) {
-                ImGui::SetTooltip("%s\nNext island %s, %s\nPress N to skip tile\nHeight %d",
-                    hillRefusal.c_str(), next.name.c_str(), brushSizeLabel(next.tiles).c_str(), hoverHeight_);
+                ImGui::SetTooltip("%s\nNext %s %s, %s\nPress N to skip tile\nHeight %d",
+                    hillRefusal.c_str(), nextNoun.c_str(), next.name.c_str(), brushSizeLabel(next.tiles).c_str(), hoverHeight_);
             } else {
-                ImGui::SetTooltip("%s\nClick to place %s, %s, on Archipelago Base-0\nPress N to skip tile\nEsc cancels\nHeight %d",
-                    brushName_.c_str(), next.name.c_str(), brushSizeLabel(next.tiles).c_str(), hoverHeight_);
+                ImGui::SetTooltip("%s\nClick to place %s, %s, on %s %s\nPress N to skip tile\nEsc cancels\nHeight %d",
+                    brushName_.c_str(), next.name.c_str(), brushSizeLabel(next.tiles).c_str(), land, ground, hoverHeight_);
             }
         } else if (hillBlocked) {
             ImGui::SetTooltip("%s\nHeight %d", hillRefusal.c_str(), hoverHeight_);
@@ -6356,7 +6443,7 @@ bool EditorApp::draw() {
             }
         }
         // N skips to another random island while Island-0 Medium or Large is armed.
-        if (seaIslandVaries(seaIslandKind(brushName_)) && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeySuper && !ImGui::GetIO().KeyAlt
+        if (brushVaries() && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeySuper && !ImGui::GetIO().KeyAlt
             && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) && ImGui::IsKeyPressed(ImGuiKey_N, false)) {
             skipSeaIsland();
         }
@@ -7103,9 +7190,18 @@ int EditorApp::hillSpan() const {
         }
         return 16;
     }
-    if (seaIslandVaries(seaIslandKind(brushName_))) {
+    if (brushVaries()) {
         const int next = nextSeaIsland();
         return next >= 0 ? hillSections_[static_cast<std::size_t>(next)].tiles : 16;
+    }
+    if (const HillSection* group = groupHill()) {
+        return group->tiles;
+    }
+    if (brushName_.find("32x32") != std::string::npos) {
+        return 32;
+    }
+    if (brushName_ == "Feature-85" || brushName_ == "Pools-85") {
+        return 16;
     }
     return brushName_.find("16x16") != std::string::npos ? 16 : 8;
 }
@@ -7116,21 +7212,65 @@ void EditorApp::hillOrigin(int tileX, int tileY, int span, int& originX, int& or
         originY = tileY - span / 2;
         return;
     }
+    if (span > kBrushCellTiles) {
+        // A 32 x 32 pool covers four cells, centered on the cell corner nearest the pointer.
+        originX = (tileX + kBrushCellTiles / 2) / kBrushCellTiles * kBrushCellTiles - span / 2;
+        originY = (tileY + kBrushCellTiles / 2) / kBrushCellTiles * kBrushCellTiles - span / 2;
+        return;
+    }
     hillStampOrigin(tileX, tileY, span, originX, originY);
 }
 
-int EditorApp::nextSeaIsland() const {
+const EditorApp::HillSection* EditorApp::groupHill() const {
+    if (brushName_.empty()) {
+        return nullptr;
+    }
+    for (const HillSection& hill : hillSections_) {
+        if (hill.group == brushName_ && hill.tiles > 0) {
+            return &hill;
+        }
+    }
+    return nullptr;
+}
+
+bool EditorApp::brushVaries() const {
+    if (seaIslandVaries(seaIslandKind(brushName_))) {
+        return true;
+    }
+    const HillSection* first = groupHill();
+    if (first == nullptr) {
+        return false;
+    }
+    for (const HillSection& hill : hillSections_) {
+        if (hill.group == brushName_ && hill.tiles > 0 && hill.tiles != first->tiles) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool EditorApp::nextMatches(const HillSection& hill) const {
+    if (hill.tiles <= 0) {
+        return false;
+    }
     const int kind = seaIslandKind(brushName_);
-    if (!seaIslandVaries(kind)) {
+    if (seaIslandVaries(kind)) {
+        return hill.seaIsland == kind;
+    }
+    return !hill.group.empty() && hill.group == brushName_;
+}
+
+int EditorApp::nextSeaIsland() const {
+    if (!brushVaries()) {
         return -1;
     }
     if (nextSeaIsland_ >= 0 && static_cast<std::size_t>(nextSeaIsland_) < hillSections_.size()
-        && hillSections_[static_cast<std::size_t>(nextSeaIsland_)].seaIsland == kind) {
+        && nextMatches(hillSections_[static_cast<std::size_t>(nextSeaIsland_)])) {
         return nextSeaIsland_;
     }
     std::vector<int> choices;
     for (std::size_t i = 0; i < hillSections_.size(); ++i) {
-        if (hillSections_[i].seaIsland == kind && hillSections_[i].tiles > 0) {
+        if (nextMatches(hillSections_[i])) {
             choices.push_back(static_cast<int>(i));
         }
     }
@@ -7145,14 +7285,13 @@ int EditorApp::nextSeaIsland() const {
 }
 
 void EditorApp::skipSeaIsland() {
-    const int kind = seaIslandKind(brushName_);
-    if (!seaIslandVaries(kind)) {
+    if (!brushVaries()) {
         return;
     }
     const int current = nextSeaIsland();
     std::vector<int> choices;
     for (std::size_t i = 0; i < hillSections_.size(); ++i) {
-        if (hillSections_[i].seaIsland == kind && hillSections_[i].tiles > 0 && static_cast<int>(i) != current) {
+        if (nextMatches(hillSections_[i]) && static_cast<int>(i) != current) {
             choices.push_back(static_cast<int>(i));
         }
     }
@@ -7163,7 +7302,7 @@ void EditorApp::skipSeaIsland() {
     std::uniform_int_distribution<std::size_t> pick(0, choices.size() - 1);
     nextSeaIsland_ = choices[pick(rng)];
     const HillSection& next = hillSections_[static_cast<std::size_t>(nextSeaIsland_)];
-    statusNote_ = "Next island " + next.name + ", " + brushSizeLabel(next.tiles);
+    statusNote_ = "Next " + (next.noun.empty() ? std::string("island") : next.noun) + " " + next.name + ", " + brushSizeLabel(next.tiles);
 }
 
 bool EditorApp::tileMatchesBase(int tileX, int tileY, std::string_view world, std::string_view baseName, int baseHeight, bool sameWorldFringe) const {
@@ -7226,6 +7365,10 @@ bool EditorApp::tileIsGreenBase0(int tileX, int tileY) const {
     return tileMatchesBase(tileX, tileY, "GreenWorld", "base-0", 0, false);
 }
 
+bool EditorApp::tileIsBrushWorldBase85(int tileX, int tileY) const {
+    return tileMatchesBase(tileX, tileY, brushWorld_, "base-85", 85, true);
+}
+
 bool EditorApp::tileIsLavaBase86(int tileX, int tileY) const {
     return tileMatchesBase(tileX, tileY, "Lava", "base-86", 86, true);
 }
@@ -7236,6 +7379,10 @@ bool EditorApp::tileIsLushBase77(int tileX, int tileY) const {
 
 bool EditorApp::tileIsArchipelagoBase194(int tileX, int tileY) const {
     return tileMatchesBase(tileX, tileY, "Archipelago", "base-194", 194, true);
+}
+
+bool EditorApp::tileIsBrushWorldBase0(int tileX, int tileY) const {
+    return tileMatchesBase(tileX, tileY, brushWorld_, "base-0", 0, false);
 }
 
 bool EditorApp::tileIsArchipelagoBase0(int tileX, int tileY) const {
@@ -7251,11 +7398,57 @@ bool EditorApp::hillCanPlace(int originX, int originY, int span, std::string& re
         refusal = "The brush is outside the map";
         return false;
     }
+    const HillSection* group = groupHill();
     for (int y = 0; y < span; ++y) {
         for (int x = 0; x < span; ++x) {
+            if (group != nullptr) {
+                if (!tileMatchesBase(originX + x, originY + y, brushWorld_, group->baseName, group->baseHeight, group->baseHeight != 0)) {
+                    refusal = "The " + group->noun + " only goes on " + brushWorld_ + " Base-" + std::to_string(group->baseHeight)
+                        + ", and the whole " + brushSizeLabel(span) + " block has to be Base-" + std::to_string(group->baseHeight);
+                    return false;
+                }
+                continue;
+            }
             if (brushName_ == "Island 8x8") {
                 if (!tileIsGreenBase0(originX + x, originY + y)) {
                     refusal = "Islands only go on a 16 x 16 GreenWorld Base-0 tile";
+                    return false;
+                }
+                continue;
+            }
+            if (brushName_ == "Feature-85") {
+                if (!tileIsBrushWorldBase85(originX + x, originY + y)) {
+                    refusal = "Features only go on a 16 x 16 " + brushWorld_ + " Base-85 tile";
+                    return false;
+                }
+                continue;
+            }
+            if (brushName_ == "Rough-85 16x16") {
+                if (!tileIsBrushWorldBase85(originX + x, originY + y)) {
+                    refusal = "Rough tiles only go on a 16 x 16 " + brushWorld_ + " Base-85 tile";
+                    return false;
+                }
+                continue;
+            }
+            if (pool85Brush(brushName_)) {
+                if (!tileIsBrushWorldBase85(originX + x, originY + y)) {
+                    refusal = span >= kBrushCellTiles
+                        ? "Pools only go on a 16 x 16 " + brushWorld_ + " Base-85 tile"
+                        : "Pools only go on " + brushWorld_ + " Base-85";
+                    return false;
+                }
+                continue;
+            }
+            if (brushName_.rfind("Hills-85", 0) == 0) {
+                if (!tileIsBrushWorldBase85(originX + x, originY + y)) {
+                    refusal = span >= kBrushCellTiles ? "Hills only go on a 16 x 16 " + brushWorld_ + " Base-85 tile" : "Hills only go on " + brushWorld_ + " Base-85";
+                    return false;
+                }
+                continue;
+            }
+            if (brushName_.rfind("Pool-86", 0) == 0) {
+                if (!tileIsLavaBase86(originX + x, originY + y)) {
+                    refusal = "Lava pools only go on Lava Base-86, and the whole " + brushSizeLabel(span) + " block has to be Base-86";
                     return false;
                 }
                 continue;
@@ -7270,8 +7463,8 @@ bool EditorApp::hillCanPlace(int originX, int originY, int span, std::string& re
                 continue;
             }
             if (seaIslandKind(brushName_) != 0) {
-                if (!tileIsArchipelagoBase0(originX + x, originY + y)) {
-                    refusal = "Islands only go on Archipelago Base-0, and the whole " + brushSizeLabel(span) + " block has to be Base-0";
+                if (!tileIsBrushWorldBase0(originX + x, originY + y)) {
+                    refusal = "Islands only go on " + brushWorld_ + " Base-0, and the whole " + brushSizeLabel(span) + " block has to be Base-0";
                     return false;
                 }
                 continue;
@@ -7292,7 +7485,7 @@ bool EditorApp::hillCanPlace(int originX, int originY, int span, std::string& re
                 }
                 continue;
             }
-            if (brushName_.rfind("Pools", 0) == 0) {
+            if (brushName_ == "Pools 8x8") {
                 if (!tileIsLushBase77(originX + x, originY + y)) {
                     refusal = "Pools only go on Lush Base-77";
                     return false;
@@ -7333,18 +7526,31 @@ void EditorApp::paintHill(int tileX, int tileY) {
     std::vector<HillSection*> matches;
     const bool island = brushName_ == "Island 8x8";
     const bool rough = brushName_.rfind("Rough", 0) == 0;
-    const bool pool = brushName_.rfind("Pools", 0) == 0;
+    const bool pool = brushName_ == "Pools 8x8";
     const bool base78 = brushName_.rfind("Hills-78", 0) == 0;
     const int seaIsland = seaIslandKind(brushName_);
-    if (seaIslandVaries(seaIsland)) {
-        // Medium and Large place the island the cursor is already showing.
+    const bool lavaPool = brushName_.rfind("Pool-86", 0) == 0;
+    const bool hill85 = brushName_.rfind("Hills-85", 0) == 0;
+    const bool pool85 = pool85Brush(brushName_);
+    const bool marsRough = brushName_ == "Rough-85 16x16";
+    const bool marsFeature = brushName_ == "Feature-85";
+    if (brushVaries()) {
+        // Island-0 Medium and Large, and Crystal's Rough-85, place the tile the cursor is already showing.
         if (const int next = nextSeaIsland(); next >= 0) {
             matches.push_back(&hillSections_[static_cast<std::size_t>(next)]);
         }
+    } else if (groupHill() != nullptr) {
+        for (HillSection& hill : hillSections_) {
+            if (hill.group == brushName_ && hill.tiles == span) {
+                matches.push_back(&hill);
+            }
+        }
     } else {
         for (HillSection& hill : hillSections_) {
-            if (hill.tiles == span && hill.island == island && hill.rough == rough && hill.pool == pool && hill.base78 == base78
-                && hill.seaIsland == seaIsland) {
+            if (hill.tiles == span && hill.crystalFolder.empty() && hill.island == island && hill.rough == rough && hill.pool == pool && hill.base78 == base78
+                && hill.seaIsland == seaIsland && hill.lavaPool == lavaPool && hill.hill85 == hill85
+                && hill.pool85 == pool85 && hill.marsRough == marsRough
+                && hill.marsFeature == marsFeature) {
                 matches.push_back(&hill);
             }
         }
@@ -7381,13 +7587,13 @@ void EditorApp::paintHill(int tileX, int tileY) {
         const int tileCountBefore = map_->tileCount;
         auto change = stampSectionChange(*map_, *chosen->stamp, originX, originY, &deduper_, 100);
         if (!change) {
-            statusNote_ = island || seaIsland != 0 ? "The island is already here" : (pool ? "The pool is already here" : (rough ? "The rough patch is already here" : "The hill is already here"));
+            statusNote_ = island || seaIsland != 0 ? "The island is already here" : (pool || lavaPool || pool85 ? "The pool is already here" : (rough ? "The rough patch is already here" : "The hill is already here"));
             return;
         }
         rememberPlacement(std::move(*change));
         statusNote_ = "Placed " + chosen->name;
-        if (seaIslandVaries(seaIsland)) {
-            // Choose the next island now, so the cursor shows its size.
+        if (brushVaries()) {
+            // Choose the next tile now, so the cursor shows its size.
             nextSeaIsland_ = -1;
             nextSeaIsland();
         }
@@ -7689,6 +7895,27 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "island";
         const bool lavaHill = lowerText(brushWorld_) == "lava" && lowerText(section.world) == "lava"
             && lowerText(section.category) == "hill_";
+        const bool lavaPoolSection = lowerText(brushWorld_) == "lava" && lowerText(section.world) == "lava"
+            && lowerText(section.category) == "pools";
+        const bool marsHillSection = lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
+            && lowerText(section.category) == "hills";
+        const bool marsPoolSection = lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
+            && lowerText(section.category) == "pools";
+        const bool marsRoughSection = lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
+            && lowerText(section.category) == "rough";
+        const bool marsFeatureSection = lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
+            && lowerText(section.category) == "feature";
+        const bool marsIslandSection = (lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
+            && lowerText(section.category) == "islands")
+            || (lowerText(brushWorld_) == "ice" && lowerText(section.world) == "ice" && lowerText(section.category) == "islands");
+        const bool iceHillSection = lowerText(brushWorld_) == "ice" && lowerText(section.world) == "ice"
+            && lowerText(section.category) == "hills";
+        const std::string crystalCategory = lowerText(section.category);
+        const bool crystalSection = lowerText(brushWorld_) == "crystal" && lowerText(section.world) == "crystal"
+            && (crystalCategory == "craters" || crystalCategory == "hills" || crystalCategory == "islands"
+                || crystalCategory == "ponds" || crystalCategory == "reefs" || crystalCategory == "roughs");
+        const bool icePoolSection = lowerText(brushWorld_) == "ice" && lowerText(section.world) == "ice"
+            && lowerText(section.category) == "pools";
         const bool lushPool = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "256s";
         const bool archipelagoHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
@@ -7698,7 +7925,10 @@ void EditorApp::ensureBrushPaints() {
         const bool archipelagoIsland = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "islands";
         if (!brushCategoryMatches(section.category, brushWorld_) && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
-            && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland) {
+            && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection
+            && !marsHillSection && !marsPoolSection && !marsRoughSection
+            && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
+            && !crystalSection) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -7741,6 +7971,66 @@ void EditorApp::ensureBrushPaints() {
                 hill.island = true;
                 hillSections_.push_back(std::move(hill));
             }
+        }
+        if (crystalSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.crystalFolder = section.category;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (iceHillSection || icePoolSection) {
+            // Ice.hpi Hills and Pools sit on Ice Base-85, like the Mars ones.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.hill85 = iceHillSection;
+            hill.pool85 = icePoolSection;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (marsIslandSection) {
+            // Mars-2.hpi Islands. The button follows the size, read below.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.seaIsland = -1;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (marsFeatureSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.marsFeature = true;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (marsRoughSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.rough = true;
+            hill.marsRough = true;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (marsPoolSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.pool85 = true;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (marsHillSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.hill85 = true;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (lavaPoolSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.lavaPool = true;
+            hillSections_.push_back(std::move(hill));
         }
         if (archipelagoIsland) {
             // Archipelago.hpi Islands. Which button each one belongs to is known once its size is read.
@@ -8228,6 +8518,36 @@ void EditorApp::ensureBrushPaints() {
                 }
             }
         }
+    } else if (!hillSections_.empty()) {
+        // Tilesets whose bases all differ in height, such as Crystal, still need the
+        // flat base pictures: the hill, pool, island and reef brushes check the ground
+        // under them by its picture. A tileset without those brushes, such as Metal,
+        // keeps reading its ground by height alone.
+        for (const BrushPaint* paint : pictured) {
+            for (const TilesetSection& section : source->sections) {
+                if (lowerText(section.category) != lowerText(paint->category) || !isBaseBrushTile(section.world, section.name)
+                    || lowerText(section.name) != lowerText(paint->name)) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(section.archivePath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::size_t bytes = static_cast<std::size_t>(stamp.indices[static_cast<std::size_t>(tile)]) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        brushPictures_.try_emplace(hashBrushTile(stamp.tileImages.data() + bytes),
+                            BrushPictureHint{paint->category, paint->name, false, {}, {}});
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
     }
     // Lush and Archipelago use different heights, and a lush rock can sit nearer
     // another paint. The picture keeps each tile on the land its color belongs to.
@@ -8552,7 +8872,10 @@ void EditorApp::ensureBrushPaints() {
     const bool lavaHills = lowerText(brushWorld_) == "lava";
     const bool lushPools = lowerText(brushWorld_) == "lush";
     const bool archipelagoHills = lowerText(brushWorld_) == "archipelago";
-    if ((greenHills || lavaHills || lushPools || archipelagoHills) && !hillSections_.empty()) {
+    const bool marsHills = lowerText(brushWorld_) == "mars";
+    const bool iceHills = lowerText(brushWorld_) == "ice";
+    const bool crystalHills = lowerText(brushWorld_) == "crystal";
+    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills) && !hillSections_.empty()) {
         std::sort(hillSections_.begin(), hillSections_.end(), [](const HillSection& left, const HillSection& right) {
             return trailingNumber(left.name) < trailingNumber(right.name);
         });
@@ -8567,12 +8890,17 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
-                if (stamp.tileWidth == stamp.tileHeight && (stamp.tileWidth == 8 || stamp.tileWidth == 16)) {
+                if (stamp.tileWidth == stamp.tileHeight
+                    && (stamp.tileWidth == 8 || stamp.tileWidth == 16 || (hill.lavaPool && stamp.tileWidth == 32))) {
+                    hill.tiles = stamp.tileWidth;
+                }
+                if (!hill.crystalFolder.empty() && stamp.tileWidth == stamp.tileHeight
+                    && crystalBrushFor(hill.crystalFolder, stamp.tileWidth, hill.group, hill.noun, hill.baseName, hill.baseHeight)) {
                     hill.tiles = stamp.tileWidth;
                 }
                 if (hill.seaIsland != 0 && stamp.tileWidth == stamp.tileHeight) {
                     hill.tiles = stamp.tileWidth;
-                    hill.seaIsland = seaIslandKindOf(hill.name, hill.tiles);
+                    hill.seaIsland = lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "ice" ? marsIslandKindOf(hill.tiles) : seaIslandKindOf(hill.name, hill.tiles);
                 }
             } catch (const std::exception&) {
             }
@@ -8636,7 +8964,15 @@ void EditorApp::ensureBrushPaints() {
         if (lavaHills) {
             std::string lava8;
             std::string lava16;
+            std::string lavaPools[3];
             for (const HillSection& hill : hillSections_) {
+                if (hill.lavaPool) {
+                    const int slot = hill.tiles == 8 ? 0 : (hill.tiles == 16 ? 1 : (hill.tiles == 32 ? 2 : -1));
+                    if (slot >= 0 && lavaPools[slot].empty()) {
+                        lavaPools[slot] = hill.sectionPath;
+                    }
+                    continue;
+                }
                 if (hill.rough || hill.island || hill.pool) {
                     continue;
                 }
@@ -8649,6 +8985,9 @@ void EditorApp::ensureBrushPaints() {
             }
             addHillButton("Hill-86 8x8", lava8);
             addHillButton("Hill-86 16x16", lava16);
+            addHillButton("Pool-86 8x8", lavaPools[0]);
+            addHillButton("Pool-86 16x16", lavaPools[1]);
+            addHillButton("Pool-86 32x32", lavaPools[2]);
         }
         if (lushPools) {
             std::string pool8;
@@ -8658,6 +8997,83 @@ void EditorApp::ensureBrushPaints() {
                 }
             }
             addHillButton("Pools 8x8", pool8);
+        }
+        if (crystalHills) {
+            for (const char* button : {"Crater-85 8x8", "Crater-85 16x16", "Hills-85 16x16", "Hills-85 32x32", "Island-85 16x16",
+                     "Island-85 32x32", "Pond-85", "Reef-85 16x16", "Reef-85 32x32", "Rough-85"}) {
+                std::string icon;
+                for (const HillSection& hill : hillSections_) {
+                    // The 16 x 16 rough makes the icon, the way the other buttons show one tile.
+                    if (hill.group == button && hill.tiles > 0 && (icon.empty() || hill.tiles < kBrushCellTiles * 2)) {
+                        icon = hill.sectionPath;
+                        if (hill.tiles < kBrushCellTiles * 2) {
+                            break;
+                        }
+                    }
+                }
+                addHillButton(button, icon);
+            }
+        }
+        if (iceHills) {
+            std::string ice[7];
+            std::string hill8;
+            std::string hill16;
+            std::string pool16;
+            for (const HillSection& hill : hillSections_) {
+                if (hill.seaIsland > 0 && hill.seaIsland < 7 && ice[hill.seaIsland].empty()) {
+                    ice[hill.seaIsland] = hill.sectionPath;
+                }
+                if (hill.hill85 && hill.tiles == 8 && hill8.empty()) {
+                    hill8 = hill.sectionPath;
+                }
+                if (hill.hill85 && hill.tiles == 16 && hill16.empty()) {
+                    hill16 = hill.sectionPath;
+                }
+                if (hill.pool85 && hill.tiles == 16 && pool16.empty()) {
+                    pool16 = hill.sectionPath;
+                }
+            }
+            addHillButton("Hills-85 8x8", hill8);
+            addHillButton("Hills-85 16x16", hill16);
+            addHillButton("Pools-85", pool16);
+            addHillButton("Island-0 8x8", ice[1]);
+            addHillButton("Island-0 16x16", ice[5]);
+        }
+        if (marsHills) {
+            std::string mars8;
+            std::string marsPool8;
+            std::string marsPool16;
+            std::string marsRough16;
+            std::string marsFeature16;
+            std::string marsIslands[7];
+            for (const HillSection& hill : hillSections_) {
+                if (hill.seaIsland > 0 && hill.seaIsland < 7 && marsIslands[hill.seaIsland].empty()) {
+                    marsIslands[hill.seaIsland] = hill.sectionPath;
+                }
+                if (hill.marsFeature && hill.tiles == 16 && marsFeature16.empty()) {
+                    marsFeature16 = hill.sectionPath;
+                }
+                if (hill.marsRough && hill.tiles == 16 && marsRough16.empty()) {
+                    marsRough16 = hill.sectionPath;
+                }
+                if (hill.hill85 && hill.tiles == 8 && mars8.empty()) {
+                    mars8 = hill.sectionPath;
+                }
+                if (hill.pool85 && hill.tiles == 8 && marsPool8.empty()) {
+                    marsPool8 = hill.sectionPath;
+                }
+                if (hill.pool85 && hill.tiles == 16 && marsPool16.empty()) {
+                    marsPool16 = hill.sectionPath;
+                }
+            }
+            addHillButton("Hills-85 8x8", mars8);
+            addHillButton("Pool-85 8x8", marsPool8);
+            addHillButton("Pool-85 16x16", marsPool16);
+            addHillButton("Rough-85 16x16", marsRough16);
+            addHillButton("Feature-85", marsFeature16);
+            addHillButton("Island-0 8x8", marsIslands[1]);
+            addHillButton("Island-0 16x16", marsIslands[5]);
+            addHillButton("Island-0 32x32", marsIslands[6]);
         }
         if (archipelagoHills) {
             std::string archipelago16;
@@ -8854,6 +9270,7 @@ void EditorApp::drawTileBrush() {
         }
         if (ImGui::IsItemHovered()) {
             const char* hint = "Use this tile as the brush";
+            std::string hintText;
             if (paint.kind == BrushKind::River) {
                 hint = lowerText(brushWorld_) == "lush"
                     ? "Paint rivers on Base-77 and straight coasts\nAn even-height Base-255 range gets a mountain pass\nRivers join the rivers beside them"
@@ -8883,11 +9300,31 @@ void EditorApp::drawTileBrush() {
                     hint = "Turn a cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
                 }
             } else if (paint.kind == BrushKind::Hill) {
-                if (paint.name == "Island 8x8") {
+                const HillSection* group = nullptr;
+                bool mixed = false;
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.group == paint.name && hill.tiles > 0) {
+                        mixed = mixed || (group != nullptr && group->tiles != hill.tiles);
+                        group = group == nullptr ? &hill : group;
+                    }
+                }
+                if (group != nullptr) {
+                    const std::string base = brushWorld_ + " Base-" + std::to_string(group->baseHeight);
+                    hintText = mixed
+                        ? "Place a random " + group->noun + " on " + base + "\nThe cursor shows the size of the next one\nPress N to skip to another one"
+                        : "Place a random " + brushSizeLabel(group->tiles) + " " + group->noun + " on " + base + "\nThe whole block has to be Base-"
+                            + std::to_string(group->baseHeight);
+                    hint = hintText.c_str();
+                } else if (paint.name == "Island 8x8") {
                     hint = "Place a random island on GreenWorld Base-0\nThe whole 16 x 16 block has to be Base-0";
                 } else if (seaIslandKind(paint.name) != 0) {
                     const int kind = seaIslandKind(paint.name);
-                    hint = kind == 1 ? "Place a random 8 x 8 island on Archipelago Base-0\nThe whole 8 x 8 block has to be Base-0"
+                    const bool bySize = lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "ice";
+                    const int tiles = kind == 5 ? 16 : (kind == 6 ? 32 : 8);
+                    hintText = "Place a random " + std::to_string(tiles) + " x " + std::to_string(tiles) + " island on " + brushWorld_
+                        + " Base-0\nThe whole " + std::to_string(tiles) + " x " + std::to_string(tiles) + " block has to be Base-0";
+                    hint = bySize ? hintText.c_str()
+                        : kind == 1 ? "Place a random 8 x 8 island on Archipelago Base-0\nThe whole 8 x 8 block has to be Base-0"
                         : kind == 2 ? "Place a random 8 x 8 rocky island on Archipelago Base-0\nThe whole 8 x 8 block has to be Base-0"
                         : kind == 3 ? "Place a random 16 x 16 to 20 x 20 island on Archipelago Base-0\nThe cursor shows the size of the next island\nPress N to skip to another island"
                         : "Place a random 32 x 32 or larger island on Archipelago Base-0\nThe cursor shows the size of the next island\nPress N to skip to another island";
@@ -8897,12 +9334,32 @@ void EditorApp::drawTileBrush() {
                         : "Place a random 8 x 8 hill on Archipelago Base-78\nThe whole 8 x 8 block has to be Base-78";
                 } else if (paint.name.rfind("Hill-194", 0) == 0) {
                     hint = "Place a random 16 x 16 hill on Archipelago Base-194\nThe whole 16 x 16 block has to be Base-194";
+                } else if (pool85Brush(paint.name)) {
+                    const char* size = paint.name.find("8x8") != std::string::npos ? "8 x 8" : "16 x 16";
+                    hintText = std::string("Place a random ") + size + " pool on " + brushWorld_ + " Base-85\nThe whole " + size
+                        + " block has to be Base-85";
+                    hint = hintText.c_str();
+                } else if (paint.name.rfind("Hills-85", 0) == 0) {
+                    const char* size = paint.name.find("16x16") != std::string::npos ? "16 x 16" : "8 x 8";
+                    hintText = std::string("Place a random ") + size + " hill on " + brushWorld_ + " Base-85\nThe whole " + size
+                        + " block has to be Base-85";
+                    hint = hintText.c_str();
+                } else if (paint.name.rfind("Pool-86", 0) == 0) {
+                    hint = paint.name.find("32x32") != std::string::npos
+                        ? "Place a random 32 x 32 lava pool on Lava Base-86\nThe whole 32 x 32 block has to be Base-86"
+                        : (paint.name.find("16x16") != std::string::npos
+                            ? "Place a random 16 x 16 lava pool on Lava Base-86\nThe whole 16 x 16 block has to be Base-86"
+                            : "Place a random 8 x 8 lava pool on Lava Base-86\nThe whole 8 x 8 block has to be Base-86");
                 } else if (paint.name.rfind("Hill-86", 0) == 0) {
                     hint = paint.name.find("16x16") != std::string::npos
                         ? "Place a random 16 x 16 hill on Lava Base-86\nThe whole 16 x 16 block has to be Base-86"
                         : "Place a random 8 x 8 hill on Lava Base-86\nThe whole 8 x 8 block has to be Base-86";
-                } else if (paint.name.rfind("Pools", 0) == 0) {
+                } else if (paint.name == "Pools 8x8") {
                     hint = "Place a random pool on Lush Base-77\nThe whole 8 x 8 block has to be Base-77";
+                } else if (paint.name == "Feature-85") {
+                    hint = "Place a random 16 x 16 feature on Mars Base-85\nThe whole 16 x 16 block has to be Base-85";
+                } else if (paint.name == "Rough-85 16x16") {
+                    hint = "Place a random 16 x 16 rough patch on Mars Base-85\nThe whole 16 x 16 block has to be Base-85";
                 } else if (paint.name.rfind("Rough", 0) == 0) {
                     hint = "Place a random rough patch on GreenWorld Base-85\nThe whole 8 x 8 block has to be Base-85";
                 } else {

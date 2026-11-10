@@ -224,6 +224,14 @@ private:
     int nextSeaIsland() const;
     // Chooses another island of the armed size. N does this while the brush is armed.
     void skipSeaIsland();
+    struct HillSection;
+    // The first loaded section of the armed folder brush (Crystal), or null.
+    const HillSection* groupHill() const;
+    // True when the armed brush mixes sizes, so the next tile is chosen ahead of time:
+    // Island-0 Medium and Large, and Crystal's Rough-85.
+    bool brushVaries() const;
+    // Whether a section belongs to the armed brush that mixes sizes.
+    bool nextMatches(const HillSection& hill) const;
     bool hillCanPlace(int originX, int originY, int span, std::string& refusal) const;
     void paintHill(int tileX, int tileY);
     // True when this map tile's picture is the named flat base, or same-world ground closer to it.
@@ -234,11 +242,14 @@ private:
     bool tileIsGreenBase0(int tileX, int tileY) const;
     // True when this map tile's picture is Lava Base-86 ground.
     bool tileIsLavaBase86(int tileX, int tileY) const;
+    bool tileIsBrushWorldBase85(int tileX, int tileY) const;
     // True when this map tile's picture is Lush Base-77 ground.
     bool tileIsLushBase77(int tileX, int tileY) const;
     bool tileIsArchipelagoBase194(int tileX, int tileY) const;
     bool tileIsArchipelagoBase78(int tileX, int tileY) const;
     bool tileIsArchipelagoBase0(int tileX, int tileY) const;
+    // Base-0 of the tileset chosen in the Tile Brush window. Island-0 buttons use it.
+    bool tileIsBrushWorldBase0(int tileX, int tileY) const;
     BrushKind armedBrushKind() const;
     bool lineBrushArmed() const;
     void pumpSectionLoads();
@@ -432,8 +443,26 @@ private:
         bool pool = false;
         // Archipelago Hills, which sit on Base-78 rather than Base-194.
         bool base78 = false;
-        // Archipelago Islands: 1 Island-0 8x8, 2 Rocky-0 8x8, 3 Island-0 Medium, 4 Island-0 Large.
+        // Island-0 buttons: 1 Island-0 8x8, 2 Rocky-0 8x8, 3 Island-0 Medium, 4 Island-0 Large,
+        // 5 Island-0 16x16, 6 Island-0 32x32. Only the islands of the chosen tileset are loaded.
         int seaIsland = 0;
+        // Lava pools from worlds.hpi Lava/misc, raised by 41 so their rims sit on Base-86.
+        bool lavaPool = false;
+        // Hills-85 buttons: Mars-2.hpi Mars/hills and Ice.hpi Ice/Hills, on that tileset's Base-85.
+        bool hill85 = false;
+        // Pool-85 and Pools-85: Mars-2.hpi Mars/misc pools and Ice.hpi Ice/Pools, on that tileset's Base-85.
+        bool pool85 = false;
+        // Rough ground from Mars-2.hpi Mars/misc. These are also marked rough.
+        bool marsRough = false;
+        // The other 16 x 16 Mars/misc tiles from Mars-2.hpi, on Mars Base-85.
+        bool marsFeature = false;
+        // Crystal.hpi folders (Craters, Hills, Islands, Ponds, Reefs, Roughs). The button
+        // follows the folder and size once the size is read; group is that button's name.
+        std::string crystalFolder;
+        std::string group;
+        std::string noun;
+        std::string baseName;
+        int baseHeight = 0;
         std::optional<SectionStamp> stamp;
     };
     std::vector<HillSection> hillSections_;
