@@ -991,7 +991,8 @@ void EditorApp::drawToolbar() {
         // A hill keeps the size named on its button.
         const int hillTiles = hillSpan();
         const bool fixedSize = lineBrushArmed() || hillTiles > 0;
-        const std::string currentSize = brushSizeLabel(hillTiles > 0 ? hillTiles : (fixedSize ? kBrushCellTiles : brushSize_));
+        const std::string currentSize = mountainArmed() ? std::string(mountainVertical() ? "32x64" : "64x32")
+            : brushSizeLabel(hillTiles > 0 ? hillTiles : (fixedSize ? kBrushCellTiles : brushSize_));
         if (fixedSize) {
             ImGui::BeginDisabled();
         }
@@ -1017,7 +1018,10 @@ void EditorApp::drawToolbar() {
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
             const char* sizeTip = fixedSize ? text(Text::TipBrushFixed) : text(Text::TipBrushSize);
             std::string groupTip;
-            if (const HillSection* group = hillTiles > 0 ? groupHill() : nullptr) {
+            if (hillTiles > 0 && mountainArmed()) {
+                sizeTip = mountainVertical() ? "Vertical Mtn starts at 32 x 64 and grows 32 tiles at a time as you drag up or down"
+                    : "Horizontal Mtn starts at 64 x 32 and grows 32 tiles at a time as you drag left or right";
+            } else if (const HillSection* group = hillTiles > 0 ? groupHill() : nullptr) {
                 groupTip = brushVaries()
                     ? "The size of the next " + group->noun + ". Press N to skip to another one"
                     : brushName_ + " fills one " + brushSizeLabel(hillTiles) + " Base-" + std::to_string(group->baseHeight) + " block";
@@ -3230,6 +3234,12 @@ void EditorApp::drawMap() {
             brushName_.clear();
             brushStroking_ = false;
             statusNote_ = "Brush cancelled";
+        } else if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mountainArmed()) {
+            startMountain(tileX, tileY);
+            brushStroking_ = true;
+        } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left) && mountainArmed()) {
+            // Dragging past either end of the mountain makes it longer.
+            extendMountain(tileX, tileY);
         } else if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             paintBrushStroke(tileX, tileY);
             const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
@@ -3267,6 +3277,7 @@ void EditorApp::drawMap() {
         }
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             brushStroking_ = false;
+            mountainStroke_ = false;
         }
     } else if (selectionMode_) {
         if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -3770,7 +3781,15 @@ void EditorApp::drawMap() {
     const int hillTiles = brushOwnsMap ? hillSpan() : 0;
     std::string hillRefusal;
     bool hillBlocked = false;
-    if (hillTiles > 0 && hoverOverMap_) {
+    int hillWidth = hillTiles;
+    int hillHeight = hillTiles;
+    if (hillTiles > 0 && hoverOverMap_ && mountainArmed()) {
+        int hillX = 0;
+        int hillY = 0;
+        mountainFootprint(tileX, tileY, hillX, hillY, hillWidth, hillHeight);
+        // While dragging, the mountain already placed is shown and is not checked again.
+        hillBlocked = !mountainStroke_ && !mountainCanPlace(hillX, hillY, hillWidth, hillHeight, hillRefusal);
+    } else if (hillTiles > 0 && hoverOverMap_) {
         int hillX = 0;
         int hillY = 0;
         hillOrigin(tileX, tileY, hillTiles, hillX, hillY);
@@ -3784,11 +3803,15 @@ void EditorApp::drawMap() {
     if (hillTiles > 0 && hoverOverMap_) {
         int hillX = 0;
         int hillY = 0;
-        hillOrigin(tileX, tileY, hillTiles, hillX, hillY);
+        if (mountainArmed()) {
+            mountainFootprint(tileX, tileY, hillX, hillY, hillWidth, hillHeight);
+        } else {
+            hillOrigin(tileX, tileY, hillTiles, hillX, hillY);
+        }
         const float x0 = static_cast<float>(hillX * 32);
         const float y0 = static_cast<float>(hillY * 32);
-        const float x1 = x0 + static_cast<float>(hillTiles * 32);
-        const float y1 = y0 + static_cast<float>(hillTiles * 32);
+        const float x1 = x0 + static_cast<float>(hillWidth * 32);
+        const float y1 = y0 + static_cast<float>(hillHeight * 32);
         const ImVec2 brushMin = toScreen(x0, y0);
         const ImVec2 brushMax = toScreen(x1, y1);
         draw->AddRectFilled(brushMin, brushMax, hillBlocked ? IM_COL32(230, 50, 40, 70) : IM_COL32(255, 255, 255, 36));
@@ -3891,6 +3914,15 @@ void EditorApp::drawMap() {
             ImGui::SetTooltip("Click to paste %d features with their cell %d, %d as the top-left\nEsc cancels", static_cast<int>(featureClipboard_.size()), featureCellX, featureCellY);
         } else if (overMap) {
             ImGui::SetTooltip(featureSelectMode_ ? "Drag a box around features, or click one\nHeight %d" : "Choose a feature on the left to place it, or press Select to select features\nHeight %d", hoverHeight_);
+        }
+    } else if (hovered && hillTiles > 0 && mountainArmed()) {
+        if (hillBlocked) {
+            ImGui::SetTooltip("%s\nHeight %d", hillRefusal.c_str(), hoverHeight_);
+        } else if (mountainStroke_) {
+            ImGui::SetTooltip("%s %d x %d\nDrag past either end to make it longer\nHeight %d", brushName_.c_str(), hillWidth, hillHeight, hoverHeight_);
+        } else {
+            ImGui::SetTooltip("%s\nClick to place a %d x %d mountain on Lush Base-77\nKeep dragging %s to make it longer\nEsc cancels\nHeight %d",
+                brushName_.c_str(), hillWidth, hillHeight, mountainVertical() ? "up or down" : "left or right", hoverHeight_);
         }
     } else if (hovered && hillTiles > 0) {
         const bool rough = brushName_.rfind("Rough", 0) == 0;
@@ -7203,6 +7235,9 @@ int EditorApp::hillSpan() const {
     if (brushName_ == "Feature-85" || brushName_ == "Pools-85") {
         return 16;
     }
+    if (mountainArmed()) {
+        return 32;
+    }
     return brushName_.find("16x16") != std::string::npos ? 16 : 8;
 }
 
@@ -7506,8 +7541,180 @@ bool EditorApp::hillCanPlace(int originX, int originY, int span, std::string& re
     return true;
 }
 
+void EditorApp::mountainFootprint(int tileX, int tileY, int& x, int& y, int& width, int& height) const {
+    const bool vertical = mountainVertical();
+    if (mountainStroke_) {
+        x = mountainX_;
+        y = mountainY_;
+        width = vertical ? 32 : mountainPieces_ * 32;
+        height = vertical ? mountainPieces_ * 32 : 32;
+        return;
+    }
+    const int cell = kBrushCellTiles;
+    width = vertical ? 32 : 64;
+    height = vertical ? 64 : 32;
+    x = (tileX + cell / 2) / cell * cell - width / 2;
+    y = (tileY + cell / 2) / cell * cell - height / 2;
+}
+
+bool EditorApp::mountainCanPlace(int x, int y, int width, int height, std::string& refusal) const {
+    if (!map_ || x < 0 || y < 0 || x + width > map_->tileWidth || y + height > map_->tileHeight) {
+        refusal = "The mountain is outside the map";
+        return false;
+    }
+    for (int ty = y; ty < y + height; ++ty) {
+        for (int tx = x; tx < x + width; ++tx) {
+            if (!tileIsLushBase77(tx, ty)) {
+                refusal = brushName_ + " only goes on Lush Base-77";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+const SectionStamp* EditorApp::mountainPiece(std::string_view prefix) {
+    std::vector<HillSection*> pieces;
+    for (HillSection& hill : hillSections_) {
+        if (hill.mountain && lowerText(hill.name).starts_with(lowerText(prefix))) {
+            pieces.push_back(&hill);
+        }
+    }
+    if (pieces.empty()) {
+        return nullptr;
+    }
+    static std::mt19937 rng{std::random_device{}()};
+    std::uniform_int_distribution<std::size_t> pick(0, pieces.size() - 1);
+    HillSection* chosen = pieces[pick(rng)];
+    if (!chosen->stamp) {
+        for (const TilesetArchive& archive : tilesets_.archives()) {
+            if (archive.path != brushTilesetPath_) {
+                continue;
+            }
+            if (const HpiFile* file = archive.archive().find(chosen->sectionPath)) {
+                chosen->stamp = loadSectionStamp(archive.archive().extract(*file));
+            }
+            break;
+        }
+    }
+    if (!chosen->stamp || chosen->stamp->tileWidth != 32 || chosen->stamp->tileHeight != 32) {
+        return nullptr;
+    }
+    return &*chosen->stamp;
+}
+
+void EditorApp::startMountain(int tileX, int tileY) {
+    mountainStroke_ = false;
+    if (!map_ || brushTilesetPath_.empty()) {
+        return;
+    }
+    const bool vertical = mountainVertical();
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    mountainFootprint(tileX, tileY, x, y, width, height);
+    std::string refusal;
+    if (!mountainCanPlace(x, y, width, height, refusal)) {
+        statusNote_ = refusal;
+        return;
+    }
+    try {
+        // West and east ends for Horizontal Mtn, north and south ends for Vertical Mtn.
+        const SectionStamp* first = mountainPiece(vertical ? "N_end" : "W_end");
+        const SectionStamp* last = mountainPiece(vertical ? "S_end" : "E_end");
+        if (first == nullptr || last == nullptr) {
+            statusNote_ = "The tileset needs the " + brushName_ + " end pieces";
+            return;
+        }
+        const int tileCountBefore = map_->tileCount;
+        std::vector<PlacementChange> changes;
+        if (auto change = stampSectionChange(*map_, *first, x, y, &deduper_, 100)) {
+            changes.push_back(std::move(*change));
+        }
+        if (auto change = stampSectionChange(*map_, *last, vertical ? x : x + 32, vertical ? y + 32 : y, &deduper_, 100)) {
+            changes.push_back(std::move(*change));
+        }
+        if (changes.empty()) {
+            statusNote_ = "The mountain is already here";
+            return;
+        }
+        rememberPlacements(std::move(changes));
+        mountainX_ = x;
+        mountainY_ = y;
+        mountainPieces_ = 2;
+        mountainStroke_ = true;
+        statusNote_ = "Placed " + brushName_ + (vertical ? ". Drag up or down to make it longer" : ". Drag left or right to make it longer");
+        warnIfPastVanillaTiles(tileCountBefore);
+        error_.clear();
+    } catch (const std::exception& ex) {
+        error_ = ex.what();
+    }
+}
+
+void EditorApp::extendMountain(int tileX, int tileY) {
+    if (!mountainStroke_ || !map_) {
+        return;
+    }
+    // Positions along the mountain: x for Horizontal Mtn, y for Vertical Mtn.
+    const bool vertical = mountainVertical();
+    const int pointer = vertical ? tileY : tileX;
+    int& start = vertical ? mountainY_ : mountainX_;
+    const int across = vertical ? mountainX_ : mountainY_;
+    try {
+        // A fast drag can pass several pieces in one frame, so keep adding until the pointer is covered.
+        for (int added = 0; added < 64; ++added) {
+            const int farEdge = start + mountainPieces_ * 32;
+            const bool forward = pointer >= farEdge;
+            const bool backward = pointer < start;
+            if (!forward && !backward) {
+                return;
+            }
+            // The old end becomes a middle piece, and a new end goes one piece further out.
+            const int newEnd = forward ? farEdge : start - 32;
+            const int oldEnd = forward ? farEdge - 32 : start;
+            const int newX = vertical ? across : newEnd;
+            const int newY = vertical ? newEnd : across;
+            std::string refusal;
+            if (!mountainCanPlace(newX, newY, 32, 32, refusal)) {
+                statusNote_ = refusal;
+                return;
+            }
+            const SectionStamp* middle = mountainPiece(vertical ? "NS" : "EW");
+            const SectionStamp* end = mountainPiece(vertical ? (forward ? "S_end" : "N_end") : (forward ? "E_end" : "W_end"));
+            if (middle == nullptr || end == nullptr) {
+                statusNote_ = "The tileset needs the " + brushName_ + " middle pieces";
+                return;
+            }
+            const int tileCountBefore = map_->tileCount;
+            std::vector<PlacementChange> changes;
+            if (auto change = stampSectionChange(*map_, *middle, vertical ? across : oldEnd, vertical ? oldEnd : across, &deduper_, 100)) {
+                changes.push_back(std::move(*change));
+            }
+            if (auto change = stampSectionChange(*map_, *end, newX, newY, &deduper_, 100)) {
+                changes.push_back(std::move(*change));
+            }
+            rememberPlacements(std::move(changes));
+            if (backward) {
+                start = newEnd;
+            }
+            ++mountainPieces_;
+            statusNote_ = brushName_ + " is " + (vertical ? "32 x " + std::to_string(mountainPieces_ * 32)
+                : std::to_string(mountainPieces_ * 32) + " x 32");
+            warnIfPastVanillaTiles(tileCountBefore);
+        }
+        error_.clear();
+    } catch (const std::exception& ex) {
+        error_ = ex.what();
+    }
+}
+
 void EditorApp::paintHill(int tileX, int tileY) {
     if (!map_ || brushTilesetPath_.empty()) {
+        return;
+    }
+    if (mountainArmed()) {
+        startMountain(tileX, tileY);
         return;
     }
     const int span = hillSpan();
@@ -7547,7 +7754,7 @@ void EditorApp::paintHill(int tileX, int tileY) {
         }
     } else {
         for (HillSection& hill : hillSections_) {
-            if (hill.tiles == span && hill.crystalFolder.empty() && hill.island == island && hill.rough == rough && hill.pool == pool && hill.base78 == base78
+            if (hill.tiles == span && hill.crystalFolder.empty() && hill.group.empty() && hill.island == island && hill.rough == rough && hill.pool == pool && hill.base78 == base78
                 && hill.seaIsland == seaIsland && hill.lavaPool == lavaPool && hill.hill85 == hill85
                 && hill.pool85 == pool85 && hill.marsRough == marsRough
                 && hill.marsFeature == marsFeature) {
@@ -7918,6 +8125,20 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "pools";
         const bool lushPool = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "256s";
+        const bool lushMountain = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "mountains";
+        const bool lushIsland = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "islands";
+        const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "hills";
+        const bool lushSwamp = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "swamps";
+        const bool lushPond = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "ponds";
+        const bool lushHill16 = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "hills16";
+        const bool lushFeature255 = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "features255";
         const bool archipelagoHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "hills_203";
         const bool archipelagoLowHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
@@ -7928,7 +8149,8 @@ void EditorApp::ensureBrushPaints() {
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
-            && !crystalSection) {
+            && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
+            && !lushPond && !lushHill16 && !lushFeature255) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -8063,6 +8285,47 @@ void EditorApp::ensureBrushPaints() {
                 hill.sectionPath = section.archivePath;
                 hillSections_.push_back(std::move(hill));
             }
+        }
+        if (lushFeature255) {
+            // Lush.hpi Mod Mts Flats01 to Flats06, raised by 27 so they sit on the Base-255 mountaintop.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = "Feature-255";
+            hill.noun = "mountain feature";
+            hill.baseName = "base-255";
+            hill.baseHeight = 255;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (lushHill || lushSwamp || lushPond || lushHill16) {
+            // Lush.hpi tiles raised by 27 so they sit on Base-77. From 256s, the 8 x 8 hills and
+            // swamps; from 512s, the 16 x 16 ponds and hills.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = lushHill ? "Hill-77 8x8" : (lushSwamp ? "Swamp-77" : (lushPond ? "Pond-77 16x16" : "Hill-77 16x16"));
+            hill.noun = lushHill || lushHill16 ? "hill" : (lushSwamp ? "swamp" : "pond");
+            hill.baseName = "base-77";
+            hill.baseHeight = 77;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (lushIsland) {
+            // Lush.hpi Islands, raised by 27 so their water sits on Base-27.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = "Island-27 16x16";
+            hill.noun = "island";
+            hill.baseName = "base-27";
+            hill.baseHeight = 27;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (lushMountain) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.mountain = true;
+            hillSections_.push_back(std::move(hill));
         }
         if (lushPool) {
             int number = 0;
@@ -9005,6 +9268,31 @@ void EditorApp::ensureBrushPaints() {
                 }
             }
             addHillButton("Pools 8x8", pool8);
+            // A middle piece shows the ridge running across or down the button.
+            const auto mountainIcon = [&](std::string_view middle) {
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.mountain && lowerText(hill.name).starts_with(middle)) {
+                        return hill.sectionPath;
+                    }
+                }
+                return std::string();
+            };
+            addHillButton("Horizontal Mtn", mountainIcon("ew"));
+            addHillButton("Vertical Mtn", mountainIcon("ns"));
+            const auto groupIcon = [&](std::string_view group) {
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.group == group && hill.tiles > 0) {
+                        return hill.sectionPath;
+                    }
+                }
+                return std::string();
+            };
+            addHillButton("Island-27 16x16", groupIcon("Island-27 16x16"));
+            addHillButton("Hill-77 8x8", groupIcon("Hill-77 8x8"));
+            addHillButton("Hill-77 16x16", groupIcon("Hill-77 16x16"));
+            addHillButton("Swamp-77", groupIcon("Swamp-77"));
+            addHillButton("Pond-77 16x16", groupIcon("Pond-77 16x16"));
+            addHillButton("Feature-255", groupIcon("Feature-255"));
         }
         if (crystalHills) {
             for (const char* button : {"Crater-85 8x8", "Crater-85 16x16", "Hills-85 16x16", "Hills-85 32x32", "Island-85 16x16",
@@ -9316,7 +9604,11 @@ void EditorApp::drawTileBrush() {
                         group = group == nullptr ? &hill : group;
                     }
                 }
-                if (group != nullptr) {
+                if (paint.name == "Horizontal Mtn") {
+                    hint = "Place a mountain on Lush Base-77\nIt starts at 64 x 32 with both ends\nKeep dragging left or right to make it longer";
+                } else if (paint.name == "Vertical Mtn") {
+                    hint = "Place a mountain on Lush Base-77\nIt starts at 32 x 64 with both ends\nKeep dragging up or down to make it longer";
+                } else if (group != nullptr) {
                     const std::string base = brushWorld_ + " Base-" + std::to_string(group->baseHeight);
                     hintText = mixed
                         ? "Place a random " + group->noun + " on " + base + "\nThe cursor shows the size of the next one\nPress N to skip to another one"

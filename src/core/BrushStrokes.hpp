@@ -985,7 +985,7 @@ inline int listedLavaHillSpan(int number) {
     return 0;
 }
 
-// "LDt07_65" is 7. LDt01_65 through LDt08_65 are the Lush pool button.
+// "LDt07_65" is 7. LDt01_65 through LDt08_65 and LDt41_65 through LDt44_65 are the Lush pool button.
 inline bool lushPoolNumber(std::string_view name, int& number) {
     constexpr std::string_view prefix = "ldt";
     constexpr std::string_view suffix = "_65";
@@ -1012,7 +1012,7 @@ inline bool lushPoolNumber(std::string_view name, int& number) {
         value = std::min(1000000, value * 10 + (name[i] - '0'));
     }
     number = value;
-    return number >= 1 && number <= 8;
+    return (number >= 1 && number <= 8) || (number >= 41 && number <= 44);
 }
 
 // Top-left tile of a hill. 16 x 16 uses the brush cell under the pointer.

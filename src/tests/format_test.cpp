@@ -2955,6 +2955,8 @@ void testBrushCells() {
     expect(!galaxy::lavaHillNumber("Hill_38", lavaNumber) && !galaxy::lavaHillNumber("Hill01", lavaNumber) && !galaxy::lavaHillNumber("Green01", lavaNumber), "other names stay off the Lava hill buttons");
     int poolNumber = 0;
     expect(galaxy::lushPoolNumber("LDt01_65", poolNumber) && poolNumber == 1 && galaxy::lushPoolNumber("LDt08_65", poolNumber) && poolNumber == 8, "LDt01_65 through LDt08_65 are the pool button");
+    expect(galaxy::lushPoolNumber("LDt41_65", poolNumber) && poolNumber == 41 && galaxy::lushPoolNumber("LDt44_65", poolNumber) && poolNumber == 44, "LDt41_65 through LDt44_65 are the pool button too");
+    expect(!galaxy::lushPoolNumber("LDt40_65", poolNumber) && !galaxy::lushPoolNumber("LDt45_65", poolNumber), "the hills on either side of them stay off the pool button");
     expect(!galaxy::lushPoolNumber("LDt09_65", poolNumber) && !galaxy::lushPoolNumber("LDt01_64", poolNumber) && !galaxy::lushPoolNumber("LDt01", poolNumber), "other 256s names stay off the pool button");
     int hillX = -1;
     int hillY = -1;

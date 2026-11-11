@@ -222,6 +222,19 @@ private:
     // Island-0 Medium and Large place the island chosen ahead of time, so the cursor
     // can show its size. This is that island's index in hillSections_, or -1.
     int nextSeaIsland() const;
+    // Horizontal Mtn and Vertical Mtn (Lush) are rows of 32 x 32 pieces: an end, middle
+    // pieces, and the other end. A click places the two ends, and dragging along the
+    // mountain adds middle pieces. Horizontal runs west to east, Vertical north to south.
+    bool mountainArmed() const { return brushName_ == "Horizontal Mtn" || brushName_ == "Vertical Mtn"; }
+    bool mountainVertical() const { return brushName_ == "Vertical Mtn"; }
+    // The tiles the mountain covers: the whole mountain while dragging, otherwise the
+    // first two pieces centered on the cell corner nearest the pointer.
+    void mountainFootprint(int tileX, int tileY, int& x, int& y, int& width, int& height) const;
+    bool mountainCanPlace(int x, int y, int width, int height, std::string& refusal) const;
+    void startMountain(int tileX, int tileY);
+    void extendMountain(int tileX, int tileY);
+    // A random loaded piece whose name starts with prefix (W_end, E_end, EW, N_end, S_end, or NS), or null.
+    const SectionStamp* mountainPiece(std::string_view prefix);
     // Chooses another island of the armed size. N does this while the brush is armed.
     void skipSeaIsland();
     struct HillSection;
@@ -456,8 +469,11 @@ private:
         bool marsRough = false;
         // The other 16 x 16 Mars/misc tiles from Mars-2.hpi, on Mars Base-85.
         bool marsFeature = false;
+        // A Horizontal Mtn or Vertical Mtn piece from Lush.hpi Lush/S R Mts, raised by 27 to sit on Base-77.
+        bool mountain = false;
         // Crystal.hpi folders (Craters, Hills, Islands, Ponds, Reefs, Roughs). The button
         // follows the folder and size once the size is read; group is that button's name.
+        // Lush.hpi Islands, hills, swamps, and ponds use group too, set when they are found.
         std::string crystalFolder;
         std::string group;
         std::string noun;
@@ -467,6 +483,11 @@ private:
     };
     std::vector<HillSection> hillSections_;
     mutable int nextSeaIsland_ = -1;
+    // The mountain being dragged: its top-left tile and how many pieces it has.
+    bool mountainStroke_ = false;
+    int mountainX_ = 0;
+    int mountainY_ = 0;
+    int mountainPieces_ = 0;
     RiverCatalog riverCatalog_;
     bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;
