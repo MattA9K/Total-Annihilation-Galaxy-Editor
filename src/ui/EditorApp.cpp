@@ -8541,8 +8541,16 @@ void EditorApp::ensureBrushPaints() {
                         if (bytes + 1024 > stamp.tileImages.size()) {
                             continue;
                         }
-                        brushPictures_.try_emplace(hashBrushTile(stamp.tileImages.data() + bytes),
+                        const auto [existing, added] = brushPictures_.try_emplace(hashBrushTile(stamp.tileImages.data() + bytes),
                             BrushPictureHint{paint->category, paint->name, false, {}, {}});
+                        // Two bases can share one picture: Lush Base-77 and Base-183 are the same
+                        // grass. Neither may claim it outright, so the height chooses between them,
+                        // the way the blend tilesets treat Base-85 and Base-219.
+                        if (!added && !existing->second.fringe
+                            && (lowerText(existing->second.category) != lowerText(paint->category)
+                                || lowerText(existing->second.name) != lowerText(paint->name))) {
+                            existing->second = BrushPictureHint{existing->second.category, existing->second.name, true, paint->category, paint->name};
+                        }
                     }
                 } catch (const std::exception&) {
                 }
