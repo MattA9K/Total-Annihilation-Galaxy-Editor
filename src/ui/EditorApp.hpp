@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 typedef unsigned int GLuint;
@@ -216,9 +217,12 @@ private:
     void paintRiver(int tileX, int tileY, BrushKind kind);
     // 8 or 16 while a hill button is armed, otherwise 0.
     int hillSpan() const;
+    // Tiles down for the armed hill brush. The same as hillSpan except for folder brushes
+    // with rectangular tiles, such as Desert's 56 x 32 plateau.
+    int hillSpanHigh() const;
     // The top-left tile of the hill under the pointer. Island-0 Medium and Large are
     // centered on the pointer; the other hills snap to the 8 x 8 or 16 x 16 grid.
-    void hillOrigin(int tileX, int tileY, int span, int& originX, int& originY) const;
+    void hillOrigin(int tileX, int tileY, int width, int height, int& originX, int& originY) const;
     // Island-0 Medium and Large place the island chosen ahead of time, so the cursor
     // can show its size. This is that island's index in hillSections_, or -1.
     int nextSeaIsland() const;
@@ -235,6 +239,14 @@ private:
     void extendMountain(int tileX, int tileY);
     // A random loaded piece whose name starts with prefix (W_end, E_end, EW, N_end, S_end, or NS), or null.
     const SectionStamp* mountainPiece(std::string_view prefix);
+    // Dunes-80 (Desert) paints whole 16 x 16 cells. Each cell is four 8 x 8 quarters. A quarter
+    // is solid dune when the cells beside it across and above or below are both dune; otherwise
+    // it is the corner piece for that quarter, with the Base-80 sand in its outer corner.
+    bool duneArmed() const { return brushName_ == "Dunes-80"; }
+    // True when most of the cell's tiles show dune pictures.
+    bool duneCell(int cellX, int cellY) const;
+    bool duneCanPlace(int cellX, int cellY, std::string& refusal) const;
+    void paintDune(int tileX, int tileY);
     // Chooses another island of the armed size. N does this while the brush is armed.
     void skipSeaIsland();
     struct HillSection;
@@ -245,7 +257,7 @@ private:
     bool brushVaries() const;
     // Whether a section belongs to the armed brush that mixes sizes.
     bool nextMatches(const HillSection& hill) const;
-    bool hillCanPlace(int originX, int originY, int span, std::string& refusal) const;
+    bool hillCanPlace(int originX, int originY, int width, int height, std::string& refusal) const;
     void paintHill(int tileX, int tileY);
     // True when this map tile's picture is the named flat base, or same-world ground closer to it.
     bool tileMatchesBase(int tileX, int tileY, std::string_view world, std::string_view baseName, int baseHeight, bool sameWorldFringe) const;
@@ -422,6 +434,10 @@ private:
         std::string partnerName;
     };
     std::unordered_map<std::uint64_t, BrushPictureHint> brushPictures_;
+    // Pictures that several bases of one tileset use, such as the Lush grass at Base-77 and
+    // Base-183, or Desert Base-155 and Base-230. They stay out of brushPictures_, so the base
+    // brush reads those tiles by height. Each entry lists the bases as category and name.
+    std::unordered_map<std::uint64_t, std::vector<std::pair<std::string, std::string>>> sharedPictures_;
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
     struct BrushStroke {
         std::string name;
@@ -451,6 +467,9 @@ private:
         std::string name;
         std::string sectionPath;
         int tiles = 0;
+        // Tiles down when the section is not square; 0 means the same as tiles.
+        int tilesHigh = 0;
+        int high() const { return tilesHigh > 0 ? tilesHigh : tiles; }
         bool rough = false;
         bool island = false;
         bool pool = false;
@@ -471,9 +490,13 @@ private:
         bool marsFeature = false;
         // A Horizontal Mtn or Vertical Mtn piece from Lush.hpi Lush/S R Mts, raised by 27 to sit on Base-77.
         bool mountain = false;
+        // A Dunes-80 piece: 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right corner,
+        // 5 solid dune. 0 for every other section.
+        int dune = 0;
         // Crystal.hpi folders (Craters, Hills, Islands, Ponds, Reefs, Roughs). The button
         // follows the folder and size once the size is read; group is that button's name.
-        // Lush.hpi Islands, hills, swamps, and ponds use group too, set when they are found.
+        // Lush.hpi Islands, hills, swamps, and ponds, and the Desert hills, use group too,
+        // set when they are found.
         std::string crystalFolder;
         std::string group;
         std::string noun;
@@ -488,6 +511,8 @@ private:
     int mountainX_ = 0;
     int mountainY_ = 0;
     int mountainPieces_ = 0;
+    // Every picture in the dune pieces, read the first time a dune is painted.
+    std::unordered_set<std::uint64_t> dunePictures_;
     RiverCatalog riverCatalog_;
     bool riverCatalogReady_ = false;
     std::filesystem::path brushTilesetPath_;

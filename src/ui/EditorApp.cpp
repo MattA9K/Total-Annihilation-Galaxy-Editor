@@ -417,6 +417,11 @@ std::string brushSizeLabel(int size) {
     return std::to_string(size) + "x" + std::to_string(size);
 }
 
+// "32x32" for a square, "56x32" for a rectangle.
+std::string brushRectLabel(int width, int height) {
+    return std::to_string(width) + "x" + std::to_string(height);
+}
+
 // Which Archipelago Islands button a brush is: 1 Island-0 8x8, 2 Rocky-0 8x8,
 // 3 Island-0 Medium, 4 Island-0 Large, or 0 for any other brush.
 int seaIslandKind(std::string_view brushName) {
@@ -992,7 +997,8 @@ void EditorApp::drawToolbar() {
         const int hillTiles = hillSpan();
         const bool fixedSize = lineBrushArmed() || hillTiles > 0;
         const std::string currentSize = mountainArmed() ? std::string(mountainVertical() ? "32x64" : "64x32")
-            : brushSizeLabel(hillTiles > 0 ? hillTiles : (fixedSize ? kBrushCellTiles : brushSize_));
+            : hillTiles > 0 ? brushRectLabel(hillTiles, hillSpanHigh())
+            : brushSizeLabel(fixedSize ? kBrushCellTiles : brushSize_);
         if (fixedSize) {
             ImGui::BeginDisabled();
         }
@@ -1018,13 +1024,15 @@ void EditorApp::drawToolbar() {
         if (sizeHovered && !ImGui::IsPopupOpen("##brush-size")) {
             const char* sizeTip = fixedSize ? text(Text::TipBrushFixed) : text(Text::TipBrushSize);
             std::string groupTip;
-            if (hillTiles > 0 && mountainArmed()) {
+            if (hillTiles > 0 && duneArmed()) {
+                sizeTip = "Dunes-80 paints one 16 x 16 cell at a time";
+            } else if (hillTiles > 0 && mountainArmed()) {
                 sizeTip = mountainVertical() ? "Vertical Mtn starts at 32 x 64 and grows 32 tiles at a time as you drag up or down"
                     : "Horizontal Mtn starts at 64 x 32 and grows 32 tiles at a time as you drag left or right";
             } else if (const HillSection* group = hillTiles > 0 ? groupHill() : nullptr) {
                 groupTip = brushVaries()
                     ? "The size of the next " + group->noun + ". Press N to skip to another one"
-                    : brushName_ + " fills one " + brushSizeLabel(hillTiles) + " Base-" + std::to_string(group->baseHeight) + " block";
+                    : brushName_ + " fills one " + brushRectLabel(hillTiles, hillSpanHigh()) + " Base-" + std::to_string(group->baseHeight) + " block";
                 sizeTip = groupTip.c_str();
             } else if (hillTiles > 0) {
                 const bool rough = brushName_.rfind("Rough", 0) == 0;
@@ -3245,7 +3253,7 @@ void EditorApp::drawMap() {
             const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
             const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
             if (const int span = hillSpan(); span > 0) {
-                hillOrigin(tileX, tileY, span, brushStrokeX_, brushStrokeY_);
+                hillOrigin(tileX, tileY, span, hillSpanHigh(), brushStrokeX_, brushStrokeY_);
             } else if (brushSize_ < kBrushCellTiles) {
                 brushCornerNode(tileX, tileY, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_);
             } else {
@@ -3263,7 +3271,7 @@ void EditorApp::drawMap() {
             int stepX = tileX / kBrushCellTiles;
             int stepY = tileY / kBrushCellTiles;
             if (const int span = hillSpan(); span > 0) {
-                hillOrigin(tileX, tileY, span, stepX, stepY);
+                hillOrigin(tileX, tileY, span, hillSpanHigh(), stepX, stepY);
             } else if (brushSize_ < kBrushCellTiles) {
                 brushCornerNode(tileX, tileY, cellsAcross, cellsDown, stepX, stepY);
             } else if (brushSize_ > kBrushCellTiles) {
@@ -3782,7 +3790,7 @@ void EditorApp::drawMap() {
     std::string hillRefusal;
     bool hillBlocked = false;
     int hillWidth = hillTiles;
-    int hillHeight = hillTiles;
+    int hillHeight = brushOwnsMap ? hillSpanHigh() : 0;
     if (hillTiles > 0 && hoverOverMap_ && mountainArmed()) {
         int hillX = 0;
         int hillY = 0;
@@ -3792,8 +3800,8 @@ void EditorApp::drawMap() {
     } else if (hillTiles > 0 && hoverOverMap_) {
         int hillX = 0;
         int hillY = 0;
-        hillOrigin(tileX, tileY, hillTiles, hillX, hillY);
-        hillBlocked = !hillCanPlace(hillX, hillY, hillTiles, hillRefusal);
+        hillOrigin(tileX, tileY, hillWidth, hillHeight, hillX, hillY);
+        hillBlocked = !hillCanPlace(hillX, hillY, hillWidth, hillHeight, hillRefusal);
     }
     RiverPlan riverHover;
     if (riverTool && hoverOverMap_) {
@@ -3806,7 +3814,7 @@ void EditorApp::drawMap() {
         if (mountainArmed()) {
             mountainFootprint(tileX, tileY, hillX, hillY, hillWidth, hillHeight);
         } else {
-            hillOrigin(tileX, tileY, hillTiles, hillX, hillY);
+            hillOrigin(tileX, tileY, hillWidth, hillHeight, hillX, hillY);
         }
         const float x0 = static_cast<float>(hillX * 32);
         const float y0 = static_cast<float>(hillY * 32);
@@ -3915,6 +3923,12 @@ void EditorApp::drawMap() {
         } else if (overMap) {
             ImGui::SetTooltip(featureSelectMode_ ? "Drag a box around features, or click one\nHeight %d" : "Choose a feature on the left to place it, or press Select to select features\nHeight %d", hoverHeight_);
         }
+    } else if (hovered && hillTiles > 0 && duneArmed()) {
+        if (hillBlocked) {
+            ImGui::SetTooltip("%s\nHeight %d", hillRefusal.c_str(), hoverHeight_);
+        } else {
+            ImGui::SetTooltip("Dunes-80\nClick or drag to paint 16 x 16 dune cells on Desert Base-80\nDunes beside each other join up\nEsc cancels\nHeight %d", hoverHeight_);
+        }
     } else if (hovered && hillTiles > 0 && mountainArmed()) {
         if (hillBlocked) {
             ImGui::SetTooltip("%s\nHeight %d", hillRefusal.c_str(), hoverHeight_);
@@ -3956,10 +3970,10 @@ void EditorApp::drawMap() {
             const std::string nextNoun = next.noun.empty() ? std::string("island") : next.noun;
             if (hillBlocked) {
                 ImGui::SetTooltip("%s\nNext %s %s, %s\nPress N to skip tile\nHeight %d",
-                    hillRefusal.c_str(), nextNoun.c_str(), next.name.c_str(), brushSizeLabel(next.tiles).c_str(), hoverHeight_);
+                    hillRefusal.c_str(), nextNoun.c_str(), next.name.c_str(), brushRectLabel(next.tiles, next.high()).c_str(), hoverHeight_);
             } else {
                 ImGui::SetTooltip("%s\nClick to place %s, %s, on %s %s\nPress N to skip tile\nEsc cancels\nHeight %d",
-                    brushName_.c_str(), next.name.c_str(), brushSizeLabel(next.tiles).c_str(), land, ground, hoverHeight_);
+                    brushName_.c_str(), next.name.c_str(), brushRectLabel(next.tiles, next.high()).c_str(), land, ground, hoverHeight_);
             }
         } else if (hillBlocked) {
             ImGui::SetTooltip("%s\nHeight %d", hillRefusal.c_str(), hoverHeight_);
@@ -7238,22 +7252,48 @@ int EditorApp::hillSpan() const {
     if (mountainArmed()) {
         return 32;
     }
+    if (duneArmed()) {
+        return 16;
+    }
     return brushName_.find("16x16") != std::string::npos ? 16 : 8;
 }
 
-void EditorApp::hillOrigin(int tileX, int tileY, int span, int& originX, int& originY) const {
+int EditorApp::hillSpanHigh() const {
+    if (armedBrushKind() != BrushKind::Hill) {
+        return 0;
+    }
+    if (brushVaries()) {
+        const int next = nextSeaIsland();
+        return next >= 0 ? hillSections_[static_cast<std::size_t>(next)].high() : hillSpan();
+    }
+    if (const HillSection* group = groupHill()) {
+        return group->high();
+    }
+    return hillSpan();
+}
+
+void EditorApp::hillOrigin(int tileX, int tileY, int width, int height, int& originX, int& originY) const {
     if (seaIslandVaries(seaIslandKind(brushName_))) {
-        originX = tileX - span / 2;
-        originY = tileY - span / 2;
+        originX = tileX - width / 2;
+        originY = tileY - height / 2;
         return;
     }
-    if (span > kBrushCellTiles) {
-        // A 32 x 32 pool covers four cells, centered on the cell corner nearest the pointer.
-        originX = (tileX + kBrushCellTiles / 2) / kBrushCellTiles * kBrushCellTiles - span / 2;
-        originY = (tileY + kBrushCellTiles / 2) / kBrushCellTiles * kBrushCellTiles - span / 2;
-        return;
-    }
-    hillStampOrigin(tileX, tileY, span, originX, originY);
+    // Each side snaps on its own, so a 56 x 32 plateau lines up the same way a square does.
+    // Wider than a cell: centered on the cell corner nearest the pointer, the way a 32 x 32
+    // pool covers four cells. A cell or less: the cell, or the 8 x 8 quadrant, under the pointer.
+    const auto axis = [](int tile, int size) {
+        const int cell = kBrushCellTiles;
+        if (size > cell) {
+            return (tile + cell / 2) / cell * cell - size / 2;
+        }
+        int origin = tile >= 0 ? tile / cell * cell : 0;
+        if (size > 0 && size < cell && tile >= 0 && tile % cell >= size) {
+            origin += size;
+        }
+        return origin;
+    };
+    originX = axis(tileX, width);
+    originY = axis(tileY, height);
 }
 
 const EditorApp::HillSection* EditorApp::groupHill() const {
@@ -7277,7 +7317,7 @@ bool EditorApp::brushVaries() const {
         return false;
     }
     for (const HillSection& hill : hillSections_) {
-        if (hill.group == brushName_ && hill.tiles > 0 && hill.tiles != first->tiles) {
+        if (hill.group == brushName_ && hill.tiles > 0 && (hill.tiles != first->tiles || hill.high() != first->high())) {
             return true;
         }
     }
@@ -7337,7 +7377,7 @@ void EditorApp::skipSeaIsland() {
     std::uniform_int_distribution<std::size_t> pick(0, choices.size() - 1);
     nextSeaIsland_ = choices[pick(rng)];
     const HillSection& next = hillSections_[static_cast<std::size_t>(nextSeaIsland_)];
-    statusNote_ = "Next " + (next.noun.empty() ? std::string("island") : next.noun) + " " + next.name + ", " + brushSizeLabel(next.tiles);
+    statusNote_ = "Next " + (next.noun.empty() ? std::string("island") : next.noun) + " " + next.name + ", " + brushRectLabel(next.tiles, next.high());
 }
 
 bool EditorApp::tileMatchesBase(int tileX, int tileY, std::string_view world, std::string_view baseName, int baseHeight, bool sameWorldFringe) const {
@@ -7352,9 +7392,43 @@ bool EditorApp::tileMatchesBase(int tileX, int tileY, std::string_view world, st
     if (bytes + 1024 > map_->tileImages.size()) {
         return false;
     }
-    const auto found = brushPictures_.find(hashBrushTile(map_->tileImages.data() + bytes));
+    const std::uint64_t pictureHash = hashBrushTile(map_->tileImages.data() + bytes);
+    const auto found = brushPictures_.find(pictureHash);
     if (found == brushPictures_.end()) {
-        return false;
+        // A picture several bases share is this base when the base is one of them and the
+        // ground is nearer this height than any other base that uses the picture.
+        const auto shared = sharedPictures_.find(pictureHash);
+        if (shared == sharedPictures_.end()) {
+            return false;
+        }
+        bool ours = false;
+        std::vector<int> otherHeights;
+        for (const auto& [category, name] : shared->second) {
+            if (brushCategoryMatches(category, world) && lowerText(name) == baseName) {
+                ours = true;
+            } else if (const int height = trailingNumber(name); height >= 0) {
+                otherHeights.push_back(height);
+            }
+        }
+        if (!ours) {
+            return false;
+        }
+        for (int y = 0; y < 2; ++y) {
+            for (int x = 0; x < 2; ++x) {
+                const std::size_t heightIndex = static_cast<std::size_t>(tileY * 2 + y) * static_cast<std::size_t>(map_->heightWidth())
+                    + static_cast<std::size_t>(tileX * 2 + x);
+                if (heightIndex >= map_->heights.size()) {
+                    return false;
+                }
+                const int height = map_->heights[heightIndex];
+                for (const int other : otherHeights) {
+                    if (std::abs(height - baseHeight) >= std::abs(height - other)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
     const BrushPictureHint& hint = found->second;
     const auto isFlat = [&](const std::string& category, const std::string& name) {
@@ -7428,18 +7502,153 @@ bool EditorApp::tileIsArchipelagoBase78(int tileX, int tileY) const {
     return tileMatchesBase(tileX, tileY, "Archipelago", "base-78", 78, true);
 }
 
-bool EditorApp::hillCanPlace(int originX, int originY, int span, std::string& refusal) const {
-    if (!map_ || span <= 0 || originX < 0 || originY < 0 || originX + span > map_->tileWidth || originY + span > map_->tileHeight) {
+bool EditorApp::duneCell(int cellX, int cellY) const {
+    if (!map_ || cellX < 0 || cellY < 0 || dunePictures_.empty()) {
+        return false;
+    }
+    const int cell = kBrushCellTiles;
+    if ((cellX + 1) * cell > map_->tileWidth || (cellY + 1) * cell > map_->tileHeight) {
+        return false;
+    }
+    int dune = 0;
+    for (int y = cellY * cell; y < (cellY + 1) * cell; ++y) {
+        for (int x = cellX * cell; x < (cellX + 1) * cell; ++x) {
+            const std::size_t index = static_cast<std::size_t>(y) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(x);
+            const std::size_t bytes = static_cast<std::size_t>(map_->indices[index]) * 1024;
+            if (bytes + 1024 <= map_->tileImages.size() && dunePictures_.count(hashBrushTile(map_->tileImages.data() + bytes)) != 0) {
+                ++dune;
+            }
+        }
+    }
+    return dune * 2 >= cell * cell;
+}
+
+bool EditorApp::duneCanPlace(int cellX, int cellY, std::string& refusal) const {
+    const int cell = kBrushCellTiles;
+    if (!map_ || cellX < 0 || cellY < 0 || (cellX + 1) * cell > map_->tileWidth || (cellY + 1) * cell > map_->tileHeight) {
         refusal = "The brush is outside the map";
         return false;
     }
+    if (duneCell(cellX, cellY)) {
+        return true;
+    }
+    for (int y = cellY * cell; y < (cellY + 1) * cell; ++y) {
+        for (int x = cellX * cell; x < (cellX + 1) * cell; ++x) {
+            if (!tileMatchesBase(x, y, "Desert", "base-80", 80, true)) {
+                refusal = "Dunes only go on a 16 x 16 Desert Base-80 tile";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void EditorApp::paintDune(int tileX, int tileY) {
+    if (!map_ || tileX < 0 || tileY < 0) {
+        return;
+    }
+    // Load every piece once, and remember its pictures so dune cells can be found on the map.
+    std::vector<HillSection*> pieces[6];
+    for (HillSection& hill : hillSections_) {
+        if (hill.dune <= 0 || hill.dune > 5) {
+            continue;
+        }
+        if (!hill.stamp) {
+            for (const TilesetArchive& archive : tilesets_.archives()) {
+                if (archive.path != brushTilesetPath_) {
+                    continue;
+                }
+                if (const HpiFile* file = archive.archive().find(hill.sectionPath)) {
+                    hill.stamp = loadSectionStamp(archive.archive().extract(*file));
+                }
+                break;
+            }
+        }
+        if (!hill.stamp || hill.stamp->tileWidth != 8 || hill.stamp->tileHeight != 8) {
+            continue;
+        }
+        pieces[hill.dune].push_back(&hill);
+        for (int tile = 0; tile < 64; ++tile) {
+            const std::size_t bytes = static_cast<std::size_t>(hill.stamp->indices[static_cast<std::size_t>(tile)]) * 1024;
+            if (bytes + 1024 <= hill.stamp->tileImages.size()) {
+                dunePictures_.insert(hashBrushTile(hill.stamp->tileImages.data() + bytes));
+            }
+        }
+    }
+    for (int role = 1; role <= 5; ++role) {
+        if (pieces[role].empty()) {
+            statusNote_ = "The tileset needs every Dunes-80 piece";
+            return;
+        }
+    }
+    const int cell = kBrushCellTiles;
+    const int cellX = tileX / cell;
+    const int cellY = tileY / cell;
+    std::string refusal;
+    if (!duneCanPlace(cellX, cellY, refusal)) {
+        statusNote_ = refusal;
+        return;
+    }
+    // The painted cell counts as dune before its pictures change.
+    const auto isDune = [&](int x, int y) { return (x == cellX && y == cellY) || duneCell(x, y); };
+    try {
+        const int tileCountBefore = map_->tileCount;
+        std::vector<PlacementChange> changes;
+        // Redraw the cell and every dune cell around it, since a new neighbour can turn their
+        // corner quarters into solid dune.
+        for (int y = cellY - 1; y <= cellY + 1; ++y) {
+            for (int x = cellX - 1; x <= cellX + 1; ++x) {
+                if (!isDune(x, y)) {
+                    continue;
+                }
+                for (int quarter = 0; quarter < 4; ++quarter) {
+                    const int right = quarter % 2;
+                    const int bottom = quarter / 2;
+                    const bool solid = isDune(right ? x + 1 : x - 1, y) && isDune(x, bottom ? y + 1 : y - 1);
+                    const int role = solid ? 5 : 1 + quarter;
+                    const int pieceX = x * cell + right * (cell / 2);
+                    const int pieceY = y * cell + bottom * (cell / 2);
+                    // The same quarter always gets the same variation, so redrawing a neighbour
+                    // does not shuffle its rocks.
+                    const std::vector<HillSection*>& choices = pieces[role];
+                    const std::uint32_t mix = static_cast<std::uint32_t>(pieceX) * 73856093u ^ static_cast<std::uint32_t>(pieceY) * 19349663u;
+                    const SectionStamp& stamp = *choices[mix % choices.size()]->stamp;
+                    if (auto change = stampSectionChange(*map_, stamp, pieceX, pieceY, &deduper_, 100)) {
+                        changes.push_back(std::move(*change));
+                    }
+                }
+            }
+        }
+        if (changes.empty()) {
+            statusNote_ = "The dune is already here";
+            return;
+        }
+        rememberPlacements(std::move(changes));
+        statusNote_ = "Painted Dunes-80";
+        warnIfPastVanillaTiles(tileCountBefore);
+        error_.clear();
+    } catch (const std::exception& ex) {
+        error_ = ex.what();
+    }
+}
+
+bool EditorApp::hillCanPlace(int originX, int originY, int width, int height, std::string& refusal) const {
+    if (!map_ || width <= 0 || height <= 0 || originX < 0 || originY < 0 || originX + width > map_->tileWidth || originY + height > map_->tileHeight) {
+        refusal = "The brush is outside the map";
+        return false;
+    }
+    if (duneArmed()) {
+        return duneCanPlace(originX / kBrushCellTiles, originY / kBrushCellTiles, refusal);
+    }
+    // Only folder brushes have rectangles; every other hill is square.
+    const int span = width;
     const HillSection* group = groupHill();
-    for (int y = 0; y < span; ++y) {
-        for (int x = 0; x < span; ++x) {
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
             if (group != nullptr) {
                 if (!tileMatchesBase(originX + x, originY + y, brushWorld_, group->baseName, group->baseHeight, group->baseHeight != 0)) {
                     refusal = "The " + group->noun + " only goes on " + brushWorld_ + " Base-" + std::to_string(group->baseHeight)
-                        + ", and the whole " + brushSizeLabel(span) + " block has to be Base-" + std::to_string(group->baseHeight);
+                        + ", and the whole " + brushRectLabel(width, height) + " block has to be Base-" + std::to_string(group->baseHeight);
                     return false;
                 }
                 continue;
@@ -7717,16 +7926,21 @@ void EditorApp::paintHill(int tileX, int tileY) {
         startMountain(tileX, tileY);
         return;
     }
+    if (duneArmed()) {
+        paintDune(tileX, tileY);
+        return;
+    }
     const int span = hillSpan();
+    const int spanHigh = hillSpanHigh();
     if (tileX < 0 || tileY < 0 || tileX >= map_->tileWidth || tileY >= map_->tileHeight) {
         statusNote_ = "The brush is outside the map";
         return;
     }
     int originX = 0;
     int originY = 0;
-    hillOrigin(tileX, tileY, span, originX, originY);
+    hillOrigin(tileX, tileY, span, spanHigh, originX, originY);
     std::string refusal;
-    if (!hillCanPlace(originX, originY, span, refusal)) {
+    if (!hillCanPlace(originX, originY, span, spanHigh, refusal)) {
         statusNote_ = refusal;
         return;
     }
@@ -7748,7 +7962,7 @@ void EditorApp::paintHill(int tileX, int tileY) {
         }
     } else if (groupHill() != nullptr) {
         for (HillSection& hill : hillSections_) {
-            if (hill.group == brushName_ && hill.tiles == span) {
+            if (hill.group == brushName_ && hill.tiles == span && hill.high() == spanHigh) {
                 matches.push_back(&hill);
             }
         }
@@ -7787,7 +8001,7 @@ void EditorApp::paintHill(int tileX, int tileY) {
             }
             chosen->stamp = loadSectionStamp(source->archive().extract(*file));
         }
-        if (chosen->stamp->tileWidth != span || chosen->stamp->tileHeight != span) {
+        if (chosen->stamp->tileWidth != span || chosen->stamp->tileHeight != spanHigh) {
             statusNote_ = chosen->name + " is not " + brushSizeLabel(span);
             return;
         }
@@ -8073,10 +8287,12 @@ void EditorApp::ensureBrushPaints() {
     brushPaints_.clear();
     brushPartners_.clear();
     brushPictures_.clear();
+    sharedPictures_.clear();
     brushStrokes_.clear();
     brushPieces_.clear();
     riverSections_.clear();
     hillSections_.clear();
+    dunePictures_.clear();
     riverCatalog_.clear();
     riverCatalogReady_ = false;
     brushTilesetPath_.clear();
@@ -8139,6 +8355,16 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "hills16";
         const bool lushFeature255 = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "features255";
+        const bool desertHugeHill = lowerText(brushWorld_) == "desert" && lowerText(section.world) == "desert"
+            && lowerText(section.category) == "hugehills";
+        const bool desertHill16 = lowerText(brushWorld_) == "desert" && lowerText(section.world) == "desert"
+            && lowerText(section.category) == "hills16";
+        const bool desertPlateau = lowerText(brushWorld_) == "desert" && lowerText(section.world) == "desert"
+            && lowerText(section.category) == "plateaus";
+        const bool desertRough = lowerText(brushWorld_) == "desert" && lowerText(section.world) == "desert"
+            && lowerText(section.category) == "roughs";
+        const bool desertDune = lowerText(brushWorld_) == "desert" && lowerText(section.world) == "desert"
+            && lowerText(section.category) == "dunes";
         const bool archipelagoHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "hills_203";
         const bool archipelagoLowHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
@@ -8150,7 +8376,8 @@ void EditorApp::ensureBrushPaints() {
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
             && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
-            && !lushPond && !lushHill16 && !lushFeature255) {
+            && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
+            && !desertHill16 && !desertPlateau && !desertRough && !desertDune) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -8285,6 +8512,38 @@ void EditorApp::ensureBrushPaints() {
                 hill.sectionPath = section.archivePath;
                 hillSections_.push_back(std::move(hill));
             }
+        }
+        if (desertDune) {
+            // Desert-Archipelago-Lava.hpi Dunes01 to Dunes11, raised by 30. Each is one quarter
+            // of a 16 x 16 dune cell; the number says which quarter it is.
+            const int number = trailingNumber(section.name);
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.dune = number == 1 || number == 5 ? 1
+                : number == 2 || number == 6 ? 2
+                : number == 4 || number == 8 ? 3
+                : number == 3 || number == 7 ? 4
+                : number >= 9 && number <= 11 ? 5 : 0;
+            if (hill.dune != 0) {
+                hillSections_.push_back(std::move(hill));
+            }
+        }
+        if (desertHugeHill || desertHill16 || desertPlateau || desertRough) {
+            // Desert-Archipelago-Lava.hpi pieces, raised by 30 so they sit on Base-80.
+            // Huge-Hill-80: Hills01 (64 x 64) and Hills02 to Hills05 (40 x 40 and 32 x 32).
+            // Hill-80 16x16: Hills06 to Hills15. Plateaus-80: Plateaus01 to Plateaus05 and
+            // Mesas01 and Mesas02, some of them rectangles. Roughs-80 8x8: Roughs01 to Roughs10.
+            // A button whose pieces differ in size shows the size of the next one.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = desertHugeHill ? "Huge-Hill-80"
+                : (desertHill16 ? "Hill-80 16x16" : (desertPlateau ? "Plateaus-80" : "Roughs-80 8x8"));
+            hill.noun = desertHugeHill ? "huge hill" : (desertHill16 ? "hill" : (desertPlateau ? "plateau" : "rough patch"));
+            hill.baseName = "base-80";
+            hill.baseHeight = 80;
+            hillSections_.push_back(std::move(hill));
         }
         if (lushFeature255) {
             // Lush.hpi Mod Mts Flats01 to Flats06, raised by 27 so they sit on the Base-255 mountaintop.
@@ -8804,15 +9063,27 @@ void EditorApp::ensureBrushPaints() {
                         if (bytes + 1024 > stamp.tileImages.size()) {
                             continue;
                         }
-                        const auto [existing, added] = brushPictures_.try_emplace(hashBrushTile(stamp.tileImages.data() + bytes),
-                            BrushPictureHint{paint->category, paint->name, false, {}, {}});
-                        // Two bases can share one picture: Lush Base-77 and Base-183 are the same
-                        // grass. Neither may claim it outright, so the height chooses between them,
-                        // the way the blend tilesets treat Base-85 and Base-219.
-                        if (!added && !existing->second.fringe
-                            && (lowerText(existing->second.category) != lowerText(paint->category)
-                                || lowerText(existing->second.name) != lowerText(paint->name))) {
-                            existing->second = BrushPictureHint{existing->second.category, existing->second.name, true, paint->category, paint->name};
+                        const std::uint64_t hash = hashBrushTile(stamp.tileImages.data() + bytes);
+                        const auto samePaint = [&](const std::string& category, const std::string& name) {
+                            return lowerText(category) == lowerText(paint->category) && lowerText(name) == lowerText(paint->name);
+                        };
+                        // Several bases can share one picture: Lush Base-77 and Base-183 are the same
+                        // grass, and Desert Base-155 and Base-230 the same sand. No base may claim it,
+                        // so the picture moves to sharedPictures_ and the height decides.
+                        if (const auto shared = sharedPictures_.find(hash); shared != sharedPictures_.end()) {
+                            bool listed = false;
+                            for (const auto& [category, name] : shared->second) {
+                                listed = listed || samePaint(category, name);
+                            }
+                            if (!listed) {
+                                shared->second.emplace_back(paint->category, paint->name);
+                            }
+                            continue;
+                        }
+                        const auto [existing, added] = brushPictures_.try_emplace(hash, BrushPictureHint{paint->category, paint->name, false, {}, {}});
+                        if (!added && !samePaint(existing->second.category, existing->second.name)) {
+                            sharedPictures_[hash] = {{existing->second.category, existing->second.name}, {paint->category, paint->name}};
+                            brushPictures_.erase(existing);
                         }
                     }
                 } catch (const std::exception&) {
@@ -9146,7 +9417,9 @@ void EditorApp::ensureBrushPaints() {
     const bool marsHills = lowerText(brushWorld_) == "mars";
     const bool iceHills = lowerText(brushWorld_) == "ice";
     const bool crystalHills = lowerText(brushWorld_) == "crystal";
-    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills) && !hillSections_.empty()) {
+    const bool desertHills = lowerText(brushWorld_) == "desert";
+    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills)
+        && !hillSections_.empty()) {
         std::sort(hillSections_.begin(), hillSections_.end(), [](const HillSection& left, const HillSection& right) {
             return trailingNumber(left.name) < trailingNumber(right.name);
         });
@@ -9164,6 +9437,20 @@ void EditorApp::ensureBrushPaints() {
                 if (stamp.tileWidth == stamp.tileHeight
                     && (stamp.tileWidth == 8 || stamp.tileWidth == 16 || (hill.lavaPool && stamp.tileWidth == 32))) {
                     hill.tiles = stamp.tileWidth;
+                }
+                // Dune pictures are known from the start, so dunes already on the map are found.
+                if (hill.dune != 0) {
+                    for (int tile = 0; tile < stamp.tileWidth * stamp.tileHeight; ++tile) {
+                        const std::size_t bytes = static_cast<std::size_t>(stamp.indices[static_cast<std::size_t>(tile)]) * 1024;
+                        if (bytes + 1024 <= stamp.tileImages.size()) {
+                            dunePictures_.insert(hashBrushTile(stamp.tileImages.data() + bytes));
+                        }
+                    }
+                }
+                // A group set when the section was found takes any square size.
+                if (!hill.group.empty() && hill.crystalFolder.empty() && stamp.tileWidth > 0 && stamp.tileHeight > 0) {
+                    hill.tiles = stamp.tileWidth;
+                    hill.tilesHigh = stamp.tileHeight;
                 }
                 if (!hill.crystalFolder.empty() && stamp.tileWidth == stamp.tileHeight
                     && crystalBrushFor(hill.crystalFolder, stamp.tileWidth, hill.group, hill.noun, hill.baseName, hill.baseHeight)) {
@@ -9293,6 +9580,46 @@ void EditorApp::ensureBrushPaints() {
             addHillButton("Swamp-77", groupIcon("Swamp-77"));
             addHillButton("Pond-77 16x16", groupIcon("Pond-77 16x16"));
             addHillButton("Feature-255", groupIcon("Feature-255"));
+        }
+        if (desertHills) {
+            // The 32 x 32 hills make the icon; the 64 x 64 one is too detailed at button size.
+            std::string icon;
+            for (const HillSection& hill : hillSections_) {
+                if (hill.group == "Huge-Hill-80" && hill.tiles > 0 && (icon.empty() || hill.tiles == 32)) {
+                    icon = hill.sectionPath;
+                    if (hill.tiles == 32) {
+                        break;
+                    }
+                }
+            }
+            addHillButton("Huge-Hill-80", icon);
+            std::string icon16;
+            for (const HillSection& hill : hillSections_) {
+                if (hill.group == "Hill-80 16x16" && hill.tiles == 16) {
+                    icon16 = hill.sectionPath;
+                    break;
+                }
+            }
+            addHillButton("Hill-80 16x16", icon16);
+            for (const char* button : {"Plateaus-80", "Roughs-80 8x8"}) {
+                std::string groupIcon;
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.group == button && hill.tiles > 0) {
+                        groupIcon = hill.sectionPath;
+                        break;
+                    }
+                }
+                addHillButton(button, groupIcon);
+            }
+            std::string duneIcon;
+            for (const HillSection& hill : hillSections_) {
+                // The top-left corner piece shows the dune meeting the sand.
+                if (hill.dune == 1) {
+                    duneIcon = hill.sectionPath;
+                    break;
+                }
+            }
+            addHillButton("Dunes-80", duneIcon);
         }
         if (crystalHills) {
             for (const char* button : {"Crater-85 8x8", "Crater-85 16x16", "Hills-85 16x16", "Hills-85 32x32", "Island-85 16x16",
@@ -9600,11 +9927,13 @@ void EditorApp::drawTileBrush() {
                 bool mixed = false;
                 for (const HillSection& hill : hillSections_) {
                     if (hill.group == paint.name && hill.tiles > 0) {
-                        mixed = mixed || (group != nullptr && group->tiles != hill.tiles);
+                        mixed = mixed || (group != nullptr && (group->tiles != hill.tiles || group->high() != hill.high()));
                         group = group == nullptr ? &hill : group;
                     }
                 }
-                if (paint.name == "Horizontal Mtn") {
+                if (paint.name == "Dunes-80") {
+                    hint = "Paint dunes on Desert Base-80, one 16 x 16 cell at a time\nDrag to paint more; neighbouring dunes join up\nThe edges fade into the sand at the corners";
+                } else if (paint.name == "Horizontal Mtn") {
                     hint = "Place a mountain on Lush Base-77\nIt starts at 64 x 32 with both ends\nKeep dragging left or right to make it longer";
                 } else if (paint.name == "Vertical Mtn") {
                     hint = "Place a mountain on Lush Base-77\nIt starts at 32 x 64 with both ends\nKeep dragging up or down to make it longer";
@@ -9612,7 +9941,7 @@ void EditorApp::drawTileBrush() {
                     const std::string base = brushWorld_ + " Base-" + std::to_string(group->baseHeight);
                     hintText = mixed
                         ? "Place a random " + group->noun + " on " + base + "\nThe cursor shows the size of the next one\nPress N to skip to another one"
-                        : "Place a random " + brushSizeLabel(group->tiles) + " " + group->noun + " on " + base + "\nThe whole block has to be Base-"
+                        : "Place a random " + brushRectLabel(group->tiles, group->high()) + " " + group->noun + " on " + base + "\nThe whole block has to be Base-"
                             + std::to_string(group->baseHeight);
                     hint = hintText.c_str();
                 } else if (paint.name == "Island 8x8") {
