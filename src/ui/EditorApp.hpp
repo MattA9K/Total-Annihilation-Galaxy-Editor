@@ -495,8 +495,8 @@ private:
         int dune = 0;
         // Crystal.hpi folders (Craters, Hills, Islands, Ponds, Reefs, Roughs). The button
         // follows the folder and size once the size is read; group is that button's name.
-        // Lush.hpi Islands, hills, swamps, and ponds, and the Desert hills, use group too,
-        // set when they are found.
+        // Lush.hpi Islands, hills, swamps, and ponds, the Desert hills, and the Acid pools use
+        // group too, set when they are found.
         std::string crystalFolder;
         std::string group;
         std::string noun;

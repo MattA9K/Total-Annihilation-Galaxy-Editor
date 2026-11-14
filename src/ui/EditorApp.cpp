@@ -8365,6 +8365,33 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "roughs";
         const bool desertDune = lowerText(brushWorld_) == "desert" && lowerText(section.world) == "desert"
             && lowerText(section.category) == "dunes";
+        // Acid.hpi folders, one button each, with no height offset: the button, what the
+        // tooltips call one piece, and the base it sits on.
+        struct AcidFolder {
+            const char* category;
+            const char* group;
+            const char* noun;
+            const char* baseName;
+            int baseHeight;
+        };
+        static constexpr AcidFolder kAcidFolders[] = {
+            {"pools", "Pools-85", "pool", "base-85", 85},
+            {"flats", "Acid-0 16x16", "acid patch", "base-0", 0},
+            {"hills", "Hills-85 16x16", "hill", "base-85", 85},
+            {"mounds", "Mounds-85 16x16", "mound", "base-85", 85},
+            {"puddles", "Puddles-85 16x16", "puddle", "base-85", 85},
+            {"trails", "Trails-85 16x16", "trail", "base-85", 85},
+            {"islands16", "Islands-0 16x16", "island", "base-0", 0},
+            {"islands32", "Islands-0 32x32", "island", "base-0", 0},
+        };
+        const AcidFolder* acidFolder = nullptr;
+        if (lowerText(brushWorld_) == "acid" && lowerText(section.world) == "acid") {
+            for (const AcidFolder& folder : kAcidFolders) {
+                if (lowerText(section.category) == folder.category) {
+                    acidFolder = &folder;
+                }
+            }
+        }
         const bool archipelagoHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "hills_203";
         const bool archipelagoLowHill = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
@@ -8377,7 +8404,8 @@ void EditorApp::ensureBrushPaints() {
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
             && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
             && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
-            && !desertHill16 && !desertPlateau && !desertRough && !desertDune) {
+            && !desertHill16 && !desertPlateau && !desertRough && !desertDune
+            && acidFolder == nullptr) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -8512,6 +8540,19 @@ void EditorApp::ensureBrushPaints() {
                 hill.sectionPath = section.archivePath;
                 hillSections_.push_back(std::move(hill));
             }
+        }
+        if (acidFolder != nullptr) {
+            // Pools mixes 16 x 16 and 32 x 32, so its cursor takes the size of the next pool.
+            // Flats (AcidFlats), Hills, Mounds, Puddles, and Trails are all 16 x 16. UneatenIslands
+            // is split by size into Islands16 and Islands32, one button each.
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = acidFolder->group;
+            hill.noun = acidFolder->noun;
+            hill.baseName = acidFolder->baseName;
+            hill.baseHeight = acidFolder->baseHeight;
+            hillSections_.push_back(std::move(hill));
         }
         if (desertDune) {
             // Desert-Archipelago-Lava.hpi Dunes01 to Dunes11, raised by 30. Each is one quarter
@@ -9418,7 +9459,8 @@ void EditorApp::ensureBrushPaints() {
     const bool iceHills = lowerText(brushWorld_) == "ice";
     const bool crystalHills = lowerText(brushWorld_) == "crystal";
     const bool desertHills = lowerText(brushWorld_) == "desert";
-    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills)
+    const bool acidHills = lowerText(brushWorld_) == "acid";
+    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills || acidHills)
         && !hillSections_.empty()) {
         std::sort(hillSections_.begin(), hillSections_.end(), [](const HillSection& left, const HillSection& right) {
             return trailingNumber(left.name) < trailingNumber(right.name);
@@ -9580,6 +9622,23 @@ void EditorApp::ensureBrushPaints() {
             addHillButton("Swamp-77", groupIcon("Swamp-77"));
             addHillButton("Pond-77 16x16", groupIcon("Pond-77 16x16"));
             addHillButton("Feature-255", groupIcon("Feature-255"));
+        }
+        if (acidHills) {
+            for (const char* button : {"Pools-85", "Acid-0 16x16", "Hills-85 16x16", "Mounds-85 16x16", "Puddles-85 16x16",
+                     "Trails-85 16x16", "Islands-0 16x16", "Islands-0 32x32"}) {
+                std::string icon;
+                for (const HillSection& hill : hillSections_) {
+                    // A 16 x 16 piece makes the icon where the button has one.
+                    if (hill.group == button && (hill.tiles == 16 || (icon.empty() && hill.tiles > 0))) {
+                        icon = hill.sectionPath;
+                        if (hill.tiles != 16) {
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                addHillButton(button, icon);
+            }
         }
         if (desertHills) {
             // The 32 x 32 hills make the icon; the 64 x 64 one is too detailed at button size.
