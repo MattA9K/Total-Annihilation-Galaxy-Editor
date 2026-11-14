@@ -336,6 +336,84 @@ int triTileLand(const std::uint8_t* bytes) {
     return 2;
 }
 
+// 0 is ice, 1 is the third land, and 2 is lava, for the Ice and Lava three-way tiles: whichever
+// colour covers most of the tile. third is "grass", "archi", or "mars".
+int triIceTileLand(const std::uint8_t* bytes, std::string_view third) {
+    int ice = 0;
+    int other = 0;
+    int lava = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const bool green = g > r + 15 && g > b + 10;
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        ice += !green && b + 3 >= r;
+        lava += !green && r > b + 8 && lum <= 140 && r <= g + 25;
+        if (third == "grass") {
+            other += green;
+        } else if (third == "archi") {
+            other += !green && r > b + 15 && lum > 140;
+        } else {
+            other += !green && r > g + 25 && lum <= 140;
+        }
+    }
+    if (ice >= other && ice >= lava) {
+        return 0;
+    }
+    return other >= lava ? 1 : 2;
+}
+
+// 0 is Lava, 1 is the third land, and 2 is Lush grass, for the Lava and Lush three-way tiles:
+// whichever colour covers most of the tile. The third land is GreenWorld grass, which is
+// yellow-green with red in it and about 40% brown specks, or Mars ground, which is about 70% red;
+// either count is weighted up for its specks.
+int triLushTileLand(const std::uint8_t* bytes, bool mars) {
+    int lava = 0;
+    int grass = 0;
+    int lush = 0;
+    int red = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const bool greenish = g > r + 10;
+        grass += greenish && r > b + 5;
+        lush += g > r + 25 && b + 5 >= r;
+        lava += !greenish && r > b + 8 && r <= g + 25 && (30 * r + 59 * g + 11 * b) / 100 <= 140;
+        red += r > g + 25 && (30 * r + 59 * g + 11 * b) / 100 <= 140;
+    }
+    const double weightedGrass = mars ? red * 1.4 : grass * 1.7;
+    if (lush >= weightedGrass && lush >= lava) {
+        return 2;
+    }
+    return weightedGrass >= lava ? 1 : 0;
+}
+
+// 0 is Lava, 1 is Archipelago sand, and 2 is Crystal, for the Archipelago and Crystal blend and the
+// Lava, Crystal and Archipelago three-way tiles: whichever colour covers most of the tile. Crystal
+// is purple, sand is pale, and lava dirt is brown; Crystal is about 64% purple, so it is weighted up.
+int crystalArchiTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int sand = 0;
+    int crystal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool purple = b > g + 5 && lum <= 150;
+        crystal += purple;
+        sand += r > b + 15 && lum > 140;
+        lava += !purple && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    if (weightedCrystal >= sand && weightedCrystal >= lava) {
+        return 2;
+    }
+    return sand >= lava ? 1 : 0;
+}
+
 // Lush ground is green. Archipelago sand in the same blend is pale.
 bool archiLushTileIsLush(const std::uint8_t* bytes) {
     int score = 0;
@@ -378,6 +456,226 @@ bool iceGreenTileIsIce(const std::uint8_t* bytes) {
 }
 
 // Ice in the mars blend is pale blue. Mars ground is red.
+// GreenWorld grass is yellow-green with some red; Lush grass is blue-green with almost none.
+bool greenLushTileIsGreen(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[0]) - static_cast<int>(color[2]);
+    }
+    return score >= 0;
+}
+
+// Mars ground is red; Lush grass is green.
+bool lushMarsTileIsMars(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[0]) - static_cast<int>(color[1]);
+    }
+    return score >= 0;
+}
+
+// Desert sand is pale; Lava dirt is dark. Desert Base-80 tiles average about 150 bright and
+// Lava Base-86 tiles about 66.
+bool desertLavaTileIsDesert(const std::uint8_t* bytes) {
+    long brightness = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        brightness += 30 * color[0] + 59 * color[1] + 11 * color[2];
+    }
+    return brightness >= 105L * 100 * 1024;
+}
+
+// GreenWorld grass is green; Metal plating is grey.
+bool greenMetalTileIsGrass(const std::uint8_t* bytes) {
+    int grass = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        grass += color[1] > color[0] + 15 && color[1] > color[2] + 10;
+    }
+    return grass * 5 >= 1024;
+}
+
+// Crystal ground is purple; Lava dirt is brown.
+bool crystalLavaTileIsCrystal(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[2]) - static_cast<int>(color[1]);
+    }
+    return score >= 0;
+}
+
+// Crystal ground is purple; Acid ground is olive.
+bool acidCrystalTileIsCrystal(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[2]) - static_cast<int>(color[1]);
+    }
+    return score >= 0;
+}
+
+// 0 is Lava, 1 is Acid, and 2 is Crystal, for the Acid, Crystal and Lava three-way tiles.
+int triAcidCrystalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int acid = 0;
+    int crystal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool purple = b > g + 5 && lum <= 150;
+        crystal += purple;
+        acid += !purple && g + 2 >= r && g > b + 2;
+        lava += !purple && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    if (weightedCrystal >= acid && weightedCrystal >= lava) {
+        return 2;
+    }
+    return acid >= lava ? 1 : 0;
+}
+
+// Acid olive, Desert sand, and Lava brown. Pale sand is weighted so a mixed
+// tile still reads as Desert when the sand is there.
+int triAcidDesertTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int acid = 0;
+    int desert = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool sand = lum >= 130 && r > b;
+        desert += sand;
+        acid += !sand && g + 2 >= r && g > b + 2;
+        lava += !sand && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedDesert = desert * 1.3;
+    if (weightedDesert >= acid && weightedDesert >= lava) {
+        return 2;
+    }
+    return acid >= lava ? 1 : 0;
+}
+
+// 0 is Lava, 1 is Crystal, and 2 is Desert, for the Lava, Crystal and Desert three-way tiles.
+int triCrystalDesertTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int crystal = 0;
+    int desert = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool purple = b > g + 5 && lum <= 150;
+        crystal += purple;
+        desert += !purple && lum >= 130 && r > b;
+        lava += !purple && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    const double weightedDesert = desert * 1.3;
+    if (weightedCrystal >= weightedDesert && weightedCrystal >= lava) {
+        return 1;
+    }
+    if (weightedDesert >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Grass, and 2 is Desert, for the Lava, GreenWorld and Desert three-way tiles.
+int triGreenDesertTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int grass = 0;
+    int desert = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool green = g > r + 4 && g > b;
+        grass += green;
+        desert += !green && lum >= 130 && r > b;
+        lava += !green && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedDesert = desert * 1.3;
+    if (grass >= weightedDesert && grass >= lava) {
+        return 1;
+    }
+    if (weightedDesert >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Archipelago, and 2 is Desert, for the Lava, Archipelago and Desert three-way tiles.
+// Archipelago sand is pale; Desert sand is darker orange.
+int triArchiDesertTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int archi = 0;
+    int desert = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool rock = r > g + 2 && r > b + 8 && lum <= 145;
+        lava += rock;
+        archi += !rock && lum >= 185;
+        desert += !rock && lum >= 130 && lum < 185 && r > b;
+    }
+    const double weightedDesert = desert * 1.3;
+    const double weightedArchi = archi * 1.2;
+    if (weightedArchi >= weightedDesert && weightedArchi >= lava) {
+        return 1;
+    }
+    if (weightedDesert >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Ice, and 2 is Desert, for the Lava, Ice and Desert three-way tiles.
+int triIceDesertTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int ice = 0;
+    int desert = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool rock = r > g + 2 && r > b + 8 && lum <= 145;
+        lava += rock;
+        ice += !rock && b + 4 >= r;
+        desert += !rock && r > b + 4 && lum >= 130;
+    }
+    const double weightedIce = ice * 1.2;
+    const double weightedDesert = desert * 1.3;
+    if (weightedIce >= weightedDesert && weightedIce >= lava) {
+        return 1;
+    }
+    if (weightedDesert >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// GreenWorld grass is green; Mars ground is red-brown.
+bool greenMarsTileIsGrass(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
+    }
+    return score >= 0;
+}
+
 bool iceMarsTileIsIce(const std::uint8_t* bytes) {
     int score = 0;
     for (int i = 0; i < 1024; ++i) {
@@ -385,6 +683,489 @@ bool iceMarsTileIsIce(const std::uint8_t* bytes) {
         score += static_cast<int>(color[2]) - static_cast<int>(color[0]);
     }
     return score >= 12 * 1024;
+}
+
+// Desert sand is pale; Acid ground is dark olive. The named Acid side of a
+// Blend-AcidDesert piece must stay Acid at the rim, or a second Acid cell
+// rereads those corners as Desert and stamps a sand square over the first.
+bool acidDesertTileIsDesert(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    std::string_view rest = loweredName;
+    constexpr std::string_view prefix = "blend-aciddesert-";
+    if (rest.size() > prefix.size() && rest.substr(0, prefix.size()) == prefix) {
+        rest.remove_prefix(prefix.size());
+    }
+    if (const auto dash = rest.rfind('-'); dash != std::string_view::npos) {
+        bool digits = dash + 1 < rest.size();
+        for (std::size_t i = dash + 1; i < rest.size(); ++i) {
+            digits = digits && rest[i] >= '0' && rest[i] <= '9';
+        }
+        if (digits) {
+            rest = rest.substr(0, dash);
+        }
+    }
+    const bool left = tx * 2 < tileWidth;
+    const bool top = ty * 2 < tileHeight;
+    bool acidByShape = true;
+    if (rest == "t") {
+        acidByShape = top;
+    } else if (rest == "b") {
+        acidByShape = !top;
+    } else if (rest == "l") {
+        acidByShape = left;
+    } else if (rest == "r") {
+        acidByShape = !left;
+    } else if (rest == "tl") {
+        acidByShape = top && left;
+    } else if (rest == "tr") {
+        acidByShape = top && !left;
+    } else if (rest == "bl") {
+        acidByShape = !top && left;
+    } else if (rest == "br") {
+        acidByShape = !top && !left;
+    } else if (rest == "low-tl") {
+        acidByShape = !(top && left);
+    } else if (rest == "low-tr") {
+        acidByShape = !(top && !left);
+    } else if (rest == "low-bl") {
+        acidByShape = !(!top && left);
+    } else if (rest == "low-br") {
+        acidByShape = !(!top && !left);
+    }
+    constexpr int rim = 2;
+    const bool topRim = ty < rim;
+    const bool bottomRim = ty >= tileHeight - rim;
+    const bool leftRim = tx < rim;
+    const bool rightRim = tx >= tileWidth - rim;
+    if (rest == "t" && topRim) {
+        return false;
+    }
+    if (rest == "t" && bottomRim) {
+        return true;
+    }
+    if (rest == "b" && bottomRim) {
+        return false;
+    }
+    if (rest == "b" && topRim) {
+        return true;
+    }
+    if (rest == "l" && leftRim) {
+        return false;
+    }
+    if (rest == "l" && rightRim) {
+        return true;
+    }
+    if (rest == "r" && rightRim) {
+        return false;
+    }
+    if (rest == "r" && leftRim) {
+        return true;
+    }
+    if (rest == "tl" && topRim && leftRim) {
+        return false;
+    }
+    if (rest == "tr" && topRim && rightRim) {
+        return false;
+    }
+    if (rest == "bl" && bottomRim && leftRim) {
+        return false;
+    }
+    if (rest == "br" && bottomRim && rightRim) {
+        return false;
+    }
+    if (rest == "low-tl" && topRim && leftRim) {
+        return true;
+    }
+    if (rest == "low-tr" && topRim && rightRim) {
+        return true;
+    }
+    if (rest == "low-bl" && bottomRim && leftRim) {
+        return true;
+    }
+    if (rest == "low-br" && bottomRim && rightRim) {
+        return true;
+    }
+    if ((rest == "tl" || rest == "tr" || rest == "bl" || rest == "br") && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "tl" && topRim && leftRim) || (rest == "tr" && topRim && rightRim)
+            || (rest == "bl" && bottomRim && leftRim) || (rest == "br" && bottomRim && rightRim))) {
+        return true;
+    }
+    if ((rest == "low-tl" || rest == "low-tr" || rest == "low-bl" || rest == "low-br")
+        && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "low-tl" && topRim && leftRim) || (rest == "low-tr" && topRim && rightRim)
+            || (rest == "low-bl" && bottomRim && leftRim) || (rest == "low-br" && bottomRim && rightRim))) {
+        return false;
+    }
+    long brightness = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        brightness += 30 * color[0] + 59 * color[1] + 11 * color[2];
+    }
+    const bool desertByColor = brightness >= 120L * 100 * 1024;
+    return acidByShape ? desertByColor && brightness >= 140L * 100 * 1024 : desertByColor;
+}
+
+// Desert sand is pale; Crystal ground is purple. The named Crystal side of a
+// Blend-CrystalDesert piece must stay Crystal at the rim, or a second Crystal
+// cell rereads those corners as Desert and stamps a sand square over the first.
+bool crystalDesertTileIsDesert(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    std::string_view rest = loweredName;
+    constexpr std::string_view prefix = "blend-crystaldesert-";
+    if (rest.size() > prefix.size() && rest.substr(0, prefix.size()) == prefix) {
+        rest.remove_prefix(prefix.size());
+    }
+    if (const auto dash = rest.rfind('-'); dash != std::string_view::npos) {
+        bool digits = dash + 1 < rest.size();
+        for (std::size_t i = dash + 1; i < rest.size(); ++i) {
+            digits = digits && rest[i] >= '0' && rest[i] <= '9';
+        }
+        if (digits) {
+            rest = rest.substr(0, dash);
+        }
+    }
+    const bool left = tx * 2 < tileWidth;
+    const bool top = ty * 2 < tileHeight;
+    bool crystalByShape = true;
+    if (rest == "t") {
+        crystalByShape = top;
+    } else if (rest == "b") {
+        crystalByShape = !top;
+    } else if (rest == "l") {
+        crystalByShape = left;
+    } else if (rest == "r") {
+        crystalByShape = !left;
+    } else if (rest == "tl") {
+        crystalByShape = top && left;
+    } else if (rest == "tr") {
+        crystalByShape = top && !left;
+    } else if (rest == "bl") {
+        crystalByShape = !top && left;
+    } else if (rest == "br") {
+        crystalByShape = !top && !left;
+    } else if (rest == "low-tl") {
+        crystalByShape = !(top && left);
+    } else if (rest == "low-tr") {
+        crystalByShape = !(top && !left);
+    } else if (rest == "low-bl") {
+        crystalByShape = !(!top && left);
+    } else if (rest == "low-br") {
+        crystalByShape = !(!top && !left);
+    }
+    constexpr int rim = 2;
+    const bool topRim = ty < rim;
+    const bool bottomRim = ty >= tileHeight - rim;
+    const bool leftRim = tx < rim;
+    const bool rightRim = tx >= tileWidth - rim;
+    if (rest == "t" && topRim) {
+        return false;
+    }
+    if (rest == "t" && bottomRim) {
+        return true;
+    }
+    if (rest == "b" && bottomRim) {
+        return false;
+    }
+    if (rest == "b" && topRim) {
+        return true;
+    }
+    if (rest == "l" && leftRim) {
+        return false;
+    }
+    if (rest == "l" && rightRim) {
+        return true;
+    }
+    if (rest == "r" && rightRim) {
+        return false;
+    }
+    if (rest == "r" && leftRim) {
+        return true;
+    }
+    if (rest == "tl" && topRim && leftRim) {
+        return false;
+    }
+    if (rest == "tr" && topRim && rightRim) {
+        return false;
+    }
+    if (rest == "bl" && bottomRim && leftRim) {
+        return false;
+    }
+    if (rest == "br" && bottomRim && rightRim) {
+        return false;
+    }
+    if (rest == "low-tl" && topRim && leftRim) {
+        return true;
+    }
+    if (rest == "low-tr" && topRim && rightRim) {
+        return true;
+    }
+    if (rest == "low-bl" && bottomRim && leftRim) {
+        return true;
+    }
+    if (rest == "low-br" && bottomRim && rightRim) {
+        return true;
+    }
+    if ((rest == "tl" || rest == "tr" || rest == "bl" || rest == "br") && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "tl" && topRim && leftRim) || (rest == "tr" && topRim && rightRim)
+            || (rest == "bl" && bottomRim && leftRim) || (rest == "br" && bottomRim && rightRim))) {
+        return true;
+    }
+    if ((rest == "low-tl" || rest == "low-tr" || rest == "low-bl" || rest == "low-br")
+        && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "low-tl" && topRim && leftRim) || (rest == "low-tr" && topRim && rightRim)
+            || (rest == "low-bl" && bottomRim && leftRim) || (rest == "low-br" && bottomRim && rightRim))) {
+        return false;
+    }
+    long brightness = 0;
+    long purple = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        brightness += 30 * color[0] + 59 * color[1] + 11 * color[2];
+        purple += static_cast<int>(color[2]) - static_cast<int>(color[1]);
+    }
+    if (purple >= 0) {
+        return false;
+    }
+    const bool desertByColor = brightness >= 120L * 100 * 1024;
+    return crystalByShape ? desertByColor && brightness >= 140L * 100 * 1024 : desertByColor;
+}
+
+// Archipelago sand is pale almost-white; Desert sand is darker and more orange.
+// The named Archipelago side of a Blend-ArchiDesert piece must stay Archipelago
+// at the rim, or a second Archipelago cell rereads those corners as Desert.
+bool archiDesertTileIsDesert(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    std::string_view rest = loweredName;
+    constexpr std::string_view prefix = "blend-archidesert-";
+    if (rest.size() > prefix.size() && rest.substr(0, prefix.size()) == prefix) {
+        rest.remove_prefix(prefix.size());
+    }
+    if (const auto dash = rest.rfind('-'); dash != std::string_view::npos) {
+        bool digits = dash + 1 < rest.size();
+        for (std::size_t i = dash + 1; i < rest.size(); ++i) {
+            digits = digits && rest[i] >= '0' && rest[i] <= '9';
+        }
+        if (digits) {
+            rest = rest.substr(0, dash);
+        }
+    }
+    const bool left = tx * 2 < tileWidth;
+    const bool top = ty * 2 < tileHeight;
+    bool archiByShape = true;
+    if (rest == "t") {
+        archiByShape = top;
+    } else if (rest == "b") {
+        archiByShape = !top;
+    } else if (rest == "l") {
+        archiByShape = left;
+    } else if (rest == "r") {
+        archiByShape = !left;
+    } else if (rest == "tl") {
+        archiByShape = top && left;
+    } else if (rest == "tr") {
+        archiByShape = top && !left;
+    } else if (rest == "bl") {
+        archiByShape = !top && left;
+    } else if (rest == "br") {
+        archiByShape = !top && !left;
+    } else if (rest == "low-tl") {
+        archiByShape = !(top && left);
+    } else if (rest == "low-tr") {
+        archiByShape = !(top && !left);
+    } else if (rest == "low-bl") {
+        archiByShape = !(!top && left);
+    } else if (rest == "low-br") {
+        archiByShape = !(!top && !left);
+    }
+    constexpr int rim = 2;
+    const bool topRim = ty < rim;
+    const bool bottomRim = ty >= tileHeight - rim;
+    const bool leftRim = tx < rim;
+    const bool rightRim = tx >= tileWidth - rim;
+    if (rest == "t" && topRim) {
+        return false;
+    }
+    if (rest == "t" && bottomRim) {
+        return true;
+    }
+    if (rest == "b" && bottomRim) {
+        return false;
+    }
+    if (rest == "b" && topRim) {
+        return true;
+    }
+    if (rest == "l" && leftRim) {
+        return false;
+    }
+    if (rest == "l" && rightRim) {
+        return true;
+    }
+    if (rest == "r" && rightRim) {
+        return false;
+    }
+    if (rest == "r" && leftRim) {
+        return true;
+    }
+    if (rest == "tl" && topRim && leftRim) {
+        return false;
+    }
+    if (rest == "tr" && topRim && rightRim) {
+        return false;
+    }
+    if (rest == "bl" && bottomRim && leftRim) {
+        return false;
+    }
+    if (rest == "br" && bottomRim && rightRim) {
+        return false;
+    }
+    if (rest == "low-tl" && topRim && leftRim) {
+        return true;
+    }
+    if (rest == "low-tr" && topRim && rightRim) {
+        return true;
+    }
+    if (rest == "low-bl" && bottomRim && leftRim) {
+        return true;
+    }
+    if (rest == "low-br" && bottomRim && rightRim) {
+        return true;
+    }
+    if ((rest == "tl" || rest == "tr" || rest == "bl" || rest == "br") && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "tl" && topRim && leftRim) || (rest == "tr" && topRim && rightRim)
+            || (rest == "bl" && bottomRim && leftRim) || (rest == "br" && bottomRim && rightRim))) {
+        return true;
+    }
+    if ((rest == "low-tl" || rest == "low-tr" || rest == "low-bl" || rest == "low-br")
+        && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "low-tl" && topRim && leftRim) || (rest == "low-tr" && topRim && rightRim)
+            || (rest == "low-bl" && bottomRim && leftRim) || (rest == "low-br" && bottomRim && rightRim))) {
+        return false;
+    }
+    long brightness = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        brightness += 30 * color[0] + 59 * color[1] + 11 * color[2];
+    }
+    const bool desertByColor = brightness < 185L * 100 * 1024;
+    return archiByShape ? desertByColor && brightness < 170L * 100 * 1024 : desertByColor;
+}
+
+// Desert sand is orange; GreenWorld grass is green. The named Desert side of a
+// Blend-DesertGreen piece must stay Desert at the rim, or a second Desert cell
+// rereads those corners as grass.
+bool desertGreenTileIsDesert(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    std::string_view rest = loweredName;
+    constexpr std::string_view prefix = "blend-desertgreen-";
+    if (rest.size() > prefix.size() && rest.substr(0, prefix.size()) == prefix) {
+        rest.remove_prefix(prefix.size());
+    }
+    if (const auto dash = rest.rfind('-'); dash != std::string_view::npos) {
+        bool digits = dash + 1 < rest.size();
+        for (std::size_t i = dash + 1; i < rest.size(); ++i) {
+            digits = digits && rest[i] >= '0' && rest[i] <= '9';
+        }
+        if (digits) {
+            rest = rest.substr(0, dash);
+        }
+    }
+    const bool left = tx * 2 < tileWidth;
+    const bool top = ty * 2 < tileHeight;
+    bool desertByShape = true;
+    if (rest == "t") {
+        desertByShape = top;
+    } else if (rest == "b") {
+        desertByShape = !top;
+    } else if (rest == "l") {
+        desertByShape = left;
+    } else if (rest == "r") {
+        desertByShape = !left;
+    } else if (rest == "tl") {
+        desertByShape = top && left;
+    } else if (rest == "tr") {
+        desertByShape = top && !left;
+    } else if (rest == "bl") {
+        desertByShape = !top && left;
+    } else if (rest == "br") {
+        desertByShape = !top && !left;
+    } else if (rest == "low-tl") {
+        desertByShape = !(top && left);
+    } else if (rest == "low-tr") {
+        desertByShape = !(top && !left);
+    } else if (rest == "low-bl") {
+        desertByShape = !(!top && left);
+    } else if (rest == "low-br") {
+        desertByShape = !(!top && !left);
+    }
+    constexpr int rim = 2;
+    const bool topRim = ty < rim;
+    const bool bottomRim = ty >= tileHeight - rim;
+    const bool leftRim = tx < rim;
+    const bool rightRim = tx >= tileWidth - rim;
+    if (rest == "t" && topRim) {
+        return true;
+    }
+    if (rest == "t" && bottomRim) {
+        return false;
+    }
+    if (rest == "b" && bottomRim) {
+        return true;
+    }
+    if (rest == "b" && topRim) {
+        return false;
+    }
+    if (rest == "l" && leftRim) {
+        return true;
+    }
+    if (rest == "l" && rightRim) {
+        return false;
+    }
+    if (rest == "r" && rightRim) {
+        return true;
+    }
+    if (rest == "r" && leftRim) {
+        return false;
+    }
+    if (rest == "tl" && topRim && leftRim) {
+        return true;
+    }
+    if (rest == "tr" && topRim && rightRim) {
+        return true;
+    }
+    if (rest == "bl" && bottomRim && leftRim) {
+        return true;
+    }
+    if (rest == "br" && bottomRim && rightRim) {
+        return true;
+    }
+    if (rest == "low-tl" && topRim && leftRim) {
+        return false;
+    }
+    if (rest == "low-tr" && topRim && rightRim) {
+        return false;
+    }
+    if (rest == "low-bl" && bottomRim && leftRim) {
+        return false;
+    }
+    if (rest == "low-br" && bottomRim && rightRim) {
+        return false;
+    }
+    if ((rest == "tl" || rest == "tr" || rest == "bl" || rest == "br") && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "tl" && topRim && leftRim) || (rest == "tr" && topRim && rightRim)
+            || (rest == "bl" && bottomRim && leftRim) || (rest == "br" && bottomRim && rightRim))) {
+        return false;
+    }
+    if ((rest == "low-tl" || rest == "low-tr" || rest == "low-bl" || rest == "low-br")
+        && (topRim || bottomRim || leftRim || rightRim)
+        && !((rest == "low-tl" && topRim && leftRim) || (rest == "low-tr" && topRim && rightRim)
+            || (rest == "low-bl" && bottomRim && leftRim) || (rest == "low-br" && bottomRim && rightRim))) {
+        return true;
+    }
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
+    }
+    if (desertByShape) {
+        return score < 20 * 1024;
+    }
+    return score < -20 * 1024;
 }
 
 // Archipelago sand in the acid blend is pale. Acid ground is much darker.
@@ -6934,7 +7715,8 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         for (BrushPiece& candidate : brushPieces_) {
             const bool own = lowerText(candidate.category) == lowerText(category);
             // Blend pieces are shared, so Lava, Mars and GreenWorld can place them.
-            const bool shared = lowerText(candidate.category) == "shared";
+            // Two-way blends live in BlendTiles/Shared and three-way blends in BlendTiles/3-Way.
+            const bool shared = lowerText(candidate.category) == "shared" || lowerText(candidate.category) == "3-way";
             if ((own || shared) && transitionVariation(candidate.name, piece) >= 0) {
                 matches.push_back(&candidate);
             }
@@ -7073,7 +7855,30 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                                 const std::uint32_t image = map_->indices[cellIndex];
                                 const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
                                 if (bytes + 1024 <= map_->tileImages.size()) {
-                                    const auto found = brushPictures_.find(hashBrushTile(map_->tileImages.data() + bytes));
+                                    const std::uint64_t pictureHash = hashBrushTile(map_->tileImages.data() + bytes);
+                                    const auto found = brushPictures_.find(pictureHash);
+                                    // A picture several bases share, such as Desert Base-80 and Base-155
+                                    // sand, is one of those bases: the nearest of them by height. Other
+                                    // paints at a nearer height, such as Lava Base-86, are not in the running.
+                                    if (const auto shared = found == brushPictures_.end() ? sharedPictures_.find(pictureHash) : sharedPictures_.end();
+                                        shared != sharedPictures_.end()) {
+                                        const std::size_t heightIndex = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
+                                        if (heightIndex < map_->heights.size()) {
+                                            const int height = map_->heights[heightIndex];
+                                            int bestDistance = 1 << 30;
+                                            for (std::size_t i = 0; i < levels.size(); ++i) {
+                                                bool sharesPicture = false;
+                                                for (const auto& [category, name] : shared->second) {
+                                                    sharesPicture = sharesPicture || (lowerText(levels[i]->category) == lowerText(category) && lowerText(levels[i]->name) == lowerText(name));
+                                                }
+                                                const int distance = std::abs(height - levelHeights[i]);
+                                                if (sharesPicture && distance < bestDistance) {
+                                                    bestDistance = distance;
+                                                    voted = static_cast<int>(i);
+                                                }
+                                            }
+                                        }
+                                    }
                                     if (found != brushPictures_.end()) {
                                         int matched = -1;
                                         for (std::size_t i = 0; i < levels.size(); ++i) {
@@ -8308,7 +9113,8 @@ void EditorApp::ensureBrushPaints() {
 
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
-        || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice";
+        || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
+        || lowerText(brushWorld_) == "metal";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         const bool blend = blendWorld && lowerText(section.world) == "blendtiles";
@@ -8685,11 +9491,14 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
-    // Lava Base-86 blends into Mars, GreenWorld, and Acid at Base-85, into Desert
-    // at Base-80, into Archipelago at Base-78, and into Lush at Base-77.
-    // Archipelago Base-78 also blends into GreenWorld Base-85, Lush Base-77, and
-    // Acid Base-85. GreenWorld Base-85 blends into Acid Base-85. Ice Base-85 blends
-    // into Mars Base-85, GreenWorld Base-85, and Lush Base-77.
+    // Lava Base-86 blends into Mars, GreenWorld, Acid, Crystal, and Ice at Base-85, into Desert
+    // at Base-80, into Archipelago at Base-78, and into Lush at Base-77. GreenWorld
+    // Base-85 also blends into Mars Base-85, Metal Base-85, and Lush Base-77.
+    // Archipelago Base-78 also blends into GreenWorld Base-85, Lush Base-77,
+    // Acid Base-85, and Desert Base-80. GreenWorld Base-85 blends into Acid Base-85. Acid Base-85 blends
+    // into Crystal Base-85 and Desert Base-80. Crystal Base-85 also blends into
+    // Desert Base-80. Ice Base-85 blends
+    // into Mars Base-85, GreenWorld Base-85, Lush Base-77, and Desert Base-80.
     // A partner is a paint the graph can see, and a stroke it can place, without
     // becoming a button.
     struct PartnerWant {
@@ -8704,26 +9513,49 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Desert", "Base-80"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+        wanted.push_back(PartnerWant{"Ice", "Base-85"});
     } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         if (lowerText(brushWorld_) == "greenworld") {
             wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
             wanted.push_back(PartnerWant{"Acid", "Base-85"});
             wanted.push_back(PartnerWant{"Ice", "Base-85"});
+            wanted.push_back(PartnerWant{"Mars", "Base-85"});
+            wanted.push_back(PartnerWant{"Metal", "Base-85"});
+            wanted.push_back(PartnerWant{"Lush", "Base-77"});
+            wanted.push_back(PartnerWant{"Desert", "Base-80"});
         }
         if (lowerText(brushWorld_) == "mars") {
             wanted.push_back(PartnerWant{"Ice", "Base-85"});
+            wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+            wanted.push_back(PartnerWant{"Lush", "Base-77"});
         }
+    } else if (lowerText(brushWorld_) == "crystal") {
+        wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
+        wanted.push_back(PartnerWant{"Acid", "Base-85"});
+        wanted.push_back(PartnerWant{"Desert", "Base-80"});
+    } else if (lowerText(brushWorld_) == "metal") {
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
     } else if (lowerText(brushWorld_) == "ice") {
+        wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
+        wanted.push_back(PartnerWant{"Desert", "Base-80"});
     } else if (lowerText(brushWorld_) == "archipelago") {
+        wanted.push_back(PartnerWant{"Ice", "Base-85"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-85"});
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
         wanted.push_back(PartnerWant{"Acid", "Base-85"});
+        wanted.push_back(PartnerWant{"Desert", "Base-80"});
     } else if (lowerText(brushWorld_) == "lush") {
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+        wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
@@ -8732,6 +9564,15 @@ void EditorApp::ensureBrushPaints() {
         if (lowerText(brushWorld_) == "acid") {
             wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
             wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+            wanted.push_back(PartnerWant{"Desert", "Base-80"});
+        }
+        if (lowerText(brushWorld_) == "desert") {
+            wanted.push_back(PartnerWant{"Acid", "Base-85"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+            wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
+            wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+            wanted.push_back(PartnerWant{"Ice", "Base-85"});
         }
     }
     for (const PartnerWant& want : wanted) {
@@ -8918,7 +9759,10 @@ void EditorApp::ensureBrushPaints() {
                 }
                 continue;
             }
-            if (lowered.starts_with("blend-greenacid-")) {
+            if (lowered.starts_with("blend-greenacid-") || lowered.starts_with("blend-acidcrystal-")
+                || lowered.starts_with("blend-aciddesert-") || lowered.starts_with("blend-crystaldesert-")
+                || lowered.starts_with("blend-archidesert-") || lowered.starts_with("blend-desertgreen-")
+                || lowered.starts_with("blend-icedesert-")) {
                 continue;
             }
             if (lowered.starts_with("blend-acid-")) {
@@ -9047,7 +9891,8 @@ void EditorApp::ensureBrushPaints() {
         // other. Each picture is remembered as the land its color belongs to.
         if (greenLand != nullptr && acidLand != nullptr && lavaGround != nullptr) {
             for (const BrushPiece& piece : brushPieces_) {
-                if (!lowerText(piece.name).starts_with("blend-tri-")) {
+                if (!lowerText(piece.name).starts_with("blend-tri-acid-") || lowerText(piece.name).find("crystal") != std::string::npos
+                    || lowerText(piece.name).find("desert") != std::string::npos) {
                     continue;
                 }
                 try {
@@ -9214,6 +10059,202 @@ void EditorApp::ensureBrushPaints() {
             }
         }
     }
+    // Acid Base-85 and Desert Base-80 sit in the same height band, so the colour
+    // tells each tile's land. Pale sand is Desert; darker olive is Acid.
+    {
+        const BrushPaint* acidLand = nullptr;
+        const BrushPaint* desertLand = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Acid" && height == 85) {
+                acidLand = paint;
+            } else if (family == "Desert" && height == 80) {
+                desertLand = paint;
+            }
+        }
+        if (acidLand != nullptr && desertLand != nullptr) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (!lowerText(piece.name).starts_with("blend-aciddesert-")) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(piece.sectionPath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                        const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                        const std::uint64_t hash = hashBrushTile(pixels);
+                        const auto existing = brushPictures_.find(hash);
+                        if (existing != brushPictures_.end() && !existing->second.fringe) {
+                            continue;
+                        }
+                        const int tx = tile % stamp.tileWidth;
+                        const int ty = tile / stamp.tileWidth;
+                        const BrushPaint* land = acidDesertTileIsDesert(pixels, lowerText(piece.name), tx, ty, stamp.tileWidth, stamp.tileHeight)
+                            ? desertLand : acidLand;
+                        brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+    }
+    // Crystal Base-85 and Desert Base-80 sit in the same height band, so the colour
+    // tells each tile's land. Pale sand is Desert; purple is Crystal.
+    {
+        const BrushPaint* crystalLand = nullptr;
+        const BrushPaint* desertLand = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Crystal" && height == 85) {
+                crystalLand = paint;
+            } else if (family == "Desert" && height == 80) {
+                desertLand = paint;
+            }
+        }
+        if (crystalLand != nullptr && desertLand != nullptr) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (!lowerText(piece.name).starts_with("blend-crystaldesert-")) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(piece.sectionPath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                        const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                        const std::uint64_t hash = hashBrushTile(pixels);
+                        const auto existing = brushPictures_.find(hash);
+                        if (existing != brushPictures_.end() && !existing->second.fringe) {
+                            continue;
+                        }
+                        const int tx = tile % stamp.tileWidth;
+                        const int ty = tile / stamp.tileWidth;
+                        const BrushPaint* land = crystalDesertTileIsDesert(pixels, lowerText(piece.name), tx, ty, stamp.tileWidth, stamp.tileHeight)
+                            ? desertLand : crystalLand;
+                        brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+    }
+    // Archipelago Base-78 and Desert Base-80 sit close in height, so the colour
+    // tells each tile's land. Paler sand is Archipelago; darker orange sand is Desert.
+    {
+        const BrushPaint* archiLand = nullptr;
+        const BrushPaint* desertLand = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Archi" && height == 78) {
+                archiLand = paint;
+            } else if (family == "Desert" && height == 80) {
+                desertLand = paint;
+            }
+        }
+        if (archiLand != nullptr && desertLand != nullptr) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (!lowerText(piece.name).starts_with("blend-archidesert-")) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(piece.sectionPath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                        const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                        const std::uint64_t hash = hashBrushTile(pixels);
+                        const auto existing = brushPictures_.find(hash);
+                        if (existing != brushPictures_.end() && !existing->second.fringe) {
+                            continue;
+                        }
+                        const int tx = tile % stamp.tileWidth;
+                        const int ty = tile / stamp.tileWidth;
+                        const BrushPaint* land = archiDesertTileIsDesert(pixels, lowerText(piece.name), tx, ty, stamp.tileWidth, stamp.tileHeight)
+                            ? desertLand : archiLand;
+                        brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+    }
+    // GreenWorld Base-85 and Desert Base-80 sit in the same height band, so the colour
+    // tells each tile's land. Green is grass; orange sand is Desert.
+    {
+        const BrushPaint* greenLand = nullptr;
+        const BrushPaint* desertLand = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Green" && height == 85) {
+                greenLand = paint;
+            } else if (family == "Desert" && height == 80) {
+                desertLand = paint;
+            }
+        }
+        if (greenLand != nullptr && desertLand != nullptr) {
+            for (const BrushPiece& piece : brushPieces_) {
+                if (!lowerText(piece.name).starts_with("blend-desertgreen-")) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(piece.sectionPath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    const int tiles = stamp.tileWidth * stamp.tileHeight;
+                    for (int tile = 0; tile < tiles; ++tile) {
+                        const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                        const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                        const std::uint64_t hash = hashBrushTile(pixels);
+                        const auto existing = brushPictures_.find(hash);
+                        if (existing != brushPictures_.end() && !existing->second.fringe) {
+                            continue;
+                        }
+                        const int tx = tile % stamp.tileWidth;
+                        const int ty = tile / stamp.tileWidth;
+                        const BrushPaint* land = desertGreenTileIsDesert(pixels, lowerText(piece.name), tx, ty, stamp.tileWidth, stamp.tileHeight)
+                            ? desertLand : greenLand;
+                        brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+    }
     // Lush grass and lava dirt meet across heights that also sit near other paints.
     // The picture keeps each tile on the land its color belongs to.
     const BrushPaint* lushLavaLand = nullptr;
@@ -9289,6 +10330,830 @@ void EditorApp::ensureBrushPaints() {
                         continue;
                     }
                     const BrushPaint* land = iceMarsTileIsIce(pixels) ? iceLand : marsLand;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Ice Base-85 and Lava Base-86 are one apart, too close for the height to choose, so the
+    // picture tells the two lands apart: snow is white and blue, lava dirt is brown.
+    const BrushPaint* iceLavaIce = nullptr;
+    const BrushPaint* iceLavaLava = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Ice" && trailingNumber(paint->name) == 85) {
+            iceLavaIce = paint;
+        } else if (blendWorldName(paint->category) == "Lava" && trailingNumber(paint->name) == 86) {
+            iceLavaLava = paint;
+        }
+    }
+    if (iceLavaIce != nullptr && iceLavaLava != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-icelava-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = iceMarsTileIsIce(pixels) ? iceLavaIce : iceLavaLava;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Ice Base-85 and Archipelago Base-78 tiles: snow is white and blue, sand is cream.
+    const BrushPaint* iceArchiIce = nullptr;
+    const BrushPaint* iceArchiSand = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Ice" && trailingNumber(paint->name) == 85) {
+            iceArchiIce = paint;
+        } else if (blendWorldName(paint->category) == "Archi" && trailingNumber(paint->name) == 78) {
+            iceArchiSand = paint;
+        }
+    }
+    if (iceArchiIce != nullptr && iceArchiSand != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-icearchi-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = iceMarsTileIsIce(pixels) ? iceArchiIce : iceArchiSand;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Ice Base-85 and Desert Base-80 sit in the same height band, so the colour
+    // tells each tile's land. Snow is white and blue; Desert sand is orange.
+    const BrushPaint* iceDesertIce = nullptr;
+    const BrushPaint* iceDesertSand = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Ice" && trailingNumber(paint->name) == 85) {
+            iceDesertIce = paint;
+        } else if (blendWorldName(paint->category) == "Desert" && trailingNumber(paint->name) == 80) {
+            iceDesertSand = paint;
+        }
+    }
+    if (iceDesertIce != nullptr && iceDesertSand != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-icedesert-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    const auto existing = brushPictures_.find(hash);
+                    // A picture that is plain ground keeps its reading; a blend reading by height is replaced.
+                    if (existing != brushPictures_.end() && !existing->second.fringe) {
+                        continue;
+                    }
+                    const BrushPaint* land = iceMarsTileIsIce(pixels) ? iceDesertIce : iceDesertSand;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
+    // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.
+    if (iceLavaIce != nullptr && iceLavaLava != nullptr) {
+        const BrushPaint* thirds[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Green" && height == 85) {
+                thirds[0] = paint;
+            } else if (family == "Archi" && height == 78) {
+                thirds[1] = paint;
+            } else if (family == "Mars" && height == 85) {
+                thirds[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            if (!lowered.starts_with("blend-tri-") || lowered.starts_with("blend-tri-acid-") || lowered.find("lush") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("acid") != std::string::npos
+                || lowered.find("desert") != std::string::npos) {
+                continue;
+            }
+            // The third land is in the name: Blend-Tri-Ice-T-Archi-L or Blend-Tri-Mars-T-Ice-L.
+            const char* third = lowered.find("grass") != std::string::npos ? "grass"
+                : lowered.find("archi") != std::string::npos ? "archi"
+                : lowered.find("mars") != std::string::npos ? "mars" : nullptr;
+            const BrushPaint* thirdPaint = third == nullptr ? nullptr
+                : thirds[std::string_view(third) == "grass" ? 0 : std::string_view(third) == "archi" ? 1 : 2];
+            if (thirdPaint == nullptr) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triIceTileLand(pixels, third);
+                    const BrushPaint* land = which == 0 ? iceLavaIce : which == 1 ? thirdPaint : iceLavaLava;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Crystal Base-85 and Lava Base-86 are one apart, too close for the height to choose,
+    // so the picture tells the two lands apart.
+    const BrushPaint* crystalLand = nullptr;
+    const BrushPaint* crystalLava = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Crystal" && trailingNumber(paint->name) == 85) {
+            crystalLand = paint;
+        } else if (blendWorldName(paint->category) == "Lava" && trailingNumber(paint->name) == 86) {
+            crystalLava = paint;
+        }
+    }
+    if (crystalLand != nullptr && crystalLava != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-crystallava-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = crystalLavaTileIsCrystal(pixels) ? crystalLand : crystalLava;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // GreenWorld Base-85 and Lush Base-77 tiles in their blend: the colour of the grass tells
+    // them apart, since the blend's heights ramp between the two.
+    const BrushPaint* greenLushGreen = nullptr;
+    const BrushPaint* greenLushLush = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Green" && trailingNumber(paint->name) == 85) {
+            greenLushGreen = paint;
+        } else if (blendWorldName(paint->category) == "Lush" && trailingNumber(paint->name) == 77) {
+            greenLushLush = paint;
+        }
+    }
+    if (greenLushGreen != nullptr && greenLushLush != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-greenlush-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = greenLushTileIsGreen(pixels) ? greenLushGreen : greenLushLush;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lush Base-77 and Mars Base-85 tiles in their blend: the heights ramp between the two, so
+    // the colour tells them apart.
+    const BrushPaint* lushMarsLush = nullptr;
+    const BrushPaint* lushMarsMars = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Lush" && trailingNumber(paint->name) == 77) {
+            lushMarsLush = paint;
+        } else if (blendWorldName(paint->category) == "Mars" && trailingNumber(paint->name) == 85) {
+            lushMarsMars = paint;
+        }
+    }
+    if (lushMarsLush != nullptr && lushMarsMars != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-lushmars-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = lushMarsTileIsMars(pixels) ? lushMarsMars : lushMarsLush;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, GreenWorld and Lush three-way tiles sit at 77, 85 and 86, and their heights ramp, so the
+    // picture tells each tile's land.
+    {
+        const BrushPaint* triLava = nullptr;
+        const BrushPaint* triGrass = nullptr;
+        const BrushPaint* triLush = nullptr;
+        const BrushPaint* triMars = nullptr;
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                triLava = paint;
+            } else if (family == "Green" && height == 85) {
+                triGrass = paint;
+            } else if (family == "Lush" && height == 77) {
+                triLush = paint;
+            } else if (family == "Mars" && height == 85) {
+                triMars = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            if (!lowered.starts_with("blend-tri-") || lowered.find("lush") == std::string::npos) {
+                continue;
+            }
+            // A Lush three-way name with Mars in it is the Lava, Lush and Mars set.
+            const bool marsSet = lowered.find("mars") != std::string::npos;
+            const BrushPaint* triThird = marsSet ? triMars : triGrass;
+            if (triLava == nullptr || triThird == nullptr || triLush == nullptr) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triLushTileLand(pixels, marsSet);
+                    const BrushPaint* land = which == 0 ? triLava : which == 1 ? triThird : triLush;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Archipelago and Crystal blend tiles, and Lava, Crystal and Archipelago three-way tiles: the
+    // colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[1] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool twoWay = lowered.starts_with("blend-archicrystal-");
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("crystal") != std::string::npos
+                && lowered.find("acid") == std::string::npos && lowered.find("desert") == std::string::npos;
+            if ((!twoWay && !threeWay) || lands[1] == nullptr || lands[2] == nullptr || (threeWay && lands[0] == nullptr)) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    int which = crystalArchiTileLand(pixels);
+                    if (twoWay && which == 0) {
+                        which = 2;
+                    }
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Acid Base-85 and Crystal Base-85, and Acid, Crystal and Lava three-way tiles: the colour
+    // tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool twoWay = lowered.starts_with("blend-acidcrystal-");
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("acid") != std::string::npos
+                && (lowered.find("crystal") != std::string::npos || lowered.starts_with("blend-tri-lava-"));
+            if ((!twoWay && !threeWay) || lands[1] == nullptr || lands[2] == nullptr || (threeWay && lands[0] == nullptr)) {
+                continue;
+            }
+            if (threeWay && (lowered.find("grass") != std::string::npos || lowered.find("desert") != std::string::npos)) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    int which = twoWay ? (acidCrystalTileIsCrystal(pixels) ? 2 : 1) : triAcidCrystalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Acid, Desert and Lava three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && (lowered.find("acid") != std::string::npos || lowered.starts_with("blend-tri-lava-"));
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("crystal") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triAcidDesertTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Crystal and Desert three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("crystal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("grass") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("ice") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triCrystalDesertTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, GreenWorld and Desert three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Green" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("grass") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triGreenDesertTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Archipelago and Desert three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[1] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("archi") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("ice") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triArchiDesertTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Ice and Desert three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Ice" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("ice") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triIceDesertTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Desert Base-80 is really 81 to 90 high, so by height its sand is often nearer Lava Base-86
+    // than Base-80. The Desert and Lava blend tiles are told apart by their colour instead, and
+    // that replaces any reading by height they were given above.
+    const BrushPaint* desertSand = nullptr;
+    const BrushPaint* desertLava = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Desert" && trailingNumber(paint->name) == 80) {
+            desertSand = paint;
+        } else if (blendWorldName(paint->category) == "Lava" && trailingNumber(paint->name) == 86) {
+            desertLava = paint;
+        }
+    }
+    if (desertSand != nullptr && desertLava != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-desert-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    const auto existing = brushPictures_.find(hash);
+                    // A picture that is plain ground keeps its reading; a blend reading by height is replaced.
+                    if (existing != brushPictures_.end() && !existing->second.fringe) {
+                        continue;
+                    }
+                    const BrushPaint* land = desertLavaTileIsDesert(pixels) ? desertSand : desertLava;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                    sharedPictures_.erase(hash);
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // GreenWorld and Metal share Base-85, so the picture tells the two lands apart.
+    const BrushPaint* greenMetalGrass = nullptr;
+    const BrushPaint* greenMetalMetal = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Green" && trailingNumber(paint->name) == 85) {
+            greenMetalGrass = paint;
+        } else if (blendWorldName(paint->category) == "Metal" && trailingNumber(paint->name) == 85) {
+            greenMetalMetal = paint;
+        }
+    }
+    if (greenMetalGrass != nullptr && greenMetalMetal != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-greenmetal-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = greenMetalTileIsGrass(pixels) ? greenMetalGrass : greenMetalMetal;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // GreenWorld and Mars share Base-85, so the picture tells the two lands apart.
+    const BrushPaint* greenMarsGrass = nullptr;
+    const BrushPaint* greenMarsMars = nullptr;
+    for (const BrushPaint* paint : pictured) {
+        if (blendWorldName(paint->category) == "Green" && trailingNumber(paint->name) == 85) {
+            greenMarsGrass = paint;
+        } else if (blendWorldName(paint->category) == "Mars" && trailingNumber(paint->name) == 85) {
+            greenMarsMars = paint;
+        }
+    }
+    if (greenMarsGrass != nullptr && greenMarsMars != nullptr) {
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with("blend-greenmars-")) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = greenMarsTileIsGrass(pixels) ? greenMarsGrass : greenMarsMars;
                     brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
                 }
             } catch (const std::exception&) {

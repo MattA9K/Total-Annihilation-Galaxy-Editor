@@ -70,7 +70,21 @@ namespace galaxy {
 // with pieces named Blend-IceMars, and the mask marks the ice. Ice Base-85 also
 // joins GreenWorld Base-85 with pieces named Blend-IceGreen, and the mask marks
 // the ice. Lush Base-77 joins Ice Base-85 with pieces named Blend-LushIce, and
-// the mask marks the ice. Ice keeps its own
+// the mask marks the ice. GreenWorld Base-85 joins Mars Base-85 with pieces named
+// Blend-GreenMars, and the mask marks Mars. Crystal Base-85 joins Lava Base-86 with
+// pieces named Blend-CrystalLava, and the mask marks Crystal. GreenWorld Base-85 joins
+// Metal Base-85 with pieces named Blend-GreenMetal, and the mask marks Metal. Ice Base-85
+// joins Lava Base-86 with pieces named Blend-IceLava, and Archipelago Base-78 with pieces named
+// Blend-IceArchi; both marks are the ice. GreenWorld Base-85 joins Lush Base-77 with pieces named
+// Blend-GreenLush, and the mask marks the GreenWorld grass. Lush Base-77 joins Mars Base-85 with
+// pieces named Blend-LushMars, and the mask marks Mars. Archipelago Base-78 joins Crystal Base-85
+// with pieces named Blend-ArchiCrystal, and the mask marks the sand. Acid Base-85 joins Crystal
+// Base-85 with pieces named Blend-AcidCrystal, and the mask marks Acid. Acid Base-85 also joins
+// Desert Base-80 with pieces named Blend-AcidDesert, and the mask marks Acid. Crystal Base-85
+// joins Desert Base-80 with pieces named Blend-CrystalDesert, and the mask marks Crystal. Archipelago Base-78
+// joins Desert Base-80 with pieces named Blend-ArchiDesert, and the mask marks the sand. GreenWorld Base-85
+// joins Desert Base-80 with pieces named Blend-DesertGreen, and the mask marks Desert. Ice Base-85
+// joins Desert Base-80 with pieces named Blend-IceDesert, and the mask marks the ice. Ice keeps its own
 // coast, so Mars beside the water does not replace that coast. Archipelago's
 // own coast from Base-0 stays, so grass beside the water does not replace that
 // coast. A cell
@@ -79,7 +93,13 @@ namespace galaxy {
 // and Base-85 use a CoastDSL piece, Base-0, Base-68 and Base-78 use one too, and
 // Base-219 with Base-85 and either Base-0 or Base-68 uses a CoastalCliff piece.
 // GreenWorld, Acid and Lava share a cell when Acid fills one side and GreenWorld
-// and Lava split the other. Those pieces are Blend-Tri-Acid.
+// and Lava split the other. Those pieces are Blend-Tri-Acid. Acid, Crystal and Lava
+// share a cell the same way as Crystal and Archipelago, and every name has Acid in it.
+// Acid, Desert and Lava share a cell the same way, and every name has Desert in it.
+// Lava, Crystal and Desert share a cell the same way, and every name has Crystal and Desert in it.
+// Lava, GreenWorld and Desert share a cell the same way, and every name has Grass and Desert in it.
+// Lava, Archipelago and Desert share a cell the same way, and every name has Archi and Desert in it.
+// Lava, Ice and Desert share a cell the same way, and every name has Ice and Desert in it.
 inline constexpr int kBrushCellTiles = 16;
 
 // Corner bits of a cell mask.
@@ -218,8 +238,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 30>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 30> rules = {{
+inline const std::array<BrushTransitionRule, 32>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 32> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -245,8 +265,12 @@ inline const std::array<BrushTransitionRule, 30>& brushTransitionRules() {
         {155, 230, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
         {80, 86, TransitionStyle::WorldBlend},
+        // The graph applies this only to Acid, Crystal, GreenWorld, or Ice beside Desert.
+        {80, 85, TransitionStyle::WorldBlend},
         {78, 86, TransitionStyle::WorldBlend},
-        // Same height. The graph applies this to GreenWorld beside Acid, Ice beside Mars, and Ice beside GreenWorld.
+        // The graph applies this only to Archipelago beside Desert.
+        {78, 80, TransitionStyle::WorldBlend},
+        // Same height. The graph applies this to GreenWorld beside Acid, Ice beside Mars, Ice beside GreenWorld, and Acid beside Crystal.
         {85, 85, TransitionStyle::WorldBlend},
         // The graph applies this only to Lush beside Archipelago.
         {77, 78, TransitionStyle::WorldBlend},
@@ -298,6 +322,12 @@ inline std::string blendWorldName(std::string_view category) {
     }
     if (lower.find("ice") != std::string::npos) {
         return "Ice";
+    }
+    if (lower.find("crystal") != std::string::npos) {
+        return "Crystal";
+    }
+    if (lower.find("metal") != std::string::npos) {
+        return "Metal";
     }
     return {};
 }
@@ -396,8 +426,8 @@ public:
                         const bool differentWorld = named && worlds_[static_cast<std::size_t>(a)] != worlds_[static_cast<std::size_t>(b)];
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
-                        // Base-85 beside Base-85 is GreenWorld beside Acid, Ice beside Mars, or Ice beside GreenWorld.
-                        // Mars still reaches GreenWorld and Acid through Lava.
+                        // Base-85 beside Base-85 is GreenWorld beside Acid, Ice beside Mars, Ice beside GreenWorld,
+                        // or GreenWorld beside Mars. Mars still reaches Acid through GreenWorld or Lava.
                         const bool greenAcid = rule.lowerHeight == 85 && rule.upperHeight == 85
                             && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Acid")
                                 || (worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Green"));
@@ -407,18 +437,39 @@ public:
                         const bool iceGreen = rule.lowerHeight == 85 && rule.upperHeight == 85
                             && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Green")
                                 || (worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
-                        // Ice keeps its own coast and cliffs. Another land beside Ice water,
-                        // or Lava and Archipelago beside Ice, goes through the ground between them.
-                        const bool foreignIceCoast = rule.lowerHeight == 0 && rule.upperHeight == 85 && differentWorld
-                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice");
-                        const bool iceBesideLava = rule.lowerHeight == 85 && rule.upperHeight == 86
-                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice");
-                        const bool iceBesideArchi = rule.lowerHeight == 78 && rule.upperHeight == 85
-                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice");
-                        const bool foreignIceCliff = differentWorld
-                            && (worlds_[static_cast<std::size_t>(a)] == "Ice" || worlds_[static_cast<std::size_t>(b)] == "Ice")
-                            && ((rule.lowerHeight == 85 && rule.upperHeight == 170) || (rule.lowerHeight == 85 && rule.upperHeight == 219)
-                                || (rule.lowerHeight == 85 && rule.upperHeight == 255));
+                        const bool greenMars = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Mars")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Mars" && worlds_[static_cast<std::size_t>(b)] == "Green"));
+                        const bool greenMetal = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Metal")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Metal" && worlds_[static_cast<std::size_t>(b)] == "Green"));
+                        const bool acidCrystal = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Crystal")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Crystal" && worlds_[static_cast<std::size_t>(b)] == "Acid"));
+                        const bool acidDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Desert")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Acid"));
+                        const bool crystalDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Crystal" && worlds_[static_cast<std::size_t>(b)] == "Desert")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Crystal"));
+                        const bool archiDesert = rule.lowerHeight == 78 && rule.upperHeight == 80
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Archi" && worlds_[static_cast<std::size_t>(b)] == "Desert")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Archi"));
+                        const bool greenDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Desert")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Green"));
+                        const bool iceDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
+                            && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Desert")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
+                        // A land keeps its own coast. Another land's Base-85 beside the water, such as
+                        // GreenWorld beside Mars water or Ice water, goes through that land's own ground.
+                        const bool foreignIceCoast = rule.lowerHeight == 0 && rule.upperHeight == 85 && differentWorld;
+                        // Desert's own coast from Base-0 stays, so Acid or Crystal beside Desert water
+                        // does not take that coast, and Acid or Crystal water does not take Desert's Base-80 coast.
+                        const bool foreignDesertCoast = rule.lowerHeight == 0 && rule.upperHeight == 80 && differentWorld;
+                        // Cliffs stay inside one land: another land's Base-85 beside Lush Base-255 or
+                        // GreenWorld Base-219 goes through that land's own ground.
+                        const bool foreignIceCliff = differentWorld && rule.style == TransitionStyle::Cliff;
                         // Base-77 beside Base-78 is the Lush to Archipelago blend only.
                         const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78
                             && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Archi")
@@ -427,15 +478,21 @@ public:
                         const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86
                             && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Lava")
                                 || (worlds_[static_cast<std::size_t>(a)] == "Lava" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
-                        // Base-77 beside Base-85 is the Lush to Ice blend only.
+                        // Base-77 beside Base-85 is the Lush to Ice, GreenWorld, or Mars blend.
                         const bool lushIce = rule.lowerHeight == 77 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Ice")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
-                        if (foreignLand || foreignShallow || foreignIceCoast || iceBesideLava || iceBesideArchi || foreignIceCliff
-                            || (rule.lowerHeight == rule.upperHeight && !greenAcid && !iceMars && !iceGreen)
+                            && (((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Ice")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Lush"))
+                                || ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Green")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Lush"))
+                                || ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Mars")
+                                || (worlds_[static_cast<std::size_t>(a)] == "Mars" && worlds_[static_cast<std::size_t>(b)] == "Lush")));
+                        if (foreignLand || foreignShallow || foreignIceCoast || foreignDesertCoast || foreignIceCliff
+                            || (rule.lowerHeight == rule.upperHeight && !greenAcid && !iceMars && !iceGreen && !greenMars && !greenMetal && !acidCrystal)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 78 && !archiLush)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 86 && !lushLava)
-                            || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lushIce)) {
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lushIce)
+                            || (rule.lowerHeight == 80 && rule.upperHeight == 85 && !acidDesert && !crystalDesert && !greenDesert && !iceDesert)
+                            || (rule.lowerHeight == 78 && rule.upperHeight == 80 && !archiDesert)) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
@@ -559,11 +616,577 @@ inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, in
     return "Cliff-" + std::to_string(graph.height(highLevel)) + "-" + piece.substr(6);
 }
 
+// Ice, Lava, and one more land in one cell: GreenWorld, Archipelago, or Mars. One land fills a
+// side and the other two take one corner each across from it, so every edge in the cell is
+// straight across or straight down. The piece names the filled land and its side, then where
+// one corner land sits. Ice or lava filling a side names the third land, and the third land
+// filling a side names the ice:
+//  - Blend-Tri-Ice-T-Grass-L: ice along the top, grass bottom left, lava bottom right.
+//  - Blend-Tri-Lava-T-Archi-R: lava along the top, sand bottom right, ice bottom left.
+//  - Blend-Tri-Mars-T-Ice-L: Mars along the top, ice bottom left, lava bottom right.
+// Any other layout of these three lands has no section.
+inline std::string triIceName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int iceLevel = -1;
+    int thirdLevel = -1;
+    int lavaLevel = -1;
+    const char* thirdName = nullptr;
+    for (const int level : corners) {
+        const std::string_view world = graph.world(level);
+        const int height = graph.height(level);
+        if (world == "Ice" && height == 85) {
+            iceLevel = level;
+        } else if (world == "Lava" && height == 86) {
+            lavaLevel = level;
+        } else {
+            const char* name = world == "Green" && height == 85 ? "Grass"
+                : world == "Archi" && height == 78 ? "Archi"
+                : world == "Mars" && height == 85 ? "Mars" : nullptr;
+            if (name == nullptr || (thirdName != nullptr && thirdLevel != level)) {
+                return {};
+            }
+            thirdLevel = level;
+            thirdName = name;
+        }
+    }
+    if (iceLevel < 0 || thirdLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{iceLevel, "Ice"}, {thirdLevel, thirdName}, {lavaLevel, "Lava"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        // The other land the name gives: the third land when ice or lava fills a side, otherwise ice.
+        const Land& named = fill.level == thirdLevel ? lands[0] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where;
+    }
+    return {};
+}
+
+// Lava, Lush, and GreenWorld or Mars in one cell, laid out the same way as triIceName. Every
+// name has Lush in it.
+//  - With GreenWorld: Lava or grass filling a side names the Lush (Blend-Tri-Grass-T-Lush-L has
+//    grass along the top, Lush bottom left, lava bottom right), and Lush filling a side names the
+//    grass (Blend-Tri-Lush-T-Grass-L).
+//  - With Mars: Mars filling a side names the Lush (Blend-Tri-Mars-T-Lush-L), Lush filling a side
+//    names the Mars (Blend-Tri-Lush-T-Mars-L), and lava filling a side names the Lush and ends in
+//    -Mars (Blend-Tri-Lava-T-Lush-L-Mars), so it does not match the GreenWorld piece.
+inline std::string triLushName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int lushLevel = -1;
+    int greenLevel = -1;
+    int lavaLevel = -1;
+    const char* thirdName = nullptr;
+    for (const int level : corners) {
+        if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else if (graph.height(level) == 85 && (graph.world(level) == "Green" || graph.world(level) == "Mars")) {
+            const char* name = graph.world(level) == "Green" ? "Grass" : "Mars";
+            if (greenLevel >= 0 && greenLevel != level) {
+                return {};
+            }
+            greenLevel = level;
+            thirdName = name;
+        } else {
+            return {};
+        }
+    }
+    if (lushLevel < 0 || greenLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const bool mars = std::string_view(thirdName) == "Mars";
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {greenLevel, thirdName}, {lushLevel, "Lush"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == lushLevel ? lands[1] : lands[2];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = mars && fill.level == lavaLevel ? "-Mars" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Crystal and Archipelago in one cell, laid out the same way as triIceName. Lava or
+// Archipelago filling a side names the Crystal (Blend-Tri-Lava-T-Crystal-L has lava along the top,
+// Crystal bottom left, sand bottom right), and Crystal filling a side names the sand
+// (Blend-Tri-Crystal-T-Archi-L). Every name has Crystal in it.
+inline std::string triCrystalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int crystalLevel = -1;
+    int archiLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (crystalLevel < 0 || archiLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {archiLevel, "Archi"}, {crystalLevel, "Crystal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == crystalLevel ? lands[1] : lands[2];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where;
+    }
+    return {};
+}
+
+// Acid, Crystal and Lava in one cell, laid out the same way as triCrystalName. Acid filling a
+// side names the Crystal (Blend-Tri-Acid-T-Crystal-L has Acid along the top, Crystal bottom left,
+// lava bottom right). Crystal or Lava filling a side names the Acid (Blend-Tri-Crystal-T-Acid-L,
+// Blend-Tri-Lava-T-Acid-L). Every name has Acid in it, so none matches the Archipelago Crystal set.
+inline std::string triAcidCrystalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int acidLevel = -1;
+    int crystalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (acidLevel < 0 || crystalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {acidLevel, "Acid"}, {crystalLevel, "Crystal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == acidLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where;
+    }
+    return {};
+}
+
+// Acid, Desert and Lava in one cell. Desert filling a side names the Acid
+// (Blend-Tri-Desert-T-Acid-L). Acid or Lava filling a side names the Desert
+// (Blend-Tri-Acid-T-Desert-L, Blend-Tri-Lava-T-Desert-L). Every name has Desert
+// in it, so none matches the GreenWorld Acid set or the Acid Crystal set.
+inline std::string triAcidDesertName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int acidLevel = -1;
+    int desertLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (acidLevel < 0 || desertLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {acidLevel, "Acid"}, {desertLevel, "Desert"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == desertLevel ? lands[1] : lands[2];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where;
+    }
+    return {};
+}
+
+// Lava, Crystal and Desert in one cell. Crystal filling a side names Desert
+// (Blend-Tri-Crystal-T-Desert-L). Desert filling a side names Crystal
+// (Blend-Tri-Desert-T-Crystal-L). Lava filling a side names Crystal and ends in
+// -Desert (Blend-Tri-Lava-T-Crystal-L-Desert), so it does not match the
+// Archipelago Crystal piece or the Acid Desert piece. Every name has Crystal
+// and Desert in it.
+inline std::string triCrystalDesertName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int crystalLevel = -1;
+    int desertLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (crystalLevel < 0 || desertLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {crystalLevel, "Crystal"}, {desertLevel, "Desert"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == crystalLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Desert" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, GreenWorld and Desert in one cell. Grass filling a side names Desert
+// (Blend-Tri-Grass-T-Desert-L). Desert filling a side names Grass
+// (Blend-Tri-Desert-T-Grass-L). Lava filling a side names Grass and ends in
+// -Desert (Blend-Tri-Lava-T-Grass-L-Desert), so it does not match the Ice Grass
+// piece or the Acid Desert piece. Every name has Grass and Desert in it.
+inline std::string triGreenDesertName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int greenLevel = -1;
+    int desertLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Green" && graph.height(level) == 85) {
+            greenLevel = level;
+        } else if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (greenLevel < 0 || desertLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {greenLevel, "Grass"}, {desertLevel, "Desert"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == greenLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Desert" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Archipelago and Desert in one cell. Archipelago filling a side names Desert
+// (Blend-Tri-Archi-T-Desert-L). Desert filling a side names Archipelago
+// (Blend-Tri-Desert-T-Archi-L). Lava filling a side names Archipelago and ends in
+// -Desert (Blend-Tri-Lava-T-Archi-L-Desert), so it does not match the Ice Archipelago
+// piece or the Acid Desert piece. Every name has Archi and Desert in it.
+inline std::string triArchiDesertName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int archiLevel = -1;
+    int desertLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (archiLevel < 0 || desertLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {archiLevel, "Archi"}, {desertLevel, "Desert"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == archiLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Desert" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Ice and Desert in one cell. Ice filling a side names Desert
+// (Blend-Tri-Ice-T-Desert-L). Desert filling a side names Ice
+// (Blend-Tri-Desert-T-Ice-L). Lava filling a side names Ice and ends in
+// -Desert (Blend-Tri-Lava-T-Ice-L-Desert), so it does not match the Ice Grass
+// piece or the Acid Desert piece. Every name has Ice and Desert in it.
+inline std::string triIceDesertName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int iceLevel = -1;
+    int desertLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Ice" && graph.height(level) == 85) {
+            iceLevel = level;
+        } else if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (iceLevel < 0 || desertLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {iceLevel, "Ice"}, {desertLevel, "Desert"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == iceLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Desert" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
 // GreenWorld, Acid and Lava in one cell. Acid fills one side. Grass and lava
 // split the opposite side, so the piece is Blend-Tri-Acid-R-Grass-B when acid
 // is on the right and grass is the bottom of the left side. Any other layout
-// of these three lands has no section.
+// of these three lands has no section. Ice and Lava with a third land use triIceName.
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    if (std::string ice = triIceName(graph, corners); !ice.empty()) {
+        return ice;
+    }
+    if (std::string lush = triLushName(graph, corners); !lush.empty()) {
+        return lush;
+    }
+    if (std::string crystal = triCrystalName(graph, corners); !crystal.empty()) {
+        return crystal;
+    }
+    if (std::string acidCrystal = triAcidCrystalName(graph, corners); !acidCrystal.empty()) {
+        return acidCrystal;
+    }
+    if (std::string acidDesert = triAcidDesertName(graph, corners); !acidDesert.empty()) {
+        return acidDesert;
+    }
+    if (std::string crystalDesert = triCrystalDesertName(graph, corners); !crystalDesert.empty()) {
+        return crystalDesert;
+    }
+    if (std::string greenDesert = triGreenDesertName(graph, corners); !greenDesert.empty()) {
+        return greenDesert;
+    }
+    if (std::string archiDesert = triArchiDesertName(graph, corners); !archiDesert.empty()) {
+        return archiDesert;
+    }
+    if (std::string iceDesert = triIceDesertName(graph, corners); !iceDesert.empty()) {
+        return iceDesert;
+    }
     int greenLevel = -1;
     int acidLevel = -1;
     int lavaLevel = -1;
@@ -645,6 +1268,16 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 86) {
             marked = sorted[0];
             family = "ArchiLava";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 85
+            && graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Crystal") {
+            // The mask marks the sand. Blend-ArchiCrystal-T has Archipelago along the top.
+            marked = sorted[0];
+            family = "ArchiCrystal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 85
+            && graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Ice") {
+            // The mask marks the ice. Blend-IceArchi-T has snow along the top.
+            marked = sorted[1];
+            family = "IceArchi";
         } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 78
             && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Archi")
                 || (graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Lush"))) {
@@ -657,8 +1290,62 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the sand. Blend-ArchiAcid-T has Archipelago along the top.
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
             family = "ArchiAcid";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 80)
+                || (graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 78))
+            && ((graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Archi"))) {
+            // The mask marks the sand. Blend-ArchiDesert-T has Archipelago along the top.
+            marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+            family = "ArchiDesert";
         } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+        } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Lava") {
+            // The mask marks the ice. Blend-IceLava-T has snow along the top.
+            marked = sorted[0];
+            family = "IceLava";
+        } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Lava") {
+            // The mask marks Crystal. Blend-CrystalLava-T has Crystal along the top.
+            marked = sorted[0];
+            family = "CrystalLava";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Crystal")
+                || (graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Acid"))) {
+            // The mask marks Acid. Blend-AcidCrystal-T has Acid along the top.
+            marked = graph.world(sorted[0]) == "Acid" ? sorted[0] : sorted[1];
+            family = "AcidCrystal";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 80))
+            && ((graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Acid"))) {
+            // The mask marks Acid. Blend-AcidDesert-T has Acid along the top.
+            marked = graph.world(sorted[0]) == "Acid" ? sorted[0] : sorted[1];
+            family = "AcidDesert";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 80))
+            && ((graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Crystal"))) {
+            // The mask marks Crystal. Blend-CrystalDesert-T has Crystal along the top.
+            marked = graph.world(sorted[0]) == "Crystal" ? sorted[0] : sorted[1];
+            family = "CrystalDesert";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 80))
+            && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Green"))) {
+            // The mask marks Desert. Blend-DesertGreen-T has Desert along the top, as Blend-Archi-T has sand.
+            marked = graph.world(sorted[0]) == "Desert" ? sorted[0] : sorted[1];
+            family = "DesertGreen";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 80))
+            && ((graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Ice"))) {
+            // The mask marks the ice. Blend-IceDesert-T has ice along the top.
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "IceDesert";
         } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
             marked = sorted[0];
         } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
@@ -673,6 +1360,16 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the ice. Blend-IceGreen-T has ice along the top.
             marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
             family = "IceGreen";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85
+            && graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Green") {
+            // The mask marks the GreenWorld grass. Blend-GreenLush-T has GreenWorld along the top.
+            marked = sorted[1];
+            family = "GreenLush";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85
+            && graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Mars") {
+            // The mask marks Mars. Blend-LushMars-B has Mars along the bottom.
+            marked = sorted[1];
+            family = "LushMars";
         } else if (style == TransitionStyle::WorldBlend
             && ((graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85)
                 || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 77))
@@ -681,6 +1378,18 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the ice. Blend-LushIce-T has ice along the top.
             marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
             family = "LushIce";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Green"))) {
+            // The mask marks Metal. Blend-GreenMetal-T has Metal along the top.
+            marked = graph.world(sorted[0]) == "Metal" ? sorted[0] : sorted[1];
+            family = "GreenMetal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Mars")
+                || (graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Green"))) {
+            // The mask marks Mars. Blend-GreenMars-T has Mars along the top.
+            marked = graph.world(sorted[0]) == "Mars" ? sorted[0] : sorted[1];
+            family = "GreenMars";
         } else if (style == TransitionStyle::WorldBlend
             && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Acid")
                 || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Green"))) {
