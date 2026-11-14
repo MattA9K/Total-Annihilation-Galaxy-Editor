@@ -20,6 +20,23 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.11" ]; then
+  cat <<EOF
+
+## New
+
+**Lush.** Horizontal Mtn and Vertical Mtn place a mountain on Base-77 that grows as you drag along it. Island-27 16x16 places an island in the water. Hill-77 8x8, Hill-77 16x16, Swamp-77, and Pond-77 16x16 place hills, swamps, and ponds on Base-77, and Pools 8x8 has four more pools. Feature-255 places a mountain feature on Base-255.
+
+**Desert.** Huge-Hill-80 and Plateaus-80 place hills, plateaus, and mesas of several sizes on Base-80, with the cursor showing the size of the next one and N skipping to another. Hill-80 16x16 and Roughs-80 8x8 place hills and rough patches. Dunes-80 paints dunes one 16 x 16 cell at a time, and neighbouring dunes join up.
+
+**Acid.** Pools-85 places pools of two sizes on Base-85, and Hills-85 16x16, Mounds-85 16x16, Puddles-85 16x16, and Trails-85 16x16 place hills, mounds, puddles, and trails. Acid-0 16x16, Islands-0 16x16, and Islands-0 32x32 place acid patches and islands on Base-0.
+
+## Fixed
+
+**Lush Base-183.** Painting Base-183 on Base-77 no longer scatters cliff pieces across the map. Base-77 and Base-183 share the same grass picture, and the height now tells them apart.
+EOF
+fi
+
 if [ "$version" = "1.1.10" ]; then
   cat <<EOF
 
