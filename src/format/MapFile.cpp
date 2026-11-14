@@ -3,6 +3,8 @@
 #include "format/HpiArchive.hpp"
 #include "format/TaPalette.hpp"
 
+#include <zlib.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -1404,6 +1406,151 @@ std::vector<std::uint8_t> renderMapRgba(const LoadedMap& map) {
         }
     }
     return rgba;
+}
+
+namespace {
+
+void writeBe32(std::ostream& out, std::uint32_t value) {
+    const std::uint8_t bytes[4] = {
+        static_cast<std::uint8_t>(value >> 24),
+        static_cast<std::uint8_t>(value >> 16),
+        static_cast<std::uint8_t>(value >> 8),
+        static_cast<std::uint8_t>(value),
+    };
+    out.write(reinterpret_cast<const char*>(bytes), 4);
+}
+
+void writePngChunk(std::ostream& out, const char type[4], const std::uint8_t* data, std::size_t length) {
+    writeBe32(out, static_cast<std::uint32_t>(length));
+    out.write(type, 4);
+    if (length != 0 && data != nullptr) {
+        out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(length));
+    }
+    std::uint32_t crc = static_cast<std::uint32_t>(::crc32(0L, Z_NULL, 0));
+    crc = static_cast<std::uint32_t>(::crc32(crc, reinterpret_cast<const Bytef*>(type), 4));
+    if (length != 0 && data != nullptr) {
+        crc = static_cast<std::uint32_t>(::crc32(crc, data, static_cast<uInt>(length)));
+    }
+    writeBe32(out, crc);
+}
+
+}  // namespace
+
+void writeMapPng(const LoadedMap& map, const std::filesystem::path& path) {
+    require(map.tileWidth >= 1 && map.tileHeight >= 1, "The map has no tiles");
+    const int width = map.pixelWidth();
+    const int height = map.pixelHeight();
+    require(width > 0 && height > 0, "The map has no pixels");
+
+    const auto parent = path.parent_path();
+    const auto temp = (parent.empty() ? std::filesystem::path() : parent) / (path.filename().string() + ".galaxy-tmp");
+    std::error_code removeError;
+    std::filesystem::remove(temp, removeError);
+
+    try {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        require(static_cast<bool>(out), "Could not write " + temp.string());
+
+        static const std::uint8_t kSignature[] = {137, 80, 78, 71, 13, 10, 26, 10};
+        out.write(reinterpret_cast<const char*>(kSignature), 8);
+
+        std::uint8_t ihdr[13] = {};
+        ihdr[0] = static_cast<std::uint8_t>(width >> 24);
+        ihdr[1] = static_cast<std::uint8_t>(width >> 16);
+        ihdr[2] = static_cast<std::uint8_t>(width >> 8);
+        ihdr[3] = static_cast<std::uint8_t>(width);
+        ihdr[4] = static_cast<std::uint8_t>(height >> 24);
+        ihdr[5] = static_cast<std::uint8_t>(height >> 16);
+        ihdr[6] = static_cast<std::uint8_t>(height >> 8);
+        ihdr[7] = static_cast<std::uint8_t>(height);
+        ihdr[8] = 8;
+        ihdr[9] = 2;
+        writePngChunk(out, "IHDR", ihdr, sizeof(ihdr));
+
+        z_stream stream = {};
+        require(::deflateInit(&stream, Z_NO_COMPRESSION) == Z_OK, "Could not start PNG compression");
+        const auto endDeflate = [&stream]() {
+            ::deflateEnd(&stream);
+        };
+
+        std::vector<std::uint8_t> row(static_cast<std::size_t>(1) + static_cast<std::size_t>(width) * 3);
+        row[0] = 0;
+        std::vector<std::uint8_t> zOut(65536);
+        std::vector<std::uint8_t> idat;
+        idat.reserve(65536);
+
+        const auto flushIdat = [&]() {
+            if (!idat.empty()) {
+                writePngChunk(out, "IDAT", idat.data(), idat.size());
+                idat.clear();
+            }
+        };
+        const auto deflateRow = [&](int flush) {
+            int result = Z_OK;
+            do {
+                stream.next_out = zOut.data();
+                stream.avail_out = static_cast<uInt>(zOut.size());
+                result = ::deflate(&stream, flush);
+                const std::size_t produced = zOut.size() - stream.avail_out;
+                if (produced != 0) {
+                    idat.insert(idat.end(), zOut.begin(), zOut.begin() + static_cast<std::ptrdiff_t>(produced));
+                    if (idat.size() >= 65536) {
+                        flushIdat();
+                    }
+                }
+            } while (result == Z_OK && stream.avail_out == 0);
+            if (result != Z_OK && result != Z_STREAM_END) {
+                throw std::runtime_error("Could not encode PNG");
+            }
+        };
+
+        try {
+        for (int y = 0; y < height; ++y) {
+            const int ty = y >> 5;
+            const int py = y & 31;
+            const std::uint32_t* indexRow = map.indices.data() + static_cast<std::size_t>(ty) * static_cast<std::size_t>(map.tileWidth);
+            std::uint8_t* dst = row.data() + 1;
+            for (int x = 0; x < width; ++x) {
+                const std::uint32_t index = indexRow[x >> 5];
+                const std::uint8_t paletteIndex = index < static_cast<std::uint32_t>(map.tileCount)
+                    ? map.tileImages[static_cast<std::size_t>(index) * 1024 + static_cast<std::size_t>(py) * 32 + static_cast<std::size_t>(x & 31)]
+                    : 0;
+                dst[0] = kTaPalette[paletteIndex][0];
+                dst[1] = kTaPalette[paletteIndex][1];
+                dst[2] = kTaPalette[paletteIndex][2];
+                dst += 3;
+            }
+            stream.next_in = row.data();
+            stream.avail_in = static_cast<uInt>(row.size());
+            while (stream.avail_in != 0) {
+                deflateRow(Z_NO_FLUSH);
+            }
+        }
+        stream.next_in = nullptr;
+        stream.avail_in = 0;
+        deflateRow(Z_FINISH);
+        flushIdat();
+        endDeflate();
+        } catch (...) {
+            endDeflate();
+            throw;
+        }
+
+        writePngChunk(out, "IEND", nullptr, 0);
+        require(static_cast<bool>(out), "Could not write " + temp.string());
+        out.close();
+        require(static_cast<bool>(out), "Could not write " + temp.string());
+    } catch (...) {
+        std::filesystem::remove(temp, removeError);
+        throw;
+    }
+
+    std::error_code error;
+    std::filesystem::rename(temp, path, error);
+    if (error) {
+        std::filesystem::remove(path, error);
+        std::filesystem::rename(temp, path);
+    }
 }
 
 void renderMapView(

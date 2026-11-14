@@ -158,6 +158,42 @@ std::optional<std::filesystem::path> saveMapDialog(
     }
 }
 
+std::optional<std::filesystem::path> savePngDialog(
+    const std::filesystem::path& initialDirectory,
+    const std::filesystem::path& suggestedName) {
+    @autoreleasepool {
+        [NSApp activateIgnoringOtherApps:YES];
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        panel.canCreateDirectories = YES;
+        panel.title = @"Export map as PNG";
+        panel.prompt = @"Export";
+        panel.allowsOtherFileTypes = NO;
+        if (UTType* png = [UTType typeWithFilenameExtension:@"png"]) {
+            panel.allowedContentTypes = @[ png ];
+        }
+        if (!suggestedName.empty()) {
+            NSString* name = [NSString stringWithUTF8String:suggestedName.filename().string().c_str()];
+            if (name != nil) {
+                panel.nameFieldStringValue = name;
+            }
+        }
+        if (!initialDirectory.empty()) {
+            NSString* directory = [NSString stringWithUTF8String:initialDirectory.string().c_str()];
+            if (directory != nil) {
+                panel.directoryURL = [NSURL fileURLWithPath:directory];
+            }
+        }
+        if ([panel runModal] != NSModalResponseOK || panel.URL.path == nil) {
+            return std::nullopt;
+        }
+        std::filesystem::path result(panel.URL.path.UTF8String);
+        if (result.extension() != ".png" && result.extension() != ".PNG") {
+            result.replace_extension("png");
+        }
+        return result;
+    }
+}
+
 std::optional<std::filesystem::path> chooseFolderDialog(
     const std::string& title,
     const std::filesystem::path& initialDirectory) {

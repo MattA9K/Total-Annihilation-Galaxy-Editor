@@ -32,6 +32,7 @@ enum class Text : int {
     OpenMap,
     Save,
     SaveAs,
+    ExportPng,
     GenerateMap,
     HpiEditor,
     Exit,

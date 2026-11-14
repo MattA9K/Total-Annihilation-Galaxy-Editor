@@ -326,6 +326,7 @@ private:
     void invalidateView();
     bool saveMap();
     bool saveMapAs();
+    bool exportMapPng();
     // Starts writing the map on a background thread and returns at once. The map is
     // copied first, so editing can go on while the file is written. True when the
     // save started; the result arrives later through finishMapSave.

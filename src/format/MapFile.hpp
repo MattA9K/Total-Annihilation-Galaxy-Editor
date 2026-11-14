@@ -120,6 +120,10 @@ bool isBackupFilename(std::string_view mapName, std::string_view filename, int& 
 std::vector<std::string> backupNamesToDelete(const std::vector<std::string>& filenames, std::string_view mapName, int maxBackups);
 std::vector<std::uint8_t> renderMapRgba(const LoadedMap& map);
 
+// Writes the whole map at 1:1 tile resolution as an RGB PNG. The IDAT stream
+// uses zlib stored blocks (no compression) so a large map finishes quickly.
+void writeMapPng(const LoadedMap& map, const std::filesystem::path& path);
+
 // Fills an RGBA buffer for the on-screen view. The buffer is top-down and covers
 // the whole canvas. Map pixel (0, 0) is drawn at canvas position (panX, panY).
 // Canvas pixels off the map are transparent.

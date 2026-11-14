@@ -238,8 +238,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 32>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 32> rules = {{
+inline const std::array<BrushTransitionRule, 33>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 33> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -265,19 +265,21 @@ inline const std::array<BrushTransitionRule, 32>& brushTransitionRules() {
         {155, 230, TransitionStyle::Cliff},
         {85, 86, TransitionStyle::WorldBlend},
         {80, 86, TransitionStyle::WorldBlend},
-        // The graph applies this only to Acid, Crystal, GreenWorld, or Ice beside Desert.
+        // The graph applies this only to named Desert pairs at Base-80 and Base-85.
         {80, 85, TransitionStyle::WorldBlend},
         {78, 86, TransitionStyle::WorldBlend},
         // The graph applies this only to Archipelago beside Desert.
         {78, 80, TransitionStyle::WorldBlend},
-        // Same height. The graph applies this to GreenWorld beside Acid, Ice beside Mars, Ice beside GreenWorld, and Acid beside Crystal.
+        // Same height. The graph applies this to named Base-85 world pairs.
         {85, 85, TransitionStyle::WorldBlend},
         // The graph applies this only to Lush beside Archipelago.
         {77, 78, TransitionStyle::WorldBlend},
         // The graph applies this only to Lush beside Lava.
         {77, 86, TransitionStyle::WorldBlend},
-        // The graph applies this only to Lush beside Ice.
+        // The graph applies this only to Lush beside named Base-85 lands.
         {77, 85, TransitionStyle::WorldBlend},
+        // The graph applies this only to Lush beside Desert.
+        {77, 80, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -422,45 +424,25 @@ public:
                         continue;
                     }
                     if (heights_[static_cast<std::size_t>(a)] == rule.lowerHeight && heights_[static_cast<std::size_t>(b)] == rule.upperHeight) {
-                        const bool named = !worlds_[static_cast<std::size_t>(a)].empty() && !worlds_[static_cast<std::size_t>(b)].empty();
-                        const bool differentWorld = named && worlds_[static_cast<std::size_t>(a)] != worlds_[static_cast<std::size_t>(b)];
+                        const std::string& wa = worlds_[static_cast<std::size_t>(a)];
+                        const std::string& wb = worlds_[static_cast<std::size_t>(b)];
+                        const auto namedPair = [&](const char* x, const char* y) {
+                            return (wa == x && wb == y) || (wa == y && wb == x);
+                        };
+                        const bool named = !wa.empty() && !wb.empty();
+                        const bool differentWorld = named && wa != wb;
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
-                        // Base-85 beside Base-85 is GreenWorld beside Acid, Ice beside Mars, Ice beside GreenWorld,
-                        // or GreenWorld beside Mars. Mars still reaches Acid through GreenWorld or Lava.
-                        const bool greenAcid = rule.lowerHeight == 85 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Acid")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Green"));
-                        const bool iceMars = rule.lowerHeight == 85 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Mars")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Mars" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
-                        const bool iceGreen = rule.lowerHeight == 85 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Green")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
-                        const bool greenMars = rule.lowerHeight == 85 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Mars")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Mars" && worlds_[static_cast<std::size_t>(b)] == "Green"));
-                        const bool greenMetal = rule.lowerHeight == 85 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Metal")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Metal" && worlds_[static_cast<std::size_t>(b)] == "Green"));
-                        const bool acidCrystal = rule.lowerHeight == 85 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Crystal")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Crystal" && worlds_[static_cast<std::size_t>(b)] == "Acid"));
-                        const bool acidDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Acid" && worlds_[static_cast<std::size_t>(b)] == "Desert")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Acid"));
-                        const bool crystalDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Crystal" && worlds_[static_cast<std::size_t>(b)] == "Desert")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Crystal"));
-                        const bool archiDesert = rule.lowerHeight == 78 && rule.upperHeight == 80
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Archi" && worlds_[static_cast<std::size_t>(b)] == "Desert")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Archi"));
-                        const bool greenDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Desert")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Green"));
-                        const bool iceDesert = rule.lowerHeight == 80 && rule.upperHeight == 85
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Desert")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Desert" && worlds_[static_cast<std::size_t>(b)] == "Ice"));
+                        const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
+                            && (namedPair("Green", "Acid") || namedPair("Ice", "Mars") || namedPair("Ice", "Green")
+                                || namedPair("Green", "Mars") || namedPair("Green", "Metal") || namedPair("Acid", "Crystal")
+                                || namedPair("Green", "Crystal") || namedPair("Acid", "Mars") || namedPair("Ice", "Acid")
+                                || namedPair("Acid", "Metal") || namedPair("Mars", "Crystal") || namedPair("Mars", "Metal")
+                                || namedPair("Ice", "Crystal") || namedPair("Ice", "Metal") || namedPair("Crystal", "Metal"));
+                        const bool desert85 = rule.lowerHeight == 80 && rule.upperHeight == 85
+                            && (namedPair("Acid", "Desert") || namedPair("Crystal", "Desert") || namedPair("Green", "Desert")
+                                || namedPair("Ice", "Desert") || namedPair("Mars", "Desert") || namedPair("Metal", "Desert"));
+                        const bool archiDesert = rule.lowerHeight == 78 && rule.upperHeight == 80 && namedPair("Archi", "Desert");
                         // A land keeps its own coast. Another land's Base-85 beside the water, such as
                         // GreenWorld beside Mars water or Ice water, goes through that land's own ground.
                         const bool foreignIceCoast = rule.lowerHeight == 0 && rule.upperHeight == 85 && differentWorld;
@@ -470,29 +452,20 @@ public:
                         // Cliffs stay inside one land: another land's Base-85 beside Lush Base-255 or
                         // GreenWorld Base-219 goes through that land's own ground.
                         const bool foreignIceCliff = differentWorld && rule.style == TransitionStyle::Cliff;
-                        // Base-77 beside Base-78 is the Lush to Archipelago blend only.
-                        const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Archi")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Archi" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
-                        // Base-77 beside Base-86 is the Lush to Lava blend only.
-                        const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86
-                            && ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Lava")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Lava" && worlds_[static_cast<std::size_t>(b)] == "Lush"));
-                        // Base-77 beside Base-85 is the Lush to Ice, GreenWorld, or Mars blend.
-                        const bool lushIce = rule.lowerHeight == 77 && rule.upperHeight == 85
-                            && (((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Ice")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Ice" && worlds_[static_cast<std::size_t>(b)] == "Lush"))
-                                || ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Green")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Green" && worlds_[static_cast<std::size_t>(b)] == "Lush"))
-                                || ((worlds_[static_cast<std::size_t>(a)] == "Lush" && worlds_[static_cast<std::size_t>(b)] == "Mars")
-                                || (worlds_[static_cast<std::size_t>(a)] == "Mars" && worlds_[static_cast<std::size_t>(b)] == "Lush")));
+                        const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78 && namedPair("Lush", "Archi");
+                        const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86 && namedPair("Lush", "Lava");
+                        const bool lush85 = rule.lowerHeight == 77 && rule.upperHeight == 85
+                            && (namedPair("Lush", "Ice") || namedPair("Lush", "Green") || namedPair("Lush", "Mars")
+                                || namedPair("Lush", "Acid") || namedPair("Lush", "Crystal") || namedPair("Lush", "Metal"));
+                        const bool lushDesert = rule.lowerHeight == 77 && rule.upperHeight == 80 && namedPair("Lush", "Desert");
                         if (foreignLand || foreignShallow || foreignIceCoast || foreignDesertCoast || foreignIceCliff
-                            || (rule.lowerHeight == rule.upperHeight && !greenAcid && !iceMars && !iceGreen && !greenMars && !greenMetal && !acidCrystal)
+                            || (rule.lowerHeight == rule.upperHeight && !same85)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 78 && !archiLush)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 86 && !lushLava)
-                            || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lushIce)
-                            || (rule.lowerHeight == 80 && rule.upperHeight == 85 && !acidDesert && !crystalDesert && !greenDesert && !iceDesert)
-                            || (rule.lowerHeight == 78 && rule.upperHeight == 80 && !archiDesert)) {
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lush85)
+                            || (rule.lowerHeight == 80 && rule.upperHeight == 85 && !desert85)
+                            || (rule.lowerHeight == 78 && rule.upperHeight == 80 && !archiDesert)
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 80 && !lushDesert)) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
@@ -1298,6 +1271,20 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the sand. Blend-ArchiDesert-T has Archipelago along the top.
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
             family = "ArchiDesert";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 78))
+            && ((graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Mars")
+                || (graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Archi"))) {
+            marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+            family = "ArchiMars";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 78))
+            && ((graph.world(sorted[0]) == "Archi" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Archi"))) {
+            marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
+            family = "ArchiMetal";
         } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Archi" || graph.world(sorted[1]) == "Archi")) {
             marked = graph.world(sorted[0]) == "Archi" ? sorted[0] : sorted[1];
         } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Lava") {
@@ -1346,6 +1333,25 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the ice. Blend-IceDesert-T has ice along the top.
             marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
             family = "IceDesert";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 80))
+            && ((graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Mars"))) {
+            marked = graph.world(sorted[0]) == "Desert" ? sorted[0] : sorted[1];
+            family = "DesertMars";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 80))
+            && ((graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Metal"))) {
+            marked = graph.world(sorted[0]) == "Desert" ? sorted[0] : sorted[1];
+            family = "DesertMetal";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Lava")
+                || (graph.world(sorted[0]) == "Lava" && graph.world(sorted[1]) == "Metal"))) {
+            marked = graph.world(sorted[0]) == "Metal" ? sorted[0] : sorted[1];
+            family = "MetalLava";
         } else if (style == TransitionStyle::WorldBlend && graph.world(sorted[1]) == "Lava" && graph.world(sorted[0]) != "Lava") {
             marked = sorted[0];
         } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
@@ -1378,6 +1384,34 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the ice. Blend-LushIce-T has ice along the top.
             marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
             family = "LushIce";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 77))
+            && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Acid")
+                || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Lush"))) {
+            marked = graph.world(sorted[0]) == "Acid" ? sorted[0] : sorted[1];
+            family = "LushAcid";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 77))
+            && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Crystal")
+                || (graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Lush"))) {
+            marked = graph.world(sorted[0]) == "Crystal" ? sorted[0] : sorted[1];
+            family = "LushCrystal";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 85)
+                || (graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 77))
+            && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Lush"))) {
+            marked = graph.world(sorted[0]) == "Metal" ? sorted[0] : sorted[1];
+            family = "LushMetal";
+        } else if (style == TransitionStyle::WorldBlend
+            && ((graph.height(sorted[0]) == 77 && graph.height(sorted[1]) == 80)
+                || (graph.height(sorted[0]) == 80 && graph.height(sorted[1]) == 77))
+            && ((graph.world(sorted[0]) == "Lush" && graph.world(sorted[1]) == "Desert")
+                || (graph.world(sorted[0]) == "Desert" && graph.world(sorted[1]) == "Lush"))) {
+            marked = graph.world(sorted[0]) == "Desert" ? sorted[0] : sorted[1];
+            family = "DesertLush";
         } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
             && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Metal")
                 || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Green"))) {
@@ -1396,6 +1430,51 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // The mask marks the grass. Blend-GreenAcid-T has grass along the top.
             marked = graph.world(sorted[0]) == "Green" ? sorted[0] : sorted[1];
             family = "GreenAcid";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Crystal")
+                || (graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Green"))) {
+            marked = graph.world(sorted[0]) == "Crystal" ? sorted[0] : sorted[1];
+            family = "GreenCrystal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Mars")
+                || (graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Acid"))) {
+            marked = graph.world(sorted[0]) == "Acid" ? sorted[0] : sorted[1];
+            family = "AcidMars";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Acid")
+                || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Ice"))) {
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "IceAcid";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Acid"))) {
+            marked = graph.world(sorted[0]) == "Acid" ? sorted[0] : sorted[1];
+            family = "AcidMetal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Mars")
+                || (graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Crystal"))) {
+            marked = graph.world(sorted[0]) == "Crystal" ? sorted[0] : sorted[1];
+            family = "CrystalMars";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Mars"))) {
+            marked = graph.world(sorted[0]) == "Metal" ? sorted[0] : sorted[1];
+            family = "MarsMetal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Crystal")
+                || (graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Ice"))) {
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "IceCrystal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Ice" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Ice"))) {
+            marked = graph.world(sorted[0]) == "Ice" ? sorted[0] : sorted[1];
+            family = "IceMetal";
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 85 && graph.height(sorted[1]) == 85
+            && ((graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Metal")
+                || (graph.world(sorted[0]) == "Metal" && graph.world(sorted[1]) == "Crystal"))) {
+            marked = graph.world(sorted[0]) == "Crystal" ? sorted[0] : sorted[1];
+            family = "CrystalMetal";
         }
         if (family.empty()) {
             family = std::string(graph.world(marked));

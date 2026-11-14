@@ -424,6 +424,189 @@ bool archiLushTileIsLush(const std::uint8_t* bytes) {
     return score >= 40 * 1024;
 }
 
+std::string_view blendShapeName(std::string_view loweredName, std::string_view prefix) {
+    std::string_view rest = loweredName;
+    if (rest.size() > prefix.size() && rest.substr(0, prefix.size()) == prefix) {
+        rest.remove_prefix(prefix.size());
+    }
+    if (const auto dash = rest.rfind('-'); dash != std::string_view::npos) {
+        bool digits = dash + 1 < rest.size();
+        for (std::size_t i = dash + 1; i < rest.size(); ++i) {
+            digits = digits && rest[i] >= '0' && rest[i] <= '9';
+        }
+        if (digits) {
+            rest = rest.substr(0, dash);
+        }
+    }
+    return rest;
+}
+
+// 1 is the unmarked land, 0 is the named land, -1 means the colour decides.
+// The named side of a blend must stay that land at the rim, or a second cell
+// rereads those corners as the other land and stamps a hole through the first.
+int blendForceUnmarked(std::string_view shape, int tx, int ty, int tileWidth, int tileHeight) {
+    constexpr int rim = 2;
+    const bool topRim = ty < rim;
+    const bool bottomRim = ty >= tileHeight - rim;
+    const bool leftRim = tx < rim;
+    const bool rightRim = tx >= tileWidth - rim;
+    if (shape == "t" && topRim) {
+        return 0;
+    }
+    if (shape == "t" && bottomRim) {
+        return 1;
+    }
+    if (shape == "b" && bottomRim) {
+        return 0;
+    }
+    if (shape == "b" && topRim) {
+        return 1;
+    }
+    if (shape == "l" && leftRim) {
+        return 0;
+    }
+    if (shape == "l" && rightRim) {
+        return 1;
+    }
+    if (shape == "r" && rightRim) {
+        return 0;
+    }
+    if (shape == "r" && leftRim) {
+        return 1;
+    }
+    if (shape == "tl" && topRim && leftRim) {
+        return 0;
+    }
+    if (shape == "tr" && topRim && rightRim) {
+        return 0;
+    }
+    if (shape == "bl" && bottomRim && leftRim) {
+        return 0;
+    }
+    if (shape == "br" && bottomRim && rightRim) {
+        return 0;
+    }
+    if (shape == "low-tl" && topRim && leftRim) {
+        return 1;
+    }
+    if (shape == "low-tr" && topRim && rightRim) {
+        return 1;
+    }
+    if (shape == "low-bl" && bottomRim && leftRim) {
+        return 1;
+    }
+    if (shape == "low-br" && bottomRim && rightRim) {
+        return 1;
+    }
+    if ((shape == "tl" || shape == "tr" || shape == "bl" || shape == "br") && (topRim || bottomRim || leftRim || rightRim)
+        && !((shape == "tl" && topRim && leftRim) || (shape == "tr" && topRim && rightRim)
+            || (shape == "bl" && bottomRim && leftRim) || (shape == "br" && bottomRim && rightRim))) {
+        return 1;
+    }
+    if ((shape == "low-tl" || shape == "low-tr" || shape == "low-bl" || shape == "low-br")
+        && (topRim || bottomRim || leftRim || rightRim)
+        && !((shape == "low-tl" && topRim && leftRim) || (shape == "low-tr" && topRim && rightRim)
+            || (shape == "low-bl" && bottomRim && leftRim) || (shape == "low-br" && bottomRim && rightRim))) {
+        return 0;
+    }
+    return -1;
+}
+
+bool lushMarsTileIsMars(const std::uint8_t* bytes);
+bool desertLavaTileIsDesert(const std::uint8_t* bytes);
+bool crystalLavaTileIsCrystal(const std::uint8_t* bytes);
+bool acidMetalTileIsAcid(const std::uint8_t* bytes);
+
+// Lush grass is green; Acid ground is olive. The named Acid side of a
+// Blend-LushAcid piece must stay Acid at the rim.
+bool lushAcidTileIsLush(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-lushacid-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return archiLushTileIsLush(bytes);
+}
+
+// Lush grass is green; Crystal ground is purple. The named Crystal side of a
+// Blend-LushCrystal piece must stay Crystal at the rim.
+bool lushCrystalTileIsLush(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-lushcrystal-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return archiLushTileIsLush(bytes);
+}
+
+// Mars ground is red; Crystal ground is purple. The named Crystal side of a
+// Blend-CrystalMars piece must stay Crystal at the rim.
+bool crystalMarsTileIsMars(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-crystalmars-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return !crystalLavaTileIsCrystal(bytes);
+}
+
+// Mars ground is darker brown; Desert sand is pale. The named Desert side of a
+// Blend-DesertMars piece must stay Desert at the rim.
+bool desertMarsTileIsMars(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-desertmars-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return !desertLavaTileIsDesert(bytes);
+}
+
+// Mars ground is red; Metal plating is grey. The named Metal side of a
+// Blend-MarsMetal piece must stay Metal at the rim.
+bool marsMetalTileIsMars(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-marsmetal-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return lushMarsTileIsMars(bytes);
+}
+
+// Mars ground is red; Acid ground is olive. The named Acid side of a
+// Blend-AcidMars piece must stay Acid at the rim.
+bool acidMarsTileIsMars(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-acidmars-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return lushMarsTileIsMars(bytes);
+}
+
+// Metal plating is grey; Acid ground is olive. The named Acid side of a
+// Blend-AcidMetal piece must stay Acid at the rim.
+bool acidMetalTileIsMetal(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-acidmetal-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return !acidMetalTileIsAcid(bytes);
+}
+
+// Metal plating is grey; Crystal ground is purple. The named Crystal side of a
+// Blend-CrystalMetal piece must stay Crystal at the rim.
+bool crystalMetalTileIsMetal(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-crystalmetal-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return !crystalLavaTileIsCrystal(bytes);
+}
+
+// GreenWorld grass is green; Crystal ground is purple. The named Crystal side of a
+// Blend-GreenCrystal piece must stay Crystal at the rim.
+bool greenCrystalTileIsGreen(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-greencrystal-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return greenAcidTileIsGrass(bytes);
+}
+
 // Lush grass in the lava blend is green. Lava ground is brown.
 bool lushLavaTileIsLush(const std::uint8_t* bytes) {
     int score = 0;
@@ -495,6 +678,29 @@ bool greenMetalTileIsGrass(const std::uint8_t* bytes) {
         grass += color[1] > color[0] + 15 && color[1] > color[2] + 10;
     }
     return grass * 5 >= 1024;
+}
+
+// Metal plating is grey; Lava dirt is dark brown.
+bool metalLavaTileIsMetal(const std::uint8_t* bytes) {
+    int lava = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        lava += r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    return lava * 5 < 1024;
+}
+
+// Acid ground is olive; Metal plating is grey.
+bool acidMetalTileIsAcid(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[2]);
+    }
+    return score >= 10 * 1024;
 }
 
 // Crystal ground is purple; Lava dirt is brown.
@@ -683,6 +889,16 @@ bool iceMarsTileIsIce(const std::uint8_t* bytes) {
         score += static_cast<int>(color[2]) - static_cast<int>(color[0]);
     }
     return score >= 12 * 1024;
+}
+
+// Ice is pale blue; Crystal ground is purple. The named Ice side of a
+// Blend-IceCrystal piece must stay Ice at the rim.
+bool iceCrystalTileIsCrystal(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
+    const std::string_view shape = blendShapeName(loweredName, "blend-icecrystal-");
+    if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
+        return forced == 1;
+    }
+    return !iceMarsTileIsIce(bytes);
 }
 
 // Desert sand is pale; Acid ground is dark olive. The named Acid side of a
@@ -5059,6 +5275,36 @@ bool EditorApp::saveMapAs() {
     return false;
 }
 
+bool EditorApp::exportMapPng() {
+    if (!map_) {
+        return false;
+    }
+    const auto directory = map_->source.has_parent_path() ? map_->source.parent_path() : suggestedOpenDirectory();
+    std::string stem = map_->source.stem().string();
+    if (stem.empty()) {
+        stem = map_->displayName.empty() ? std::string("map") : map_->displayName;
+    }
+    const std::filesystem::path suggested = stem + ".png";
+    const auto chosen = savePngDialog(directory, suggested);
+    if (!chosen) {
+        return false;
+    }
+    std::filesystem::path destination = *chosen;
+    if (destination.extension().empty()) {
+        destination += ".png";
+    }
+    try {
+        writeMapPng(*map_, destination);
+        statusNote_ = "Exported " + destination.filename().string();
+        error_.clear();
+        return true;
+    } catch (const std::exception& ex) {
+        error_ = ex.what();
+        statusNote_ = "Could not export " + destination.filename().string();
+        return false;
+    }
+}
+
 bool EditorApp::saveMapTo(const std::filesystem::path& path) {
     if (!map_) {
         return false;
@@ -7386,6 +7632,9 @@ bool EditorApp::draw() {
             if (ImGui::MenuItem(theme::withEllipsis(text(Text::SaveAs)).c_str(), theme::shortcut("Shift+S").c_str(), false, map_.has_value())) {
                 saveMapAs();
             }
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::ExportPng)).c_str(), nullptr, false, map_.has_value())) {
+                exportMapPng();
+            }
             ImGui::Separator();
             if (ImGui::MenuItem(theme::withEllipsis(text(Text::GenerateMap)).c_str(), nullptr, false, map_.has_value())) {
                 std::mt19937 seedRng{std::random_device{}()};
@@ -9491,14 +9740,14 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
-    // Lava Base-86 blends into Mars, GreenWorld, Acid, Crystal, and Ice at Base-85, into Desert
+    // Lava Base-86 blends into Mars, GreenWorld, Acid, Crystal, Ice, and Metal at Base-85, into Desert
     // at Base-80, into Archipelago at Base-78, and into Lush at Base-77. GreenWorld
-    // Base-85 also blends into Mars Base-85, Metal Base-85, and Lush Base-77.
-    // Archipelago Base-78 also blends into GreenWorld Base-85, Lush Base-77,
-    // Acid Base-85, and Desert Base-80. GreenWorld Base-85 blends into Acid Base-85. Acid Base-85 blends
-    // into Crystal Base-85 and Desert Base-80. Crystal Base-85 also blends into
-    // Desert Base-80. Ice Base-85 blends
-    // into Mars Base-85, GreenWorld Base-85, Lush Base-77, and Desert Base-80.
+    // Base-85 also blends into Mars, Metal, Acid, Crystal, Ice, Lush, and Desert.
+    // Archipelago Base-78 also blends into GreenWorld, Lush, Acid, Crystal, Ice,
+    // Mars, Metal, Desert, and Lava. Acid Base-85 blends into Crystal, Desert, GreenWorld,
+    // Archipelago, Mars, Ice, Metal, and Lush. Crystal Base-85 also blends into
+    // Desert, Ice, Mars, Metal, GreenWorld, and Lush. Ice Base-85 blends
+    // into Mars, GreenWorld, Lush, Desert, Acid, Crystal, and Metal.
     // A partner is a paint the graph can see, and a stroke it can place, without
     // becoming a button.
     struct PartnerWant {
@@ -9515,6 +9764,7 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
         wanted.push_back(PartnerWant{"Crystal", "Base-85"});
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
+        wanted.push_back(PartnerWant{"Metal", "Base-85"});
     } else if (lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         if (lowerText(brushWorld_) == "greenworld") {
@@ -9525,19 +9775,38 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Metal", "Base-85"});
             wanted.push_back(PartnerWant{"Lush", "Base-77"});
             wanted.push_back(PartnerWant{"Desert", "Base-80"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-85"});
         }
         if (lowerText(brushWorld_) == "mars") {
             wanted.push_back(PartnerWant{"Ice", "Base-85"});
             wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
             wanted.push_back(PartnerWant{"Lush", "Base-77"});
+            wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
+            wanted.push_back(PartnerWant{"Acid", "Base-85"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+            wanted.push_back(PartnerWant{"Metal", "Base-85"});
+            wanted.push_back(PartnerWant{"Desert", "Base-80"});
         }
     } else if (lowerText(brushWorld_) == "crystal") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         wanted.push_back(PartnerWant{"Acid", "Base-85"});
         wanted.push_back(PartnerWant{"Desert", "Base-80"});
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+        wanted.push_back(PartnerWant{"Mars", "Base-85"});
+        wanted.push_back(PartnerWant{"Ice", "Base-85"});
+        wanted.push_back(PartnerWant{"Metal", "Base-85"});
+        wanted.push_back(PartnerWant{"Lush", "Base-77"});
     } else if (lowerText(brushWorld_) == "metal") {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
+        wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
+        wanted.push_back(PartnerWant{"Lush", "Base-77"});
+        wanted.push_back(PartnerWant{"Acid", "Base-85"});
+        wanted.push_back(PartnerWant{"Mars", "Base-85"});
+        wanted.push_back(PartnerWant{"Ice", "Base-85"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+        wanted.push_back(PartnerWant{"Desert", "Base-80"});
     } else if (lowerText(brushWorld_) == "ice") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
@@ -9545,6 +9814,9 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
         wanted.push_back(PartnerWant{"Desert", "Base-80"});
+        wanted.push_back(PartnerWant{"Acid", "Base-85"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+        wanted.push_back(PartnerWant{"Metal", "Base-85"});
     } else if (lowerText(brushWorld_) == "archipelago") {
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
         wanted.push_back(PartnerWant{"Crystal", "Base-85"});
@@ -9553,12 +9825,18 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
         wanted.push_back(PartnerWant{"Acid", "Base-85"});
         wanted.push_back(PartnerWant{"Desert", "Base-80"});
+        wanted.push_back(PartnerWant{"Mars", "Base-85"});
+        wanted.push_back(PartnerWant{"Metal", "Base-85"});
     } else if (lowerText(brushWorld_) == "lush") {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
+        wanted.push_back(PartnerWant{"Acid", "Base-85"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+        wanted.push_back(PartnerWant{"Metal", "Base-85"});
+        wanted.push_back(PartnerWant{"Desert", "Base-80"});
     } else if (lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         if (lowerText(brushWorld_) == "acid") {
@@ -9566,6 +9844,10 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
             wanted.push_back(PartnerWant{"Crystal", "Base-85"});
             wanted.push_back(PartnerWant{"Desert", "Base-80"});
+            wanted.push_back(PartnerWant{"Mars", "Base-85"});
+            wanted.push_back(PartnerWant{"Ice", "Base-85"});
+            wanted.push_back(PartnerWant{"Metal", "Base-85"});
+            wanted.push_back(PartnerWant{"Lush", "Base-77"});
         }
         if (lowerText(brushWorld_) == "desert") {
             wanted.push_back(PartnerWant{"Acid", "Base-85"});
@@ -9573,6 +9855,9 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
             wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
             wanted.push_back(PartnerWant{"Ice", "Base-85"});
+            wanted.push_back(PartnerWant{"Mars", "Base-85"});
+            wanted.push_back(PartnerWant{"Metal", "Base-85"});
+            wanted.push_back(PartnerWant{"Lush", "Base-77"});
         }
     }
     for (const PartnerWant& want : wanted) {
@@ -9762,7 +10047,16 @@ void EditorApp::ensureBrushPaints() {
             if (lowered.starts_with("blend-greenacid-") || lowered.starts_with("blend-acidcrystal-")
                 || lowered.starts_with("blend-aciddesert-") || lowered.starts_with("blend-crystaldesert-")
                 || lowered.starts_with("blend-archidesert-") || lowered.starts_with("blend-desertgreen-")
-                || lowered.starts_with("blend-icedesert-")) {
+                || lowered.starts_with("blend-icedesert-") || lowered.starts_with("blend-archimars-")
+                || lowered.starts_with("blend-archimetal-") || lowered.starts_with("blend-lushacid-")
+                || lowered.starts_with("blend-lushcrystal-") || lowered.starts_with("blend-lushmetal-")
+                || lowered.starts_with("blend-desertlush-") || lowered.starts_with("blend-metallava-")
+                || lowered.starts_with("blend-greencrystal-") || lowered.starts_with("blend-acidmars-")
+                || lowered.starts_with("blend-iceacid-") || lowered.starts_with("blend-acidmetal-")
+                || lowered.starts_with("blend-crystalmars-") || lowered.starts_with("blend-marsmetal-")
+                || lowered.starts_with("blend-desertmars-") || lowered.starts_with("blend-icecrystal-")
+                || lowered.starts_with("blend-icemetal-") || lowered.starts_with("blend-crystalmetal-")
+                || lowered.starts_with("blend-desertmetal-")) {
                 continue;
             }
             if (lowered.starts_with("blend-acid-")) {
@@ -10460,6 +10754,106 @@ void EditorApp::ensureBrushPaints() {
             }
         }
     }
+    const auto paintWorldAt = [&](const char* family, int height) -> const BrushPaint* {
+        for (const BrushPaint* paint : pictured) {
+            if (blendWorldName(paint->category) == family && trailingNumber(paint->name) == height) {
+                return paint;
+            }
+        }
+        return nullptr;
+    };
+    const auto rememberTwoWayColour = [&](const char* prefix, const BrushPaint* landA, const BrushPaint* landB,
+                                          bool (*isA)(const std::uint8_t*)) {
+        if (landA == nullptr || landB == nullptr) {
+            return;
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            if (!lowerText(piece.name).starts_with(prefix)) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    const auto existing = brushPictures_.find(hash);
+                    if (existing != brushPictures_.end() && !existing->second.fringe) {
+                        continue;
+                    }
+                    const BrushPaint* land = isA(pixels) ? landA : landB;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    };
+    const auto rememberTwoWayRim = [&](const char* prefix, const BrushPaint* unmarked, const BrushPaint* marked,
+                                       bool (*unmarkedIf)(const std::uint8_t*, std::string_view, int, int, int, int)) {
+        if (unmarked == nullptr || marked == nullptr) {
+            return;
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            if (!lowered.starts_with(prefix)) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    const auto existing = brushPictures_.find(hash);
+                    if (existing != brushPictures_.end() && !existing->second.fringe) {
+                        continue;
+                    }
+                    const int tx = tile % stamp.tileWidth;
+                    const int ty = tile / stamp.tileWidth;
+                    const BrushPaint* land = unmarkedIf(pixels, lowered, tx, ty, stamp.tileWidth, stamp.tileHeight)
+                        ? unmarked : marked;
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    };
+    rememberTwoWayRim("blend-lushacid-", paintWorldAt("Lush", 77), paintWorldAt("Acid", 85), lushAcidTileIsLush);
+    rememberTwoWayRim("blend-lushcrystal-", paintWorldAt("Lush", 77), paintWorldAt("Crystal", 85), lushCrystalTileIsLush);
+    rememberTwoWayColour("blend-archimars-", paintWorldAt("Archi", 78), paintWorldAt("Mars", 85), archiAcidTileIsSand);
+    rememberTwoWayColour("blend-archimetal-", paintWorldAt("Archi", 78), paintWorldAt("Metal", 85), archiAcidTileIsSand);
+    rememberTwoWayColour("blend-lushmetal-", paintWorldAt("Lush", 77), paintWorldAt("Metal", 85), greenMetalTileIsGrass);
+    rememberTwoWayColour("blend-desertlush-", paintWorldAt("Desert", 80), paintWorldAt("Lush", 77), desertLavaTileIsDesert);
+    rememberTwoWayColour("blend-metallava-", paintWorldAt("Metal", 85), paintWorldAt("Lava", 86), metalLavaTileIsMetal);
+    rememberTwoWayRim("blend-greencrystal-", paintWorldAt("Green", 85), paintWorldAt("Crystal", 85), greenCrystalTileIsGreen);
+    rememberTwoWayRim("blend-acidmars-", paintWorldAt("Mars", 85), paintWorldAt("Acid", 85), acidMarsTileIsMars);
+    rememberTwoWayColour("blend-iceacid-", paintWorldAt("Ice", 85), paintWorldAt("Acid", 85), iceMarsTileIsIce);
+    rememberTwoWayRim("blend-acidmetal-", paintWorldAt("Metal", 85), paintWorldAt("Acid", 85), acidMetalTileIsMetal);
+    rememberTwoWayRim("blend-crystalmars-", paintWorldAt("Mars", 85), paintWorldAt("Crystal", 85), crystalMarsTileIsMars);
+    rememberTwoWayRim("blend-marsmetal-", paintWorldAt("Mars", 85), paintWorldAt("Metal", 85), marsMetalTileIsMars);
+    rememberTwoWayRim("blend-desertmars-", paintWorldAt("Mars", 85), paintWorldAt("Desert", 80), desertMarsTileIsMars);
+    rememberTwoWayRim("blend-icecrystal-", paintWorldAt("Crystal", 85), paintWorldAt("Ice", 85), iceCrystalTileIsCrystal);
+    rememberTwoWayColour("blend-icemetal-", paintWorldAt("Ice", 85), paintWorldAt("Metal", 85), iceMarsTileIsIce);
+    rememberTwoWayRim("blend-crystalmetal-", paintWorldAt("Metal", 85), paintWorldAt("Crystal", 85), crystalMetalTileIsMetal);
+    rememberTwoWayColour("blend-desertmetal-", paintWorldAt("Desert", 80), paintWorldAt("Metal", 85), desertLavaTileIsDesert);
     // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
     // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.
     if (iceLavaIce != nullptr && iceLavaLava != nullptr) {

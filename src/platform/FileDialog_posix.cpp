@@ -77,6 +77,45 @@ std::optional<std::filesystem::path> saveMapDialog(
     return std::filesystem::path(selected);
 }
 
+std::optional<std::filesystem::path> savePngDialog(
+    const std::filesystem::path& initialDirectory,
+    const std::filesystem::path& suggestedName) {
+    std::filesystem::path suggestion = suggestedName.empty() ? std::filesystem::path("map.png") : suggestedName.filename();
+    if (suggestion.extension() != ".png" && suggestion.extension() != ".PNG") {
+        suggestion.replace_extension("png");
+    }
+    if (!initialDirectory.empty()) {
+        suggestion = initialDirectory / suggestion;
+    }
+    const std::string command = "zenity --file-selection --save --confirm-overwrite"
+                                " --title=\"Export map as PNG\""
+                                " --file-filter=\"PNG image | *.png\""
+                                " --filename="
+        + shellQuote(suggestion.string()) + " 2>/dev/null";
+
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr) {
+        return std::nullopt;
+    }
+    std::string selected;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        selected += buffer;
+    }
+    const int rc = ::pclose(pipe);
+    while (!selected.empty() && (selected.back() == '\n' || selected.back() == '\r')) {
+        selected.pop_back();
+    }
+    if (rc != 0 || selected.empty()) {
+        return std::nullopt;
+    }
+    std::filesystem::path result(selected);
+    if (result.extension() != ".png" && result.extension() != ".PNG") {
+        result.replace_extension("png");
+    }
+    return result;
+}
+
 std::optional<std::filesystem::path> chooseFolderDialog(
     const std::string& title,
     const std::filesystem::path& initialDirectory) {

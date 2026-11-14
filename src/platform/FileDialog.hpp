@@ -13,6 +13,10 @@ std::optional<std::filesystem::path> saveMapDialog(
     const std::filesystem::path& initialDirectory,
     const std::filesystem::path& suggestedName);
 
+std::optional<std::filesystem::path> savePngDialog(
+    const std::filesystem::path& initialDirectory,
+    const std::filesystem::path& suggestedName);
+
 // Asks for a folder. Returns nothing when the user cancels.
 std::optional<std::filesystem::path> chooseFolderDialog(
     const std::string& title,

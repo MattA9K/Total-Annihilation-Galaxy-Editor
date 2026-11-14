@@ -16,6 +16,8 @@
 #include "format/SctSection.hpp"
 #include "format/TaPalette.hpp"
 
+#include <zlib.h>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -190,6 +192,77 @@ void testHeightGrid() {
 }
 
 void testSaveRoundTrip(const galaxy::LoadedMap& map, const std::filesystem::path& destination, const std::string& label);
+
+void testMapPng() {
+    auto pngMap = galaxy::createBlankMap(2, 2);
+    pngMap.tileCount = 2;
+    pngMap.tileImages.resize(2048, 0x64);
+    std::fill(pngMap.tileImages.begin() + 1024, pngMap.tileImages.end(), static_cast<std::uint8_t>(167));
+    pngMap.indices = {0, 1, 1, 0};
+    const auto pngPath = std::filesystem::temp_directory_path() / "galaxy-map-export.png";
+    galaxy::writeMapPng(pngMap, pngPath);
+    std::ifstream pngFile(pngPath, std::ios::binary);
+    expect(static_cast<bool>(pngFile), "open exported png");
+    std::vector<std::uint8_t> pngBytes(std::istreambuf_iterator<char>(pngFile), {});
+    expect(pngBytes.size() >= 8 && pngBytes[0] == 137 && pngBytes[1] == 80 && pngBytes[2] == 78 && pngBytes[3] == 71, "png signature");
+    const auto readBe32 = [](const std::uint8_t* bytes) {
+        return (static_cast<std::uint32_t>(bytes[0]) << 24) | (static_cast<std::uint32_t>(bytes[1]) << 16)
+            | (static_cast<std::uint32_t>(bytes[2]) << 8) | static_cast<std::uint32_t>(bytes[3]);
+    };
+    std::vector<std::uint8_t> idat;
+    int pngWidth = 0;
+    int pngHeight = 0;
+    std::size_t cursor = 8;
+    while (cursor + 12 <= pngBytes.size()) {
+        const std::uint32_t length = readBe32(pngBytes.data() + cursor);
+        if (cursor + 12 + length > pngBytes.size()) {
+            break;
+        }
+        const char* type = reinterpret_cast<const char*>(pngBytes.data() + cursor + 4);
+        const std::uint8_t* data = pngBytes.data() + cursor + 8;
+        if (std::memcmp(type, "IHDR", 4) == 0 && length >= 13) {
+            pngWidth = static_cast<int>(readBe32(data));
+            pngHeight = static_cast<int>(readBe32(data + 4));
+            expect(data[8] == 8 && data[9] == 2 && data[10] == 0, "png is 8-bit rgb deflate");
+        } else if (std::memcmp(type, "IDAT", 4) == 0) {
+            idat.insert(idat.end(), data, data + length);
+        } else if (std::memcmp(type, "IEND", 4) == 0) {
+            break;
+        }
+        cursor += 12 + length;
+    }
+    expect(pngWidth == pngMap.pixelWidth() && pngHeight == pngMap.pixelHeight(), "png size matches the map");
+    const std::size_t rawSize = static_cast<std::size_t>(pngHeight) * (1u + static_cast<std::size_t>(pngWidth) * 3u);
+    std::vector<std::uint8_t> raw(rawSize);
+    z_stream inflateStream = {};
+    inflateStream.next_in = idat.data();
+    inflateStream.avail_in = static_cast<uInt>(idat.size());
+    inflateStream.next_out = raw.data();
+    inflateStream.avail_out = static_cast<uInt>(raw.size());
+    expect(::inflateInit(&inflateStream) == Z_OK, "png inflate starts");
+    const int inflated = ::inflate(&inflateStream, Z_FINISH);
+    expect(inflated == Z_STREAM_END && inflateStream.total_out == rawSize, "png pixels inflate");
+    ::inflateEnd(&inflateStream);
+    const auto rgba = galaxy::renderMapRgba(pngMap);
+    int pngMismatches = 0;
+    for (int y = 0; y < pngHeight; ++y) {
+        const std::uint8_t* row = raw.data() + static_cast<std::size_t>(y) * (1u + static_cast<std::size_t>(pngWidth) * 3u);
+        if (row[0] != 0) {
+            ++pngMismatches;
+            continue;
+        }
+        for (int x = 0; x < pngWidth; ++x) {
+            const std::size_t rgbaAt = (static_cast<std::size_t>(y) * static_cast<std::size_t>(pngWidth) + static_cast<std::size_t>(x)) * 4;
+            const std::uint8_t* pixel = row + 1 + static_cast<std::size_t>(x) * 3;
+            if (pixel[0] != rgba[rgbaAt] || pixel[1] != rgba[rgbaAt + 1] || pixel[2] != rgba[rgbaAt + 2]) {
+                ++pngMismatches;
+            }
+        }
+    }
+    expect(pngMismatches == 0, "png pixels match the map");
+    std::error_code pngRemove;
+    std::filesystem::remove(pngPath, pngRemove);
+}
 
 void testResizeMap() {
     auto map = galaxy::createBlankMap(4, 3);
@@ -3072,7 +3145,7 @@ void testBrushCells() {
     expect(paintsShareHeight(lavaHeights) && !paintsShareHeight({41, 86, 190, 85, 80, 78}) && paintsShareHeight({85, 85}), "shared heights stay shared when a later partner uses another height");
     const BrushGraph lavaLands(lavaHeights, {"Lava", "Archi", "Desert", "Mars", "Green", "Acid", "Lava", "Lava"});
     expect(lavaLands.style(3, 6) == TransitionStyle::WorldBlend && lavaLands.style(4, 6) == TransitionStyle::WorldBlend && lavaLands.style(5, 6) == TransitionStyle::WorldBlend, "Mars, GreenWorld, and Acid each join Lava");
-    expect(lavaLands.style(3, 4) == TransitionStyle::WorldBlend && !lavaLands.compatible(3, 5) && lavaLands.distance(3, 5) == 2, "Mars joins GreenWorld directly and meets Acid only through another land");
+    expect(lavaLands.style(3, 4) == TransitionStyle::WorldBlend && lavaLands.compatible(3, 5) && lavaLands.style(3, 5) == TransitionStyle::WorldBlend, "Mars joins GreenWorld and Acid directly");
     expect(lavaLands.compatible(4, 5) && lavaLands.style(4, 5) == TransitionStyle::WorldBlend, "GreenWorld Base-85 joins Acid Base-85");
     expect(lavaLands.compatible(2, 5) && lavaLands.style(2, 5) == TransitionStyle::WorldBlend
         && lavaLands.compatible(2, 4) && lavaLands.style(2, 4) == TransitionStyle::WorldBlend,
@@ -3148,12 +3221,13 @@ void testBrushCells() {
     expect(brushPieceName(iceGreen, {0, 0, 1, 1}) == "Blend-IceGreen-T" && brushPieceName(greenThenIce, {1, 1, 0, 0}) == "Blend-IceGreen-T" && brushPieceName(iceGreen, {1, 1, 1, 0}) == "Blend-IceGreen-BR", "the ice green blend marks the ice");
     expect(transitionVariation("Blend-IceGreen-T-02", "Blend-IceGreen-T") == 2 && transitionVariation("Blend-IceGreen-TR-01", "Blend-IceGreen-T") < 0 && transitionVariation("Blend-IceGreen-T-01", "Blend-Green") < 0 && transitionVariation("Blend-IceGreen-T-01", "Blend-IceMars") < 0 && transitionVariation("Blend-IceGreen-L-01", "Blend-GreenAcid-L") < 0, "an ice green piece is not the grass or mars blend");
     const BrushGraph iceLands(std::vector<int>{85, 85, 85, 85}, {"Ice", "Mars", "Green", "Acid"});
-    expect(brushPieceName(iceLands, {0, 0, 1, 1}) == "Blend-IceMars-T" && brushPieceName(iceLands, {0, 0, 2, 2}) == "Blend-IceGreen-T" && brushPieceName(iceLands, {2, 2, 3, 3}) == "Blend-GreenAcid-T" && iceLands.style(0, 3) == TransitionStyle::None && brushPieceName(iceLands, {1, 1, 2, 2}) == "Blend-GreenMars-T", "Ice keeps a separate blend for Mars and for GreenWorld, and GreenWorld meets Mars with its own");
+    expect(brushPieceName(iceLands, {0, 0, 1, 1}) == "Blend-IceMars-T" && brushPieceName(iceLands, {0, 0, 2, 2}) == "Blend-IceGreen-T" && brushPieceName(iceLands, {2, 2, 3, 3}) == "Blend-GreenAcid-T" && iceLands.style(0, 3) == TransitionStyle::WorldBlend && brushPieceName(iceLands, {0, 0, 3, 3}) == "Blend-IceAcid-T" && brushPieceName(iceLands, {1, 1, 3, 3}) == "Blend-AcidMars-B" && brushPieceName(iceLands, {1, 1, 2, 2}) == "Blend-GreenMars-T", "Ice keeps a separate blend for Mars, GreenWorld, and Acid, and GreenWorld meets Mars with its own");
     // Crystal Base-85 and Lava Base-86 meet with the Blend-CrystalLava pieces, which mark Crystal.
     // Crystal keeps its own coast, and the other Base-85 lands beside Lava keep their blends.
     const BrushGraph crystalLava(std::vector<int>{0, 85, 85, 86}, {"Crystal", "Crystal", "Mars", "Lava"});
-    expect(crystalLava.style(1, 3) == TransitionStyle::WorldBlend && crystalLava.style(0, 1) == TransitionStyle::Coast && crystalLava.style(1, 2) == TransitionStyle::None,
-        "Crystal joins Lava, keeps its coast, and does not join Mars");
+    expect(crystalLava.style(1, 3) == TransitionStyle::WorldBlend && crystalLava.style(0, 1) == TransitionStyle::Coast && crystalLava.style(1, 2) == TransitionStyle::WorldBlend
+        && brushPieceName(crystalLava, {1, 1, 2, 2}) == "Blend-CrystalMars-T",
+        "Crystal joins Lava, keeps its coast, and joins Mars with its own blend");
     expect(brushPieceName(crystalLava, {1, 1, 3, 3}) == "Blend-CrystalLava-T" && brushPieceName(crystalLava, {3, 3, 3, 1}) == "Blend-CrystalLava-BR" && brushPieceName(crystalLava, {1, 1, 1, 3}) == "Blend-CrystalLava-Low-BR"
         && brushPieceName(crystalLava, {2, 2, 3, 3}) == "Blend-Mars-T", "the Crystal Lava blend marks Crystal, and Mars beside Lava keeps its own blend");
     BrushTestLattice lavaOnCrystal(5, 5, 1, crystalLava);
@@ -3288,7 +3362,7 @@ void testBrushCells() {
     // Acid Base-85 and Desert Base-80 meet with the Blend-AcidDesert pieces, which mark Acid.
     // Desert keeps its own water, and Acid keeps its own. GreenWorld at Base-85 does not take this pair.
     const BrushGraph bareAcidDesert(std::vector<int>{80, 85});
-    expect(bareAcidDesert.style(0, 1) == TransitionStyle::None, "Base-80 beside Base-85 joins only when the worlds are Desert and Acid, Crystal, GreenWorld, or Ice");
+    expect(bareAcidDesert.style(0, 1) == TransitionStyle::None, "Base-80 beside Base-85 joins only when the worlds are Desert and Acid, Crystal, GreenWorld, Ice, Mars, or Metal");
     const BrushGraph acidDesert(std::vector<int>{80, 85}, {"Desert", "Acid"});
     expect(acidDesert.style(0, 1) == TransitionStyle::WorldBlend && acidDesert.compatible(0, 1)
         && brushPieceName(acidDesert, {1, 1, 0, 0}) == "Blend-AcidDesert-T" && brushPieceName(acidDesert, {0, 0, 0, 1}) == "Blend-AcidDesert-BR",
@@ -3298,8 +3372,9 @@ void testBrushCells() {
     expect(transitionVariation("Blend-AcidDesert-T-02", "Blend-AcidDesert-T") == 2 && transitionVariation("Blend-AcidDesert-T-01", "Blend-Desert-T") < 0
         && transitionVariation("Blend-AcidDesert-T-01", "Blend-Acid-T") < 0 && transitionVariation("Blend-AcidDesert-L-01", "Blend-ArchiAcid-L") < 0,
         "an Acid Desert piece is not the lava, acid, or archipelago sand blend");
-    expect(BrushGraph(std::vector<int>{80, 85}, {"Desert", "Mars"}).style(0, 1) == TransitionStyle::None,
-        "Desert Base-80 does not join Mars");
+    expect(BrushGraph(std::vector<int>{80, 85}, {"Desert", "Mars"}).style(0, 1) == TransitionStyle::WorldBlend
+        && brushPieceName(BrushGraph(std::vector<int>{80, 85}, {"Desert", "Mars"}), {0, 0, 1, 1}) == "Blend-DesertMars-T",
+        "Desert Base-80 joins Mars with its own blend");
     BrushTestLattice acidOnDesert(5, 5, 0, acidDesert);
     acidOnDesert.paint(2, 2, 1, 1);
     expect(acidOnDesert.piece(2, 2) == "Base-85" && acidOnDesert.piece(2, 1) == "Blend-AcidDesert-B" && acidOnDesert.piece(1, 2) == "Blend-AcidDesert-R"
@@ -3437,6 +3512,78 @@ void testBrushCells() {
     expect(desertIceWater.style(0, 1) == TransitionStyle::Coast && desertIceWater.style(0, 2) == TransitionStyle::None
         && desertIceWater.style(1, 2) == TransitionStyle::WorldBlend,
         "Desert water stays on Desert land, and Desert joins Ice");
+    expect(brushPieceName(BrushGraph(std::vector<int>{78, 85}, {"Archi", "Mars"}), {0, 0, 1, 1}) == "Blend-ArchiMars-T"
+        && transitionVariation("Blend-ArchiMars-T-01", "Blend-Archi-T") < 0,
+        "Archipelago joins Mars with its own blend");
+    expect(brushPieceName(BrushGraph(std::vector<int>{78, 85}, {"Archi", "Metal"}), {0, 0, 1, 1}) == "Blend-ArchiMetal-T"
+        && transitionVariation("Blend-ArchiMetal-T-01", "Blend-Archi-T") < 0,
+        "Archipelago joins Metal with its own blend");
+    const BrushGraph lushAcid(std::vector<int>{77, 85}, {"Lush", "Acid"});
+    expect(lushAcid.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(lushAcid, {1, 1, 0, 0}) == "Blend-LushAcid-T",
+        "Lush joins Acid with its own blend, which marks Acid");
+    expect(brushPieceName(BrushGraph(std::vector<int>{77, 85}, {"Lush", "Crystal"}), {1, 1, 0, 0}) == "Blend-LushCrystal-T",
+        "Lush joins Crystal with its own blend, which marks Crystal");
+    expect(brushPieceName(BrushGraph(std::vector<int>{77, 85}, {"Lush", "Metal"}), {1, 1, 0, 0}) == "Blend-LushMetal-T",
+        "Lush joins Metal with its own blend, which marks Metal");
+    const BrushGraph desertLush(std::vector<int>{80, 77}, {"Desert", "Lush"});
+    expect(desertLush.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(desertLush, {0, 0, 1, 1}) == "Blend-DesertLush-T"
+        && transitionVariation("Blend-DesertLush-T-01", "Blend-DesertGreen-T") < 0,
+        "Desert joins Lush with its own blend, which marks Desert");
+    BrushTestLattice lushOnDesert(5, 5, 0, desertLush);
+    lushOnDesert.paint(2, 2, 1, 1);
+    expect(lushOnDesert.piece(2, 2) == "Base-77" && lushOnDesert.piece(2, 1) == "Blend-DesertLush-T"
+        && lushOnDesert.piece(1, 1) == "Blend-DesertLush-Low-BR" && !lushOnDesert.steep(),
+        "Lush painted on Desert is ringed by desert-lush blend pieces");
+    const BrushGraph metalLava(std::vector<int>{85, 86}, {"Metal", "Lava"});
+    expect(metalLava.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(metalLava, {0, 0, 1, 1}) == "Blend-MetalLava-T"
+        && transitionVariation("Blend-MetalLava-T-01", "Blend-Metal-T") < 0 && transitionVariation("Blend-MetalLava-T-01", "Blend-GreenMetal-T") < 0,
+        "Metal joins Lava with its own blend, which marks Metal");
+    BrushTestLattice lavaOnMetal(5, 5, 0, metalLava);
+    lavaOnMetal.paint(2, 2, 1, 1);
+    expect(lavaOnMetal.piece(2, 2) == "Base-86" && lavaOnMetal.piece(2, 1) == "Blend-MetalLava-T"
+        && lavaOnMetal.piece(1, 1) == "Blend-MetalLava-Low-BR" && !lavaOnMetal.steep(),
+        "Lava painted on Metal is ringed by metal-lava blend pieces");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Green", "Crystal"}), {1, 1, 0, 0}) == "Blend-GreenCrystal-T"
+        && transitionVariation("Blend-GreenCrystal-T-01", "Blend-GreenAcid-T") < 0 && transitionVariation("Blend-GreenCrystal-T-01", "Blend-AcidCrystal-T") < 0,
+        "GreenWorld joins Crystal with its own blend, which marks Crystal");
+    const BrushGraph acidMars(std::vector<int>{85, 85}, {"Acid", "Mars"});
+    expect(acidMars.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(acidMars, {0, 0, 1, 1}) == "Blend-AcidMars-T"
+        && brushPieceName(lavaLands, {5, 5, 3, 3}) == "Blend-AcidMars-T",
+        "Acid joins Mars with its own blend, which marks Acid");
+    BrushTestLattice marsOnAcid(5, 5, 0, acidMars);
+    marsOnAcid.paint(2, 2, 1, 1);
+    expect(marsOnAcid.piece(2, 2) == "Base-85" && marsOnAcid.piece(2, 1) == "Blend-AcidMars-T"
+        && marsOnAcid.piece(1, 1) == "Blend-AcidMars-Low-BR" && !marsOnAcid.steep(),
+        "Mars painted on Acid is ringed by acid-mars blend pieces");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Ice", "Acid"}), {0, 0, 1, 1}) == "Blend-IceAcid-T"
+        && transitionVariation("Blend-IceAcid-T-01", "Blend-IceGreen-T") < 0 && transitionVariation("Blend-IceAcid-T-01", "Blend-GreenAcid-T") < 0,
+        "Ice joins Acid with its own blend, which marks Ice");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Acid", "Metal"}), {0, 0, 1, 1}) == "Blend-AcidMetal-T",
+        "Acid joins Metal with its own blend, which marks Acid");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Crystal", "Mars"}), {0, 0, 1, 1}) == "Blend-CrystalMars-T"
+        && transitionVariation("Blend-CrystalMars-T-01", "Blend-CrystalLava-T") < 0 && transitionVariation("Blend-CrystalMars-T-01", "Blend-GreenMars-T") < 0,
+        "Crystal joins Mars with its own blend, which marks Crystal");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Mars", "Metal"}), {1, 1, 0, 0}) == "Blend-MarsMetal-T",
+        "Mars joins Metal with its own blend, which marks Metal");
+    const BrushGraph desertMars(std::vector<int>{80, 85}, {"Desert", "Mars"});
+    expect(desertMars.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(desertMars, {0, 0, 1, 1}) == "Blend-DesertMars-T"
+        && transitionVariation("Blend-DesertMars-T-01", "Blend-DesertGreen-T") < 0 && transitionVariation("Blend-DesertMars-T-01", "Blend-Mars-T") < 0,
+        "Desert joins Mars with its own blend, which marks Desert");
+    BrushTestLattice marsOnDesert(5, 5, 0, desertMars);
+    marsOnDesert.paint(2, 2, 1, 1);
+    expect(marsOnDesert.piece(2, 2) == "Base-85" && marsOnDesert.piece(2, 1) == "Blend-DesertMars-T"
+        && marsOnDesert.piece(1, 1) == "Blend-DesertMars-Low-BR" && !marsOnDesert.steep(),
+        "Mars painted on Desert is ringed by desert-mars blend pieces");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Ice", "Crystal"}), {0, 0, 1, 1}) == "Blend-IceCrystal-T"
+        && transitionVariation("Blend-IceCrystal-T-01", "Blend-IceGreen-T") < 0 && transitionVariation("Blend-IceCrystal-T-01", "Blend-ArchiCrystal-T") < 0,
+        "Ice joins Crystal with its own blend, which marks Ice");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Ice", "Metal"}), {0, 0, 1, 1}) == "Blend-IceMetal-T",
+        "Ice joins Metal with its own blend, which marks Ice");
+    expect(brushPieceName(BrushGraph(std::vector<int>{85, 85}, {"Crystal", "Metal"}), {0, 0, 1, 1}) == "Blend-CrystalMetal-T",
+        "Crystal joins Metal with its own blend, which marks Crystal");
+    expect(brushPieceName(BrushGraph(std::vector<int>{80, 85}, {"Desert", "Metal"}), {0, 0, 1, 1}) == "Blend-DesertMetal-T"
+        && transitionVariation("Blend-DesertMetal-T-01", "Blend-DesertGreen-T") < 0 && transitionVariation("Blend-DesertMetal-T-01", "Blend-DesertMars-T") < 0,
+        "Desert joins Metal with its own blend, which marks Desert");
     // Acid Base-85, Desert Base-80 and Lava Base-86 share a cell. Acid filling a
     // side names Desert; Desert filling a side names Acid; Lava filling a side
     // names Desert, so none matches the GreenWorld Acid set or the Acid Crystal set.
@@ -4679,6 +4826,7 @@ int main() {
     testFavorites();
     testArchiveDocument();
     testBlankMap();
+    testMapPng();
     testArchiveFooterAndStarts();
     testTileOpacity();
     testWideTilePool();

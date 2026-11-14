@@ -66,6 +66,34 @@ std::optional<std::filesystem::path> saveMapDialog(
     return std::filesystem::path(buffer);
 }
 
+std::optional<std::filesystem::path> savePngDialog(
+    const std::filesystem::path& initialDirectory,
+    const std::filesystem::path& suggestedName) {
+    wchar_t buffer[MAX_PATH] = {};
+    const std::wstring suggested = suggestedName.filename().wstring();
+    if (!suggested.empty()) {
+        wcsncpy_s(buffer, suggested.c_str(), _TRUNCATE);
+    }
+
+    OPENFILENAMEW dialog = {};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.lpstrFilter = L"PNG image (*.png)\0*.png\0All files\0*.*\0";
+    dialog.lpstrFile = buffer;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    dialog.lpstrTitle = L"Export map as PNG";
+    dialog.lpstrDefExt = L"png";
+
+    std::wstring initial = initialDirectory.wstring();
+    if (!initial.empty()) {
+        dialog.lpstrInitialDir = initial.c_str();
+    }
+    if (!GetSaveFileNameW(&dialog)) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(buffer);
+}
+
 std::optional<std::filesystem::path> chooseFolderDialog(
     const std::string& title,
     const std::filesystem::path& initialDirectory) {
