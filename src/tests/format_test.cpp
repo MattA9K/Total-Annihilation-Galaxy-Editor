@@ -1,6 +1,7 @@
 #include "core/ArchiveDocument.hpp"
 #include "core/BlendColours.hpp"
 #include "core/BrushStrokes.hpp"
+#include "core/DocumentNames.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
 #include "core/FavoritesArchive.hpp"
@@ -4611,6 +4612,22 @@ void testBrushCells() {
     expect(brushPieceName(acidCrystalIce, {1, 1, 0, 2}) == "Blend-Tri-Crystal-T-Ice-L-Acid" && brushPieceName(acidCrystalIce, {0, 0, 2, 1}) == "Blend-Tri-Ice-T-Crystal-R-Acid"
         && brushPieceName(acidCrystalIce, {2, 0, 2, 1}) == "Blend-Tri-Acid-L-Ice-T-Crystal" && brushPieceName(acidCrystalIce, {2, 0, 1, 2}).empty(),
         "Acid, Crystal and Ice three-way pieces, and no piece without a filled side");
+    // A Metal tile the brush does not know by its picture is read by height against Metal's own bases.
+    // Metal's levels with its partners: 0 Metal, 68 Metal, 77 Lush, 78 Archi, 80 Desert, 85 Metal,
+    // 85 Green, Acid, Mars, Ice and Crystal, 86 Lava, then 139, 219 and 255 Metal.
+    {
+        const std::vector<int> heights = {0, 68, 77, 78, 80, 85, 85, 85, 85, 85, 85, 86, 139, 219, 255};
+        const std::vector<std::size_t> metal = {0, 1, 5, 12, 13, 14};
+        std::vector<std::size_t> all(heights.size());
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            all[i] = i;
+        }
+        expect(nearestOwnLevel(heights, all, 90, true) == 11 && nearestOwnLevel(heights, all, 85, true) == -1,
+            "among every level, plating at 90 reads as Lava Base-86 and plating at 85 ties");
+        expect(nearestOwnLevel(heights, metal, 90, true) == 5 && nearestOwnLevel(heights, metal, 85, true) == 5
+                && nearestOwnLevel(heights, metal, 0, true) == 0 && nearestOwnLevel(heights, metal, 69, true) == 1,
+            "among Metal's own bases, unknown plating reads as Metal Base-85, water as Base-0, and the shelf as Base-68");
+    }
     // A three-way piece's corners read back from its name.
     expect(threeWayCornerLands("blend-tri-acid-l-metal-b-archi-01", {"metal", "archi", "acid"}) == std::array<int, 4>{2, 1, 2, 0}
             && threeWayCornerLands("blend-tri-grass-t-ice-r-lush-01", {"grass", "ice", "lush"}) == std::array<int, 4>{0, 0, 2, 1}
@@ -5851,7 +5868,42 @@ void testBlendColours() {
     }
 }
 
+void testVanillaLimits() {
+    using galaxy::supportsVanillaTa;
+    expect(supportsVanillaTa(64, 64, 100), "a small map plays in TA 3.1");
+    expect(supportsVanillaTa(1008, 1008, 65536), "game size 63 with a full tile pool still plays in TA 3.1");
+    expect(!supportsVanillaTa(1008, 1008, 65537), "one tile image past 65536 is too many for TA 3.1");
+    expect(!supportsVanillaTa(1009, 64, 100), "wider than game size 63 is too large for TA 3.1");
+    expect(!supportsVanillaTa(64, 1024, 100), "taller than game size 63 is too large for TA 3.1");
+}
+
+void testDocumentNames() {
+    using galaxy::lowestUnusedUntitledNumber;
+    expect(lowestUnusedUntitledNumber({}) == 1, "the first untitled map is Untitled Map 1");
+    expect(lowestUnusedUntitledNumber({1}) == 2, "the second untitled map is Untitled Map 2");
+    expect(lowestUnusedUntitledNumber({1, 2, 3}) == 4, "untitled numbers count up");
+    expect(lowestUnusedUntitledNumber({2, 3}) == 1, "a closed Untitled Map 1 frees its number");
+    expect(lowestUnusedUntitledNumber({3, 1}) == 2, "the lowest gap is used, in any order");
+    expect(lowestUnusedUntitledNumber({0, 0, 1}) == 2, "maps with files do not take a number");
+    expect(lowestUnusedUntitledNumber({1, 1, 2}) == 3, "repeated numbers are counted once");
+
+    using galaxy::documentTabTitle;
+    expect(documentTabTitle(std::filesystem::path("maps") / "Coast To Coast.ufo", "Coast To Coast Map") == "Coast To Coast",
+        "a tab shows the file name without its extension");
+    expect(documentTabTitle(std::filesystem::path("Lava.Lake.tnt"), "x") == "Lava.Lake", "only the last extension is dropped");
+    expect(documentTabTitle({}, "Untitled Map 2") == "Untitled Map 2", "a map with no file shows its own name");
+
+    using galaxy::activeIndexAfterClose;
+    expect(activeIndexAfterClose(1, 0, 0) == -1, "closing the only map leaves none");
+    expect(activeIndexAfterClose(3, 1, 1) == 1, "closing the current tab moves to the one on its right");
+    expect(activeIndexAfterClose(3, 2, 2) == 1, "closing the last tab moves to the one on its left");
+    expect(activeIndexAfterClose(3, 2, 0) == 1, "closing a tab to the left keeps the same map current");
+    expect(activeIndexAfterClose(3, 0, 2) == 0, "closing a tab to the right keeps the same map current");
+}
+
 int main() {
+    testDocumentNames();
+    testVanillaLimits();
     testBrushStrokeNames();
     testBrushCells();
     testBlendColours();

@@ -3479,6 +3479,31 @@ inline void hillStampOrigin(int tileX, int tileY, int span, int& originX, int& o
 // filled flat by the stroke itself.
 using BrushNodeReader = std::function<int(int nodeX, int nodeY)>;
 
+// The level whose height is nearest a tile's height, among the given candidate levels: the brush's own
+// tileset when the tile's picture is unknown. Returns -1 on a tie when abstainOnTie is set.
+inline int nearestOwnLevel(const std::vector<int>& levelHeights, const std::vector<std::size_t>& candidates, int height, bool abstainOnTie) {
+    if (candidates.empty()) {
+        return -1;
+    }
+    std::size_t nearest = candidates.front();
+    bool tie = false;
+    for (std::size_t k = 1; k < candidates.size(); ++k) {
+        const std::size_t i = candidates[k];
+        const int distance = std::abs(height - levelHeights[i]);
+        const int best = std::abs(height - levelHeights[nearest]);
+        if (distance < best) {
+            nearest = i;
+            tie = false;
+        } else if (distance == best) {
+            tie = true;
+        }
+    }
+    if (tie && abstainOnTie) {
+        return -1;
+    }
+    return static_cast<int>(nearest);
+}
+
 inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int blockCells, int level, const BrushGraph& graph, const BrushNodeReader& readNode) {
     BrushPlan plan;
     const bool corner = blockCells == 0;

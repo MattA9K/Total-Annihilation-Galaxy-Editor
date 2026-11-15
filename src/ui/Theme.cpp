@@ -723,6 +723,214 @@ int iconSegmented(const char* id, const GlyphPainter* glyphs, int count, int sel
     return clicked;
 }
 
+bool navigatorBar(const char* id, const GlyphPainter* glyphs, const char* const* tips, int count, int& current) {
+    if (count <= 0) {
+        return false;
+    }
+    ImGui::PushID(id);
+    const float u = unit();
+    const float height = std::floor(28.0f * u);
+    const float slot = std::floor(30.0f * u);
+    const float avail = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+    // Xcode keeps the icons together at their natural spacing and centers the group; a narrow
+    // sidebar squeezes the slots so every tab stays visible.
+    const float width = std::min(slot, std::floor(avail / static_cast<float>(count)));
+    const float group = width * static_cast<float>(count);
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const ImVec2 origin(std::floor(start.x + (avail - group) * 0.5f), start.y);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    bool changed = false;
+    for (int i = 0; i < count; ++i) {
+        const float x = origin.x + width * static_cast<float>(i);
+        ImGui::PushID(i);
+        ImGui::SetCursorScreenPos(ImVec2(x, origin.y));
+        if (ImGui::InvisibleButton("tab", ImVec2(width, height)) && current != i) {
+            current = i;
+            changed = true;
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        const bool held = ImGui::IsItemActive();
+        const bool selected = current == i;
+        if (held && !selected) {
+            const int shade = dark() ? 255 : 0;
+            draw->AddRectFilled(ImVec2(x + 2.0f * u, origin.y + 2.0f * u), ImVec2(x + width - 2.0f * u, origin.y + height - 2.0f * u),
+                                IM_COL32(shade, shade, shade, 30), std::floor(5.0f * u));
+        }
+        ImU32 ink = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+        if (selected) {
+            ink = accentColor();
+        } else if (hovered) {
+            ink = ImGui::GetColorU32(ImGuiCol_Text);
+        }
+        if (glyphs[i] != nullptr) {
+            glyphs[i](draw, ImVec2(std::floor(x + width * 0.5f) + 0.5f, std::floor(origin.y + height * 0.5f) + 0.5f), std::floor(16.0f * u), ink);
+        }
+        if (tips != nullptr && tips[i] != nullptr && hovered) {
+            ImGui::SetTooltip("%s", tips[i]);
+        }
+        ImGui::PopID();
+    }
+    // The hairline runs the full width of the sidebar, under the whole row.
+    const float lineY = std::floor(origin.y + height) + 0.5f;
+    draw->AddLine(ImVec2(start.x - ImGui::GetStyle().WindowPadding.x, lineY),
+                  ImVec2(start.x + avail + ImGui::GetStyle().WindowPadding.x, lineY), ImGui::GetColorU32(ImGuiCol_Separator));
+    ImGui::SetCursorScreenPos(start);
+    ImGui::Dummy(ImVec2(avail, height + 1.0f));
+    ImGui::PopID();
+    return changed;
+}
+
+float documentTabsHeight() {
+    return std::floor(28.0f * unit());
+}
+
+DocumentTabEvent documentTabs(const char* id, const DocumentTab* tabs, int count, int current, int& eventTab, const char* closeTip,
+                              bool glass) {
+    DocumentTabEvent event;
+    eventTab = -1;
+    ImGui::PushID(id);
+    const float u = unit();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float avail = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+    const float height = documentTabsHeight();
+    const bool isDark = dark();
+    // The row sits a shade darker than the current tab, the way Xcode sets the
+    // current tab apart from the others.
+    // On glass the current tab is a light wash over the blur, so the map still shows through.
+    const ImU32 rowFill = isDark ? rgb32(36, 36, 39) : rgb32(218, 218, 218);
+    // On glass the other tabs sit under a gray wash, so the current one reads as lit.
+    const ImU32 currentFill = glass ? (isDark ? rgb32(255, 255, 255, 36) : rgb32(255, 255, 255, 170))
+                                    : (isDark ? rgb32(58, 58, 62) : rgb32(244, 244, 244));
+    const ImU32 otherFill = glass ? (isDark ? rgb32(0, 0, 0, 90) : rgb32(0, 0, 0, 30)) : 0;
+    const ImU32 hoverFill = glass ? (isDark ? rgb32(0, 0, 0, 50) : rgb32(0, 0, 0, 14))
+                                  : (isDark ? rgb32(46, 46, 50) : rgb32(208, 208, 208));
+    // The current tab's glow: a light sheen falling from its top edge, and the accent
+    // color along its bottom edge with a faint halo above it.
+    const ImU32 glowTop = isDark ? rgb32(255, 255, 255, 46) : rgb32(255, 255, 255, 200);
+    const ImU32 glowClear = isDark ? rgb32(255, 255, 255, 0) : rgb32(255, 255, 255, 0);
+    const ImU32 topEdge = isDark ? rgb32(255, 255, 255, 80) : rgb32(255, 255, 255, 255);
+    const ImU32 accent = accentColor();
+    const ImU32 accentHalo = (accent & ~IM_COL32_A_MASK) | (static_cast<ImU32>(isDark ? 70 : 50) << IM_COL32_A_SHIFT);
+    const ImU32 accentClear = accent & ~IM_COL32_A_MASK;
+    const ImU32 line = glass ? glassStyle().border : colors().toolbarLine;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    if (!glass) {
+        draw->AddRectFilled(origin, ImVec2(origin.x + avail, origin.y + height), rowFill);
+    }
+
+    const float minWidth = std::floor(96.0f * u);
+    const float width = count > 0 ? std::max(minWidth, std::floor(avail / static_cast<float>(count))) : avail;
+    const float closeSize = std::floor(16.0f * u);
+    const float closeInset = std::floor(6.0f * u);
+    const ImU32 ink = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImU32 dimInk = ImGui::GetColorU32(colors().secondary);
+    ImRect selectedBar;
+    for (int i = 0; i < count; ++i) {
+        const float x0 = origin.x + width * static_cast<float>(i);
+        // The last tab takes the pixels left over by rounding.
+        const float x1 = i + 1 == count && width * static_cast<float>(count) <= avail ? origin.x + avail : x0 + width;
+        const bool selected = i == current;
+        ImGui::PushID(i);
+
+        // The close button goes first so it takes the click before the tab does.
+        const ImVec2 closeMin(x0 + closeInset, std::floor(origin.y + (height - closeSize) * 0.5f));
+        const ImVec2 closeMax(closeMin.x + closeSize, closeMin.y + closeSize);
+        ImGui::SetCursorScreenPos(ImVec2(x0, origin.y));
+        ImGui::SetNextItemAllowOverlap();
+        const bool tabPressed = ImGui::InvisibleButton("tab", ImVec2(std::max(1.0f, x1 - x0), height),
+                                                       ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+        const bool tabHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem);
+        const bool tipReady = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenOverlappedByItem);
+        const bool middle = tabPressed && ImGui::IsMouseReleased(ImGuiMouseButton_Middle);
+        const bool showClose = selected || tabHovered;
+        bool closeHovered = false;
+        bool closePressed = false;
+        if (showClose) {
+            ImGui::SetCursorScreenPos(closeMin);
+            closePressed = ImGui::InvisibleButton("close", ImVec2(closeSize, closeSize));
+            closeHovered = ImGui::IsItemHovered();
+            if (closeHovered && closeTip != nullptr) {
+                ImGui::SetTooltip("%s", closeTip);
+            }
+        }
+
+        if (selected) {
+            const float bottom = origin.y + height;
+            draw->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x1, bottom), currentFill);
+            const float glowDepth = std::floor(height * 0.55f);
+            draw->AddRectFilledMultiColor(ImVec2(x0, origin.y), ImVec2(x1, origin.y + glowDepth), glowTop, glowTop, glowClear, glowClear);
+            draw->AddLine(ImVec2(x0, origin.y + 0.5f), ImVec2(x1, origin.y + 0.5f), topEdge);
+            const float bar = std::max(2.0f, std::floor(2.0f * u));
+            const float halo = std::floor(8.0f * u);
+            draw->AddRectFilledMultiColor(ImVec2(x0, bottom - bar - halo), ImVec2(x1, bottom - bar), accentClear, accentClear, accentHalo, accentHalo);
+            selectedBar = ImRect(ImVec2(x0, bottom - bar), ImVec2(x1, bottom));
+        } else if (tabHovered) {
+            draw->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x1, origin.y + height), hoverFill);
+        } else if (otherFill != 0) {
+            draw->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x1, origin.y + height), otherFill);
+        }
+        // Hairlines between tabs.
+        if (i > 0) {
+            draw->AddLine(ImVec2(std::floor(x0) + 0.5f, origin.y), ImVec2(std::floor(x0) + 0.5f, origin.y + height), line);
+        }
+
+        const ImVec2 closeCenter(std::floor((closeMin.x + closeMax.x) * 0.5f) + 0.5f, std::floor((closeMin.y + closeMax.y) * 0.5f) + 0.5f);
+        if (showClose) {
+            if (closeHovered) {
+                const int shade = isDark ? 255 : 0;
+                draw->AddRectFilled(closeMin, closeMax, IM_COL32(shade, shade, shade, ImGui::IsItemActive() ? 50 : 28), std::floor(3.0f * u));
+            }
+            const float arm = std::floor(3.5f * u);
+            const float thickness = std::max(1.0f, std::floor(1.25f * u));
+            const ImU32 crossInk = closeHovered ? ink : dimInk;
+            draw->AddLine(ImVec2(closeCenter.x - arm, closeCenter.y - arm), ImVec2(closeCenter.x + arm, closeCenter.y + arm), crossInk, thickness);
+            draw->AddLine(ImVec2(closeCenter.x - arm, closeCenter.y + arm), ImVec2(closeCenter.x + arm, closeCenter.y - arm), crossInk, thickness);
+        }
+
+        // The name, centered in the tab and cut short with an ellipsis when it does not fit.
+        const float textLeft = closeMax.x + std::floor(4.0f * u);
+        const float textRight = x1 - closeInset - closeSize - std::floor(4.0f * u);
+        const char* title = tabs[i].title != nullptr ? tabs[i].title : "";
+        const ImVec2 textSize = ImGui::CalcTextSize(title);
+        const float textY = std::floor(origin.y + (height - textSize.y) * 0.5f);
+        const float room = std::max(0.0f, textRight - textLeft);
+        const float textX = textSize.x <= room ? std::floor(textLeft + (room - textSize.x) * 0.5f) : textLeft;
+        ImGui::PushStyleColor(ImGuiCol_Text, selected ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : colors().secondary);
+        ImGui::RenderTextEllipsis(draw, ImVec2(textX, textY), ImVec2(textRight, origin.y + height), textRight, textRight, title, nullptr, &textSize);
+        ImGui::PopStyleColor();
+        // Unsaved changes: a dot after the name, like VS Code's tabs.
+        if (tabs[i].dirty) {
+            const float shown = std::min(textSize.x, room);
+            const float radius = std::max(2.5f, std::floor(3.5f * u));
+            const ImVec2 dot(std::min(textX + shown + radius + std::floor(5.0f * u), x1 - radius - 2.0f), std::floor(origin.y + height * 0.5f) + 0.5f);
+            draw->AddCircleFilled(dot, radius, selected ? ink : dimInk, 12);
+        }
+
+        if (tipReady && !closeHovered && tabs[i].tooltip != nullptr && tabs[i].tooltip[0] != '\0') {
+            ImGui::SetTooltip("%s", tabs[i].tooltip);
+        }
+        if (closePressed || middle) {
+            event.close = true;
+            eventTab = i;
+        } else if (tabPressed && !selected) {
+            event.select = true;
+            eventTab = i;
+        }
+        ImGui::PopID();
+    }
+    // A hairline under the whole row, as under the toolbar.
+    const float lineY = std::floor(origin.y + height) - 0.5f;
+    draw->AddLine(ImVec2(origin.x, lineY), ImVec2(origin.x + avail, lineY), line);
+    // The accent bar goes over the hairline so it stays unbroken.
+    if (selectedBar.GetWidth() > 0.0f) {
+        draw->AddRectFilled(selectedBar.Min, selectedBar.Max, accent);
+    }
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::Dummy(ImVec2(avail, height));
+    ImGui::PopID();
+    return event;
+}
+
 void toolbarBackground() {
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImVec2 min = ImGui::GetWindowPos();

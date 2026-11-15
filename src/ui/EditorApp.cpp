@@ -2,6 +2,7 @@
 
 #include "core/BlendColours.hpp"
 #include "core/BrushStrokes.hpp"
+#include "core/DocumentNames.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
 #include "core/SlopeBrush.hpp"
@@ -3015,31 +3016,301 @@ std::filesystem::path EditorApp::suggestedOpenDirectory() const {
 }
 
 void EditorApp::openMap(const std::filesystem::path& path) {
+    // A map that is already open comes to the front instead of opening twice.
+    if (const int open = documentIndexForPath(path); open >= 0) {
+        activateDocument(open);
+        return;
+    }
     try {
-        map_ = loadMapFile(path);
-        ++mapSerial_;
-        ++mapRevision_;
-        showMapSettings_ = false;
-        image_.clear();
-        viewTexW_ = 0;
-        viewTexH_ = 0;
-        fit_ = true;
-        deduper_ = {};
-        clearHistory();
-        clearMapSelection();
-        mapDirty_ = false;
-        miniDirty_ = true;
-        heightDirty_ = true;
+        LoadedMap loaded = loadMapFile(path);
+        addDocument(std::move(loaded), 0);
         statusNote_.clear();
         error_.clear();
-        vanillaTileWarning_.clear();
-        vanillaTileWarningShown_ = false;
         if (map_->tileCount > kVanillaTileSlots) {
             showVanillaTileWarning();
         }
     } catch (const std::exception& ex) {
         error_ = ex.what();
     }
+}
+
+void EditorApp::resetDocumentView() {
+    ++mapRevision_;
+    showMapSettings_ = false;
+    image_.clear();
+    viewTexW_ = 0;
+    viewTexH_ = 0;
+    invalidateView();
+    // Gestures under way belong to the map that was showing.
+    selecting_ = false;
+    selectionBefore_ = {};
+    brushStroking_ = false;
+    mountainStroke_ = false;
+    featureMarquee_ = false;
+    featurePressed_ = false;
+    canvasPressed_ = false;
+    rightDown_ = false;
+    rightDragged_ = false;
+    middlePanning_ = false;
+    draggingStartPlayer_ = 0;
+    hoverOverMap_ = false;
+    hoverHeight_ = -1;
+    vanillaTileWarning_.clear();
+    if (!map_ && view3d_) {
+        set3dView(false);
+    }
+}
+
+void EditorApp::addDocument(LoadedMap map, int untitledNumber) {
+    parkActiveDocument();
+    MapDocument shell;
+    shell.serial = ++serialCounter_;
+    shell.untitledNumber = untitledNumber;
+    documents_.push_back(std::move(shell));
+    activeDocument_ = static_cast<int>(documents_.size()) - 1;
+
+    map_ = std::move(map);
+    mapSerial_ = documents_.back().serial;
+    framed3dSerial_ = 0;
+    camera3d_ = OrbitCamera{};
+    fit_ = true;
+    zoom_ = 1.0f;
+    panX_ = 0.0f;
+    panY_ = 0.0f;
+    deduper_ = {};
+    clearHistory();
+    clearMapSelection();
+    mapDirty_ = false;
+    autosaveArmedAt_ = {};
+    vanillaTileWarningShown_ = false;
+    resetDocumentView();
+}
+
+void EditorApp::parkActiveDocument() {
+    if (activeDocument_ < 0 || activeDocument_ >= static_cast<int>(documents_.size())) {
+        return;
+    }
+    MapDocument& document = documents_[static_cast<std::size_t>(activeDocument_)];
+    // A moved-from optional still holds a value, so each one is reset after the move.
+    document.map = std::move(map_);
+    map_.reset();
+    document.deduper = std::move(deduper_);
+    deduper_ = {};
+    document.undo = std::move(undo_);
+    undo_.clear();
+    document.redo = std::move(redo_);
+    redo_.clear();
+    document.selection = std::move(selection_);
+    selection_ = {};
+    document.selectedFeatures = std::move(selectedFeatures_);
+    selectedFeatures_.clear();
+    document.dirty = mapDirty_;
+    mapDirty_ = false;
+    document.autosaveArmedAt = autosaveArmedAt_;
+    document.fit = fit_;
+    document.zoom = zoom_;
+    document.panX = panX_;
+    document.panY = panY_;
+    document.camera3d = camera3d_;
+    document.framedSerial = framed3dSerial_;
+    document.vanillaTileWarningShown = vanillaTileWarningShown_;
+    activeDocument_ = -1;
+}
+
+void EditorApp::unparkDocument(int index) {
+    MapDocument& document = documents_[static_cast<std::size_t>(index)];
+    map_ = std::move(document.map);
+    document.map.reset();
+    deduper_ = std::move(document.deduper);
+    document.deduper = {};
+    undo_ = std::move(document.undo);
+    document.undo.clear();
+    redo_ = std::move(document.redo);
+    document.redo.clear();
+    selection_ = std::move(document.selection);
+    document.selection = {};
+    selectedFeatures_ = std::move(document.selectedFeatures);
+    document.selectedFeatures.clear();
+    mapDirty_ = document.dirty;
+    autosaveArmedAt_ = document.autosaveArmedAt;
+    fit_ = document.fit;
+    zoom_ = document.zoom;
+    panX_ = document.panX;
+    panY_ = document.panY;
+    camera3d_ = document.camera3d;
+    mapSerial_ = document.serial;
+    framed3dSerial_ = document.framedSerial;
+    vanillaTileWarningShown_ = document.vanillaTileWarningShown;
+    activeDocument_ = index;
+    // An armed tile or feature paste stays armed: the clipboards are shared, so a
+    // copy from one map pastes into another.
+    resetDocumentView();
+}
+
+void EditorApp::activateDocument(int index) {
+    if (index < 0 || index >= static_cast<int>(documents_.size()) || index == activeDocument_) {
+        return;
+    }
+    parkActiveDocument();
+    unparkDocument(index);
+    statusNote_.clear();
+}
+
+void EditorApp::closeDocument(int index) {
+    const int count = static_cast<int>(documents_.size());
+    if (index < 0 || index >= count) {
+        return;
+    }
+    const std::uint64_t serial = documents_[static_cast<std::size_t>(index)].serial;
+    const int next = activeIndexAfterClose(count, activeDocument_, index);
+    if (index == activeDocument_) {
+        map_.reset();
+        deduper_ = {};
+        clearHistory();
+        clearMapSelection();
+        mapDirty_ = false;
+        activeDocument_ = -1;
+        documents_.erase(documents_.begin() + index);
+        if (next >= 0) {
+            unparkDocument(next);
+        } else {
+            // The last map closed. The editor shows its empty window, as it does at launch.
+            mapSerial_ = ++serialCounter_;
+            framed3dSerial_ = 0;
+            vanillaTileWarningShown_ = false;
+            resetDocumentView();
+        }
+    } else {
+        documents_.erase(documents_.begin() + index);
+        activeDocument_ = next;
+    }
+    quitDiscarded_.erase(serial);
+    if (closeAfterSaveSerial_ == serial) {
+        closeAfterSaveSerial_ = 0;
+    }
+}
+
+void EditorApp::requestCloseDocument(int index) {
+    if (index < 0 || index >= static_cast<int>(documents_.size())) {
+        return;
+    }
+    if (documentDirty(index)) {
+        // The prompt names the map, so that map comes to the front first.
+        activateDocument(index);
+        closePromptForTab_ = true;
+        showClosePrompt_ = true;
+        return;
+    }
+    closeDocument(index);
+}
+
+int EditorApp::documentIndexForSerial(std::uint64_t serial) const {
+    for (std::size_t i = 0; i < documents_.size(); ++i) {
+        if (documents_[i].serial == serial) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int EditorApp::documentIndexForPath(const std::filesystem::path& path) const {
+    for (int i = 0; i < static_cast<int>(documents_.size()); ++i) {
+        const LoadedMap* map = documentMap(i);
+        if (map == nullptr || map->source.empty()) {
+            continue;
+        }
+        std::error_code error;
+        if (map->source == path || std::filesystem::equivalent(map->source, path, error)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool EditorApp::documentDirty(int index) const {
+    if (index == activeDocument_) {
+        return map_.has_value() && mapDirty_;
+    }
+    if (index < 0 || index >= static_cast<int>(documents_.size())) {
+        return false;
+    }
+    const MapDocument& document = documents_[static_cast<std::size_t>(index)];
+    return document.map.has_value() && document.dirty;
+}
+
+const LoadedMap* EditorApp::documentMap(int index) const {
+    if (index == activeDocument_) {
+        return map_ ? &*map_ : nullptr;
+    }
+    if (index < 0 || index >= static_cast<int>(documents_.size())) {
+        return nullptr;
+    }
+    const MapDocument& document = documents_[static_cast<std::size_t>(index)];
+    return document.map ? &*document.map : nullptr;
+}
+
+std::string EditorApp::documentTitle(int index) const {
+    const LoadedMap* map = documentMap(index);
+    if (map == nullptr) {
+        return {};
+    }
+    return documentTabTitle(map->source, map->displayName);
+}
+
+float EditorApp::documentTabsHeight() const {
+    // One map needs no tabs, so the row shows from the second map on.
+    return documents_.size() > 1 ? theme::documentTabsHeight() : 0.0f;
+}
+
+void EditorApp::drawDocumentTabs() {
+    const int count = static_cast<int>(documents_.size());
+    std::vector<std::string> titles(static_cast<std::size_t>(count));
+    std::vector<std::string> paths(static_cast<std::size_t>(count));
+    std::vector<theme::DocumentTab> tabs(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        const std::size_t slot = static_cast<std::size_t>(i);
+        titles[slot] = documentTitle(i);
+        if (const LoadedMap* map = documentMap(i); map != nullptr && !map->source.empty()) {
+            paths[slot] = map->source.string();
+        }
+        tabs[slot].title = titles[slot].c_str();
+        tabs[slot].tooltip = paths[slot].c_str();
+        tabs[slot].dirty = documentDirty(i);
+    }
+    // Frosted glass behind the row, like the toolbar above it. Without glass (the
+    // Frosted Glass menu off, or the 3D view) the row draws its own flat colors.
+    const ImVec2 min = ImGui::GetWindowPos();
+    const ImVec2 size = ImGui::GetWindowSize();
+    const ImVec2 max(min.x + size.x, min.y + size.y);
+    const bool glass = drawGlass(documentTabsGlass_, min.x, min.y, max.x, max.y, 0.0f);
+    if (glass) {
+        const theme::GlassStyle& style = theme::glassStyle();
+        ImGui::GetWindowDrawList()->AddRectFilledMultiColor(min, max, style.sheenTop, style.sheenTop, style.sheenBottom, style.sheenBottom);
+    }
+    const std::string closeTip = text(Text::CloseMap) + std::string("  ") + theme::shortcut("W");
+    int tab = -1;
+    const theme::DocumentTabEvent event =
+        theme::documentTabs("document-tabs", tabs.data(), count, activeDocument_, tab, closeTip.c_str(), glass);
+    // A save in progress writes the map it started with, so the tabs wait for it.
+    if (savingMap()) {
+        return;
+    }
+    if (event.close) {
+        requestCloseDocument(tab);
+    } else if (event.select) {
+        activateDocument(tab);
+    }
+}
+
+int EditorApp::nextUntitledDocumentNumber() const {
+    std::vector<int> used;
+    for (int i = 0; i < static_cast<int>(documents_.size()); ++i) {
+        const LoadedMap* map = documentMap(i);
+        if (map != nullptr && map->source.empty()) {
+            used.push_back(documents_[static_cast<std::size_t>(i)].untitledNumber);
+        }
+    }
+    return lowestUnusedUntitledNumber(std::move(used));
 }
 
 void EditorApp::invalidateView() {
@@ -3190,6 +3461,10 @@ void EditorApp::toggleDeleteMode() {
         featurePasteArmed_ = false;
     }
 }
+
+namespace {
+void glyphLeftSidebar(ImDrawList* draw, ImVec2 c, float s, ImU32 color);
+}  // namespace
 
 void EditorApp::drawToolbar() {
     using theme::ToolIcon;
@@ -3485,7 +3760,10 @@ void EditorApp::drawToolbar() {
         const float labelWidth = ImGui::CalcTextSize(text(Text::HpiEditor)).x;
         ImGui::PopFont();
         const float itemWidth = std::floor(std::max(50.0f * theme::unit(), labelWidth + 16.0f * theme::unit()));
-        const float rightEdge = ImGui::GetWindowContentRegionMax().x - itemWidth;
+        // The sidebar toggle sits at the far right, as Xcode keeps its panel buttons, with the HPI
+        // editor just before it.
+        const float toggleWidth = std::floor(34.0f * theme::unit());
+        const float rightEdge = ImGui::GetWindowContentRegionMax().x - toggleWidth - gap - itemWidth;
         const float fixedEnd = usedRight - ImGui::GetWindowPos().x + gap;
         ImGui::SameLine(std::max(rightEdge, fixedEnd));
         if (theme::toolbarItem("hpi-editor", ToolIcon::HpiEditor, text(Text::HpiEditor), hpiEditor_.visible())) {
@@ -3493,6 +3771,15 @@ void EditorApp::drawToolbar() {
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("%s", text(Text::TipHpi));
+        }
+        ImGui::SameLine(0.0f, gap);
+        const float rowTop = ImGui::GetCursorPosY();
+        ImGui::SetCursorPosY(rowTop + std::floor((theme::toolbarItemHeight() - ImGui::GetFrameHeight()) * 0.5f));
+        static const theme::GlyphPainter kToggleGlyphs[] = {glyphLeftSidebar};
+        const std::string toggleTip = std::string(showSidebar_ ? text(Text::HideSidebar) : text(Text::ShowSidebar)) + "  " + theme::shortcut("0");
+        const char* toggleTips[] = {toggleTip.c_str()};
+        if (theme::iconSegmented("sidebar-toggle", kToggleGlyphs, 1, showSidebar_ ? 0 : -1, nullptr, toggleTips) == 0) {
+            showSidebar_ = !showSidebar_;
         }
     }
 }
@@ -4584,12 +4871,90 @@ void EditorApp::drawToolbarBackground() {
     draw->AddLine(ImVec2(min.x, max.y - 1.0f), ImVec2(max.x, max.y - 1.0f), style.border);
 }
 
+namespace {
+
+// Glyphs for the sidebar's navigator bar. Each is plain line art centered on c, about s points
+// across, drawn in one color the bar picks for its state.
+
+// Tilesets: a 2 x 2 grid of map tiles.
+void glyphTilesets(ImDrawList* draw, ImVec2 c, float s, ImU32 color) {
+    const float half = s * 0.5f;
+    const float gap = std::max(1.5f, s * 0.12f);
+    const float cell = (s - gap) * 0.5f;
+    const float stroke = std::max(1.0f, s / 11.0f);
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 2; ++col) {
+            const ImVec2 min(c.x - half + static_cast<float>(col) * (cell + gap), c.y - half + static_cast<float>(row) * (cell + gap));
+            draw->AddRect(min, ImVec2(min.x + cell, min.y + cell), color, s * 0.08f, 0, stroke);
+        }
+    }
+}
+
+// Favorites: a five-point star outline.
+void glyphFavorites(ImDrawList* draw, ImVec2 c, float s, ImU32 color) {
+    ImVec2 points[10];
+    const float outer = s * 0.56f;
+    const float inner = s * 0.24f;
+    for (int i = 0; i < 10; ++i) {
+        const float angle = -3.14159265f * 0.5f + static_cast<float>(i) * 3.14159265f / 5.0f;
+        const float radius = (i % 2 == 0) ? outer : inner;
+        points[i] = ImVec2(c.x + radius * std::cos(angle), c.y + s * 0.05f + radius * std::sin(angle));
+    }
+    draw->AddPolyline(points, 10, color, ImDrawFlags_Closed, std::max(1.0f, s / 11.0f));
+}
+
+// Features: a pine tree, like the trees and rocks placed on a map.
+void glyphFeatures(ImDrawList* draw, ImVec2 c, float s, ImU32 color) {
+    const float half = s * 0.5f;
+    const float stroke = std::max(1.0f, s / 11.0f);
+    const ImVec2 upper[] = {ImVec2(c.x, c.y - half), ImVec2(c.x + half * 0.62f, c.y - half * 0.02f), ImVec2(c.x - half * 0.62f, c.y - half * 0.02f)};
+    const ImVec2 lower[] = {ImVec2(c.x, c.y - half * 0.42f), ImVec2(c.x + half * 0.9f, c.y + half * 0.58f), ImVec2(c.x - half * 0.9f, c.y + half * 0.58f)};
+    draw->AddPolyline(upper, 3, color, ImDrawFlags_Closed, stroke);
+    draw->AddPolyline(lower, 3, color, ImDrawFlags_Closed, stroke);
+    draw->AddLine(ImVec2(c.x, c.y + half * 0.58f), ImVec2(c.x, c.y + half), color, stroke * 1.4f);
+}
+
+// Start Locations: a flag on a pole.
+void glyphStartLocations(ImDrawList* draw, ImVec2 c, float s, ImU32 color) {
+    const float half = s * 0.5f;
+    const float stroke = std::max(1.0f, s / 11.0f);
+    const float pole = c.x - half * 0.62f;
+    draw->AddLine(ImVec2(pole, c.y - half), ImVec2(pole, c.y + half), color, stroke * 1.2f);
+    const ImVec2 flag[] = {
+        ImVec2(pole, c.y - half * 0.9f),
+        ImVec2(c.x + half * 0.2f, c.y - half * 0.66f),
+        ImVec2(c.x + half * 0.78f, c.y - half * 0.86f),
+        ImVec2(c.x + half * 0.78f, c.y - half * 0.04f),
+        ImVec2(c.x + half * 0.2f, c.y + half * 0.16f),
+        ImVec2(pole, c.y - half * 0.08f),
+    };
+    draw->AddPolyline(flag, 6, color, ImDrawFlags_Closed, stroke);
+}
+
+// The sidebar toggle: a window with its left panel filled in, like Xcode's navigator button.
+void glyphLeftSidebar(ImDrawList* draw, ImVec2 c, float s, ImU32 color) {
+    const float w = s * 1.15f;
+    const float h = s * 0.9f;
+    const float stroke = std::max(1.0f, s / 11.0f);
+    const ImVec2 min(std::floor(c.x - w * 0.5f) + 0.5f, std::floor(c.y - h * 0.5f) + 0.5f);
+    const ImVec2 max(min.x + std::floor(w), min.y + std::floor(h));
+    const float rounding = s * 0.12f;
+    draw->AddRect(min, max, color, rounding, 0, stroke);
+    const float panel = std::floor(w * 0.36f);
+    draw->AddRectFilled(min, ImVec2(min.x + panel, max.y), color, rounding, ImDrawFlags_RoundCornersLeft);
+}
+
+}  // namespace
+
 void EditorApp::drawSidebar() {
     ImGui::BeginChild("sidebar", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     drawSidebarBackground();
     ImGui::SetWindowFontScale(std::clamp(sidebarFontPercent_, 75, 200) / 100.0f);
-    const char* sidebarTabs[] = {text(Text::Tilesets), text(Text::Favorites), text(Text::Features), text(Text::StartLocations)};
-    theme::segmented("sidebar-tabs", sidebarTabs, 4, sidebarTab_, true);
+    // The tabs are icons, as in Xcode's navigator, so more can be added without crowding the row.
+    // Each tab's name shows on hover.
+    static const theme::GlyphPainter kSidebarGlyphs[] = {glyphTilesets, glyphFavorites, glyphFeatures, glyphStartLocations};
+    const char* sidebarTips[] = {text(Text::Tilesets), text(Text::Favorites), text(Text::Features), text(Text::StartLocations)};
+    theme::navigatorBar("sidebar-tabs", kSidebarGlyphs, sidebarTips, 4, sidebarTab_);
     ImGui::Spacing();
     startLocationsTab_ = sidebarTab_ == 3;
     featuresTab_ = sidebarTab_ == 2;
@@ -6522,6 +6887,27 @@ void EditorApp::drawStatus() {
         }
         return;
     }
+    // A map Total Annihilation v3.1 cannot play says so in yellow at the left end of
+    // the bar, whatever the editor is doing. Hovering it gives the reason.
+    const bool tooManyTiles = tooManyTilesForVanilla(map_->tileCount);
+    const bool tooLarge = tooLargeForVanilla(map_->tileWidth, map_->tileHeight);
+    if (tooManyTiles || tooLarge) {
+        const ImVec4 warning = theme::dark() ? ImVec4(0.98f, 0.80f, 0.25f, 1.0f) : ImVec4(0.66f, 0.45f, 0.0f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, warning);
+        ImGui::TextUnformatted(text(Text::NotVanillaTa));
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            std::string reason;
+            if (tooManyTiles) {
+                reason = text(Text::NotVanillaTiles);
+            }
+            if (tooLarge) {
+                reason += (reason.empty() ? "" : "\n") + std::string(text(Text::NewMapGameLimit));
+            }
+            ImGui::SetTooltip("%s", reason.c_str());
+        }
+        ImGui::SameLine(0.0f, std::floor(14.0f * theme::unit()));
+    }
     const auto finishStatus = [&]() {
         if (!statusNote_.empty()) {
             ImGui::SameLine();
@@ -6744,23 +7130,37 @@ void EditorApp::finishMapSave() {
         return;
     }
     const std::string failure = mapSave_.get();
-    const bool sameMap = map_ && mapSerial_ == mapSaveSerial_;
+    // The saved map may no longer be the active one, so it is found by its serial.
+    const int savedIndex = documentIndexForSerial(mapSaveSerial_);
+    const bool active = savedIndex >= 0 && savedIndex == activeDocument_;
     if (failure.empty()) {
-        if (sameMap) {
-            map_->source = mapSavePath_;
-            map_->displayName = mapSavePath_.stem().string();
+        if (savedIndex >= 0) {
+            MapDocument& document = documents_[static_cast<std::size_t>(savedIndex)];
+            std::optional<LoadedMap>& saved = active ? map_ : document.map;
+            if (saved) {
+                saved->source = mapSavePath_;
+                saved->displayName = mapSavePath_.stem().string();
+            }
+            document.untitledNumber = 0;
         }
         statusNote_ = "Saved " + mapSavePath_.filename().string();
         error_.clear();
+        if (closeAfterSaveSerial_ != 0 && closeAfterSaveSerial_ == mapSaveSerial_) {
+            closeAfterSaveSerial_ = 0;
+            closeDocument(savedIndex);
+        }
         if (quitAfterSave_) {
             quitAfterSave_ = false;
             requestClose();
         }
         return;
     }
-    if (sameMap) {
+    if (active) {
         mapDirty_ = true;
+    } else if (savedIndex >= 0) {
+        documents_[static_cast<std::size_t>(savedIndex)].dirty = true;
     }
+    closeAfterSaveSerial_ = 0;
     error_ = failure;
     statusNote_ = "Could not save " + mapSavePath_.filename().string();
     if (quitAfterSave_) {
@@ -6829,10 +7229,21 @@ void EditorApp::requestClose() {
         quit_ = false;
         return;
     }
-    if (map_ && mapDirty_) {
+    // Every open map with unsaved changes is asked about in turn, the active one first.
+    if (map_ && mapDirty_ && quitDiscarded_.count(mapSerial_) == 0) {
+        closePromptForTab_ = false;
         showClosePrompt_ = true;
         quit_ = false;
         return;
+    }
+    for (int i = 0; i < static_cast<int>(documents_.size()); ++i) {
+        if (i != activeDocument_ && documentDirty(i) && quitDiscarded_.count(documents_[static_cast<std::size_t>(i)].serial) == 0) {
+            activateDocument(i);
+            closePromptForTab_ = false;
+            showClosePrompt_ = true;
+            quit_ = false;
+            return;
+        }
     }
     quit_ = true;
 }
@@ -6865,21 +7276,55 @@ void EditorApp::drawClosePrompt() {
     if (!ImGui::BeginPopupModal(unsavedTitle.c_str(), nullptr, theme::alertFlags())) {
         return;
     }
-    theme::alertText(text(Text::UnsavedMessage), text(Text::UnsavedDetail));
-    if (ImGui::Button(text(Text::ExitWithoutSaving))) {
+    // Closing one tab, or quitting with several maps open, names the map being asked about.
+    const bool forTab = closePromptForTab_;
+    const bool named = forTab || documents_.size() > 1;
+    if (named) {
+        const std::string message = formatText(Text::SaveChangesTo, {documentTitle(activeDocument_)});
+        theme::alertText(message.c_str(), text(forTab ? Text::CloseUnsavedDetail : Text::UnsavedDetail));
+    } else {
+        theme::alertText(text(Text::UnsavedMessage), text(Text::UnsavedDetail));
+    }
+    if (ImGui::Button(text(named ? Text::DontSave : Text::ExitWithoutSaving))) {
         showClosePrompt_ = false;
-        quit_ = true;
+        closePromptForTab_ = false;
+        ImGui::CloseCurrentPopup();
+        if (forTab) {
+            closeDocument(activeDocument_);
+        } else if (named) {
+            // Ask about the next map with changes, or quit when none is left.
+            quitDiscarded_.insert(mapSerial_);
+            requestClose();
+        } else {
+            quit_ = true;
+        }
+    }
+    ImGui::SameLine();
+    const char* cancelLabel = text(Text::Cancel);
+    const char* saveLabel = text(named ? Text::Save : Text::SaveAndExit);
+    const float cancelWidth = theme::pushButtonWidth(cancelLabel);
+    const float saveWidth = theme::pushButtonWidth(saveLabel);
+    theme::alignRight(cancelWidth + ImGui::GetStyle().ItemSpacing.x + saveWidth);
+    if (ImGui::Button(cancelLabel, ImVec2(cancelWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        showClosePrompt_ = false;
+        closePromptForTab_ = false;
+        quitDiscarded_.clear();
+        // The HPI editor asks again next time, since nothing quit.
+        hpiQuitApproved_ = false;
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    const char* saveLabel = text(Text::SaveAndExit);
-    const float saveWidth = theme::pushButtonWidth(saveLabel);
-    theme::alignRight(saveWidth);
     if (theme::defaultButton(saveLabel, ImVec2(saveWidth, 0.0f))) {
         if (saveMap()) {
-            // The save runs in the background; the editor quits when it finishes.
+            // The save runs in the background. The tab closes, or the editor moves on
+            // to quitting, when it finishes.
             showClosePrompt_ = false;
-            quitAfterSave_ = true;
+            if (forTab) {
+                closeAfterSaveSerial_ = mapSerial_;
+            } else {
+                quitAfterSave_ = true;
+            }
+            closePromptForTab_ = false;
             ImGui::CloseCurrentPopup();
         }
     }
@@ -7492,24 +7937,12 @@ void EditorApp::drawNewMap() {
     ImGui::BeginDisabled(!sizeOk);
     if (theme::defaultButton(text(Text::Create), ImVec2(buttonWidth, 0.0f))) {
         try {
-            map_ = createBlankMap(newWidth_, newHeight_);
-            ++mapSerial_;
-            ++mapRevision_;
-            showMapSettings_ = false;
-            image_.clear();
-            viewTexW_ = 0;
-            viewTexH_ = 0;
-            fit_ = true;
-            deduper_ = {};
-            clearHistory();
-            clearMapSelection();
-            mapDirty_ = false;
-            miniDirty_ = true;
-            heightDirty_ = true;
+            LoadedMap blank = createBlankMap(newWidth_, newHeight_);
+            const int untitled = nextUntitledDocumentNumber();
+            blank.displayName = formatText(Text::UntitledMap, {std::to_string(untitled)});
+            addDocument(std::move(blank), untitled);
             statusNote_ = "New " + std::to_string(newWidth_) + " x " + std::to_string(newHeight_) + " map";
             error_.clear();
-            vanillaTileWarning_.clear();
-            vanillaTileWarningShown_ = false;
             showNew_ = false;
             ImGui::CloseCurrentPopup();
         } catch (const std::exception& ex) {
@@ -8761,18 +9194,35 @@ void EditorApp::markMapDirty() {
 }
 
 void EditorApp::autosaveIfDue() {
-    if (!map_ || !mapDirty_) {
-        return;
+    const auto now = std::chrono::steady_clock::now();
+    const auto interval = std::chrono::minutes(std::clamp(autosaveMinutes_, 1, 120));
+    // Maps in the other tabs are backed up on the same schedule as the one showing.
+    for (int i = 0; i < static_cast<int>(documents_.size()); ++i) {
+        const bool active = i == activeDocument_;
+        MapDocument& document = documents_[static_cast<std::size_t>(i)];
+        const std::optional<LoadedMap>& map = active ? map_ : document.map;
+        bool& dirty = active ? mapDirty_ : document.dirty;
+        std::chrono::steady_clock::time_point& armedAt = active ? autosaveArmedAt_ : document.autosaveArmedAt;
+        if (!map || !dirty || now - armedAt < interval) {
+            continue;
+        }
+        try {
+            const std::string filename = writeAutosave(*map);
+            dirty = false;
+            statusNote_ = "Autosaved " + filename;
+            error_.clear();
+        } catch (const std::exception& ex) {
+            armedAt = now;
+            error_ = ex.what();
+        }
     }
-    const int minutes = std::clamp(autosaveMinutes_, 1, 120);
-    const int copies = std::clamp(autosaveBackups_, 1, 20);
-    if (std::chrono::steady_clock::now() - autosaveArmedAt_ < std::chrono::minutes(minutes)) {
-        return;
-    }
+}
 
-    try {
-        const std::string mapName = backupMapName(map_->source.empty() ? map_->displayName : map_->source.stem().string());
-        std::filesystem::path directory = map_->source.has_parent_path() ? map_->source.parent_path() : suggestedOpenDirectory();
+std::string EditorApp::writeAutosave(const LoadedMap& map) {
+    const int copies = std::clamp(autosaveBackups_, 1, 20);
+    {
+        const std::string mapName = backupMapName(map.source.empty() ? map.displayName : map.source.stem().string());
+        std::filesystem::path directory = map.source.has_parent_path() ? map.source.parent_path() : suggestedOpenDirectory();
         if (directory.empty()) {
             directory = std::filesystem::current_path();
         }
@@ -8809,13 +9259,8 @@ void EditorApp::autosaveIfDue() {
             }
         }
 
-        saveMapFile(*map_, destination);
-        mapDirty_ = false;
-        statusNote_ = "Autosaved " + filename;
-        error_.clear();
-    } catch (const std::exception& ex) {
-        autosaveArmedAt_ = std::chrono::steady_clock::now();
-        error_ = ex.what();
+        saveMapFile(map, destination);
+        return filename;
     }
 }
 
@@ -8883,6 +9328,10 @@ bool EditorApp::draw() {
             if (const auto chosen = openMapDialog(suggestedOpenDirectory())) {
                 openMap(*chosen);
             }
+        } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W)) {
+            if (map_ && !savingMap() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
+                requestCloseDocument(activeDocument_);
+            }
         } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S)) {
             saveMapAs();
         } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) {
@@ -8896,6 +9345,8 @@ bool EditorApp::draw() {
             showOptions_ = true;
         } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_3)) {
             set3dView(!view3d_);
+        } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_0)) {
+            showSidebar_ = !showSidebar_;
         } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Q)) {
             requestClose();
         } else if (!view3d_ && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
@@ -9021,6 +9472,9 @@ bool EditorApp::draw() {
                 if (const auto chosen = openMapDialog(suggestedOpenDirectory())) {
                     openMap(*chosen);
                 }
+            }
+            if (ImGui::MenuItem(text(Text::CloseMap), theme::shortcut("W").c_str(), false, map_.has_value() && !savingMap())) {
+                requestCloseDocument(activeDocument_);
             }
             ImGui::Separator();
             if (ImGui::MenuItem(text(Text::Save), theme::shortcut("S").c_str(), false, map_.has_value())) {
@@ -9167,6 +9621,9 @@ bool EditorApp::draw() {
             ImGui::MenuItem(text(Text::ShowFeatureBorders), nullptr, &showFeatureBorders_);
             ImGui::MenuItem(text(Text::StartPositions), nullptr, &showStarts_);
             ImGui::MenuItem(text(Text::Minimap), nullptr, &showMinimap_);
+            if (ImGui::MenuItem(showSidebar_ ? text(Text::HideSidebar) : text(Text::ShowSidebar), theme::shortcut("0").c_str())) {
+                showSidebar_ = !showSidebar_;
+            }
             ImGui::MenuItem(text(Text::TileBrush), nullptr, &showTileBrush_);
             ImGui::MenuItem(text(Text::FrostedGlass), nullptr, &frostedGlass_);
             ImGui::EndMenu();
@@ -9192,20 +9649,48 @@ bool EditorApp::draw() {
     const float toolbarHeight = theme::toolbarHeight();
     const float cardWidth = static_cast<float>(previewSize_) + style.FramePadding.x * 2.0f;
     const float sidebarFontScale = std::clamp(sidebarFontPercent_, 75, 200) / 100.0f;
-    const float sidebarWidth = std::clamp(
+    // A hidden sidebar gives its whole width to the map.
+    const float sidebarFullWidth = std::clamp(
         cardWidth + style.WindowPadding.x * 2.0f + style.ScrollbarSize + style.IndentSpacing * 2.0f + 16.0f
             + (sidebarFontScale - 1.0f) * 180.0f,
         348.0f * sidebarFontScale,
         720.0f);
+    // Showing or hiding the sidebar slides it in or out over about a fifth of a
+    // second, close to the macOS sidebar, easing at both ends.
+    constexpr float kSidebarSlideSeconds = 0.22f;
+    const float sidebarTarget = showSidebar_ ? 1.0f : 0.0f;
+    if (!sidebarRevealStarted_) {
+        sidebarReveal_ = sidebarTarget;
+        sidebarRevealStarted_ = true;
+    }
+    if (sidebarReveal_ != sidebarTarget) {
+        const float step = std::min(ImGui::GetIO().DeltaTime, 0.05f) / kSidebarSlideSeconds;
+        sidebarReveal_ = sidebarTarget > sidebarReveal_ ? std::min(sidebarTarget, sidebarReveal_ + step)
+                                                        : std::max(sidebarTarget, sidebarReveal_ - step);
+    }
+    const float sidebarEase = sidebarReveal_ * sidebarReveal_ * (3.0f - 2.0f * sidebarReveal_);
+    // The map gets whatever the sidebar does not cover. Whole pixels keep the map steady.
+    const float sidebarWidth = std::floor(sidebarFullWidth * sidebarEase);
     const float statusHeight = std::floor(ImGui::GetFrameHeight() + 2.0f);
     const float bodyTop = top + toolbarHeight;
     const float bodyHeight = std::max(1.0f, body.y - toolbarHeight - statusHeight);
+    // With two or more maps open, a row of tabs sits over the map, under the toolbar.
+    const float tabsHeight = std::min(documentTabsHeight(), std::max(0.0f, bodyHeight - 1.0f));
     // The map goes first so that panning and zooming are settled before the
     // toolbar and sidebar glass copy the part of the map that lies behind them.
-    ImGui::SetCursorPos(ImVec2(sidebarWidth, bodyTop));
-    ImGui::BeginChild("map-slot", ImVec2(std::max(1.0f, body.x - sidebarWidth), bodyHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetCursorPos(ImVec2(sidebarWidth, bodyTop + tabsHeight));
+    ImGui::BeginChild("map-slot", ImVec2(std::max(1.0f, body.x - sidebarWidth), std::max(1.0f, bodyHeight - tabsHeight)), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
     drawMap();
     ImGui::EndChild();
+    if (tabsHeight > 0.0f) {
+        ImGui::SetCursorPos(ImVec2(sidebarWidth, bodyTop));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::BeginChild("document-tab-row", ImVec2(std::max(1.0f, body.x - sidebarWidth), tabsHeight), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+        drawDocumentTabs();
+        ImGui::EndChild();
+    }
     ImGui::SetCursorPos(ImVec2(0.0f, top));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, std::floor((toolbarHeight - theme::toolbarItemHeight()) * 0.5f)));
     ImGui::BeginChild("toolbar", ImVec2(body.x, toolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -9213,10 +9698,14 @@ bool EditorApp::draw() {
     drawToolbar();
     ImGui::EndChild();
 
-    ImGui::SetCursorPos(ImVec2(0.0f, bodyTop));
-    ImGui::BeginChild("sidebar-slot", ImVec2(sidebarWidth, bodyHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
-    drawSidebar();
-    ImGui::EndChild();
+    if (sidebarWidth >= 1.0f) {
+        // The sidebar keeps its full width while it slides, so its contents move
+        // rather than squeeze. The part past the window's left edge is cut off.
+        ImGui::SetCursorPos(ImVec2(sidebarWidth - sidebarFullWidth, bodyTop));
+        ImGui::BeginChild("sidebar-slot", ImVec2(sidebarFullWidth, bodyHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
+        drawSidebar();
+        ImGui::EndChild();
+    }
     ImGui::SetCursorPos(ImVec2(0.0f, bodyTop + bodyHeight));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, std::floor((statusHeight - ImGui::GetTextLineHeight() * 11.0f / 13.0f) * 0.5f)));
     ImGui::BeginChild("status", ImVec2(body.x, statusHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -9470,23 +9959,24 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
             // tiles around it. Two lands can share a height, so a known picture
             // names its land, and a blend fringe follows the height at that corner.
             const bool pictures = !brushPictures_.empty();
+            // A tile whose picture is unknown, such as one from a game map or another section of the
+            // tileset, is read by its height alone. Only the armed tileset's own bases are in the
+            // running then: the partner lands sit at 77 to 86, so Metal plating at 86 would be read as
+            // Lava Base-86, and plating at 85 would tie with five other Base-85 lands and fall to Base-0.
+            // A partner land is still found by its picture, which is how a blend is read.
+            std::vector<std::size_t> ownLevels;
+            for (std::size_t i = 0; i < levels.size(); ++i) {
+                if (brushCategoryMatches(levels[i]->category, brushWorld_)) {
+                    ownLevels.push_back(i);
+                }
+            }
+            if (ownLevels.empty()) {
+                for (std::size_t i = 0; i < levels.size(); ++i) {
+                    ownLevels.push_back(i);
+                }
+            }
             const auto nearestLevel = [&](int height, bool abstainOnTie) {
-                std::size_t nearest = 0;
-                bool tie = false;
-                for (std::size_t i = 1; i < levelHeights.size(); ++i) {
-                    const int distance = std::abs(height - levelHeights[i]);
-                    const int best = std::abs(height - levelHeights[nearest]);
-                    if (distance < best) {
-                        nearest = i;
-                        tie = false;
-                    } else if (distance == best) {
-                        tie = true;
-                    }
-                }
-                if (tie && abstainOnTie) {
-                    return -1;
-                }
-                return static_cast<int>(nearest);
+                return nearestOwnLevel(levelHeights, ownLevels, height, abstainOnTie);
             };
             const auto readCorner = [&](int nodeX, int nodeY) {
                 std::vector<int> votes(levels.size(), 0);

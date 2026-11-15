@@ -119,6 +119,33 @@ using GlyphPainter = void (*)(ImDrawList* draw, ImVec2 center, float size, ImU32
 // Returns the segment that was clicked, or -1.
 int iconSegmented(const char* id, const GlyphPainter* glyphs, int count, int selected, const bool* enabled, const char* const* tips);
 
+// A row of picture tabs like the navigator bar at the top of Xcode's left sidebar: plain glyphs
+// spread evenly across the width, the current one in the accent color, with a hairline under the
+// row. tips name each tab on hover. Returns true when the selection changed.
+bool navigatorBar(const char* id, const GlyphPainter* glyphs, const char* const* tips, int count, int& current);
+
+// Height of the row of document tabs under the toolbar.
+float documentTabsHeight();
+// One document tab, as in Xcode's editor tabs: equal widths across the row, the
+// current tab lighter than the rest, the name centered, and a close button at the
+// left end. The close button shows on the current tab and on the tab under the
+// pointer; a tab with unsaved changes shows a dot there otherwise. tooltip may be null.
+struct DocumentTabEvent {
+    bool select = false;
+    bool close = false;
+};
+struct DocumentTab {
+    const char* title = "";
+    const char* tooltip = nullptr;
+    bool dirty = false;
+};
+// Draws the whole row in the current window and reports what was clicked. A middle
+// click on a tab asks to close it. closeTip names the close button. When glass is
+// true the caller has already painted frosted glass behind the row, so the row
+// leaves its background clear and tints the tabs lightly instead of filling them.
+DocumentTabEvent documentTabs(const char* id, const DocumentTab* tabs, int count, int current, int& eventTab, const char* closeTip,
+                              bool glass = false);
+
 void toolbarBackground();
 void toolbarSeparator();
 void bottomBarBackground();

@@ -92,6 +92,18 @@ inline constexpr int kMaxMapTiles = 2048;
 // 65536 images. A larger pool is saved as TNT version 0x2001 with a 32-bit
 // index per cell.
 inline constexpr int kVanillaTileSlots = 65536;
+// Game size 63 x 63, in 32-pixel tiles. Total Annihilation v3.1 may not play a larger map.
+inline constexpr int kVanillaMaxMapTiles = 1008;
+
+// False when Total Annihilation v3.1 cannot play the map: more tile images than its
+// 16-bit index holds, or wider or taller than game size 63.
+inline constexpr bool tooManyTilesForVanilla(int tileCount) { return tileCount > kVanillaTileSlots; }
+inline constexpr bool tooLargeForVanilla(int tileWidth, int tileHeight) {
+    return tileWidth > kVanillaMaxMapTiles || tileHeight > kVanillaMaxMapTiles;
+}
+inline constexpr bool supportsVanillaTa(int tileWidth, int tileHeight, int tileCount) {
+    return !tooManyTilesForVanilla(tileCount) && !tooLargeForVanilla(tileWidth, tileHeight);
+}
 inline constexpr std::uint32_t kTntVersion = 0x2000;
 inline constexpr std::uint32_t kTntWideVersion = 0x2001;
 

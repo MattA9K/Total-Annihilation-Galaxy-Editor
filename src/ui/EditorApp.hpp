@@ -338,6 +338,53 @@ private:
     void drawSavingOverlay(float left, float top, float right, float bottom);
     void markMapDirty();
     void autosaveIfDue();
+    // Writes a timed backup of one map next to its file. Returns the backup's file name.
+    std::string writeAutosave(const LoadedMap& map);
+
+    // Every open map is a document. The active one lives in the members below
+    // (map_, undo_, selection_ and the rest); the others wait here with their
+    // own copy of that state. documents_[activeDocument_] is an empty shell
+    // while its document is active.
+    struct MapDocument {
+        std::optional<LoadedMap> map;
+        TileDeduper deduper;
+        std::vector<EditorCommand> undo;
+        std::vector<EditorCommand> redo;
+        TileSelection selection;
+        std::set<std::pair<int, int>> selectedFeatures;
+        bool dirty = false;
+        std::chrono::steady_clock::time_point autosaveArmedAt{};
+        bool fit = true;
+        float zoom = 1.0f;
+        float panX = 0.0f;
+        float panY = 0.0f;
+        OrbitCamera camera3d;
+        std::uint64_t serial = 0;
+        std::uint64_t framedSerial = 0;
+        bool vanillaTileWarningShown = false;
+        // N for a map called "Untitled Map N" that has never been saved, otherwise 0.
+        int untitledNumber = 0;
+    };
+    // Moves a new map in as the active document and resets the view for it.
+    void addDocument(LoadedMap map, int untitledNumber);
+    // Clears the view caches and any gesture under way after the active map changes.
+    void resetDocumentView();
+    void parkActiveDocument();
+    void unparkDocument(int index);
+    void activateDocument(int index);
+    // Drops a document without asking. The neighbour to its right, or left, becomes active.
+    void closeDocument(int index);
+    // Closes a document, first asking to save it when it has unsaved changes.
+    void requestCloseDocument(int index);
+    int documentIndexForSerial(std::uint64_t serial) const;
+    int documentIndexForPath(const std::filesystem::path& path) const;
+    bool documentDirty(int index) const;
+    const LoadedMap* documentMap(int index) const;
+    // The name on a document's tab: the file name without extension, or "Untitled Map N".
+    std::string documentTitle(int index) const;
+    int nextUntitledDocumentNumber() const;
+    void drawDocumentTabs();
+    float documentTabsHeight() const;
     void warnIfPastVanillaTiles(int tileCountBefore);
     void showVanillaTileWarning();
 
@@ -372,6 +419,7 @@ private:
     GlassPanel sidebarGlass_;
     GlassPanel toolbarGlass_;
     GlassPanel minimapGlass_;
+    GlassPanel documentTabsGlass_;
     float mapOriginX_ = 0.0f;
     float mapOriginY_ = 0.0f;
     bool fit_ = true;
@@ -404,6 +452,16 @@ private:
     float featureMarqueeY0_ = 0.0f;
     float featureMarqueeX1_ = 0.0f;
     float featureMarqueeY1_ = 0.0f;
+    std::vector<MapDocument> documents_;
+    int activeDocument_ = -1;
+    // Hands out document serials, so each open map keeps its own.
+    std::uint64_t serialCounter_ = 1;
+    // The close prompt asks about one tab rather than quitting.
+    bool closePromptForTab_ = false;
+    // Set when Save in the close prompt should close that map once the save finishes.
+    std::uint64_t closeAfterSaveSerial_ = 0;
+    // Maps the user chose not to save while quitting. Cancel clears this.
+    std::set<std::uint64_t> quitDiscarded_;
     int armedStartPlayer_ = 0;
     int draggingStartPlayer_ = 0;
     // Set when a number key chooses a player, so that row scrolls into view.
@@ -414,6 +472,12 @@ private:
     bool showMinimap_ = true;
     // Floating palette of base tiles. Choosing one arms a square brush on the map.
     bool showTileBrush_ = true;
+    // The left sidebar with the Tilesets, Favorites, Features and Start Locations tabs.
+    bool showSidebar_ = true;
+    // How far the sidebar is slid in, from 0 (hidden) to 1 (shown). It follows
+    // showSidebar_ over a short animation.
+    float sidebarReveal_ = 1.0f;
+    bool sidebarRevealStarted_ = false;
     struct BrushPaint {
         std::string name;
         std::string category;

@@ -104,6 +104,8 @@ enum class Text : int {
     TipBrushFixed,
     TipBrushSize,
     TipHpi,
+    HideSidebar,
+    ShowSidebar,
     Tilesets,
     Favorites,
     Features,
@@ -173,6 +175,13 @@ enum class Text : int {
     HeightOffset,
     HeightOffsetLabel,
     TipHeightOffset,
+    UntitledMap,
+    CloseMap,
+    SaveChangesTo,
+    CloseUnsavedDetail,
+    DontSave,
+    NotVanillaTa,
+    NotVanillaTiles,
     Count
 };
 
