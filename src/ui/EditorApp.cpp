@@ -11809,6 +11809,10 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                // The four corner tiles are the lands the name gives. Colour alone can misread one, such
+                // as a grey Acid rock beside Metal, and a corner read as another land makes the brush
+                // paint the wrong piece in the next cell.
+                const std::array<int, 4> cornerLands = threeWayCornerLands(lowered, {set.pivotWord, thirdWord, lastWord});
                 const int tiles = stamp.tileWidth * stamp.tileHeight;
                 for (int tile = 0; tile < tiles; ++tile) {
                     const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
@@ -11821,7 +11825,13 @@ void EditorApp::ensureBrushPaints() {
                     if (brushPictures_.find(hash) != brushPictures_.end()) {
                         continue;
                     }
-                    const BrushPaint* land = lands[set.landOf(pixels)];
+                    const int tx = tile % stamp.tileWidth;
+                    const int ty = tile / stamp.tileWidth;
+                    const bool edgeX = tx == 0 || tx == stamp.tileWidth - 1;
+                    const bool edgeY = ty == 0 || ty == stamp.tileHeight - 1;
+                    const int corner = (tx == 0 ? 0 : 1) + (ty == 0 ? 0 : 2);
+                    const int named = edgeX && edgeY ? cornerLands[static_cast<std::size_t>(corner)] : -1;
+                    const BrushPaint* land = lands[named >= 0 ? named : set.landOf(pixels)];
                     brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
                 }
             } catch (const std::exception&) {

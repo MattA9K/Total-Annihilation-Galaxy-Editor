@@ -2531,6 +2531,54 @@ inline std::string triGreenLushName(const BrushGraph& graph, const std::array<in
     return {};
 }
 
+// The land at each corner of a three-way piece named by triGreenLushName, read back from its name, such
+// as blend-tri-acid-l-metal-b-archi-01: Acid fills the left side, Metal is at the bottom right and
+// Archipelago at the top right. words are the three lands' lower-case name words; each corner is the
+// index of its word there, in the order top left, top right, bottom left, bottom right, or -1 when the
+// name is not one of these.
+inline std::array<int, 4> threeWayCornerLands(std::string_view loweredName, const std::array<std::string_view, 3>& words) {
+    std::array<int, 4> lands = {-1, -1, -1, -1};
+    constexpr std::string_view prefix = "blend-tri-";
+    if (loweredName.substr(0, prefix.size()) != prefix) {
+        return lands;
+    }
+    std::vector<std::string_view> parts;
+    std::string_view rest = loweredName.substr(prefix.size());
+    while (!rest.empty()) {
+        const std::size_t dash = rest.find('-');
+        parts.push_back(rest.substr(0, dash));
+        rest = dash == std::string_view::npos ? std::string_view() : rest.substr(dash + 1);
+    }
+    if (parts.size() < 5) {
+        return lands;
+    }
+    const auto landOf = [&](std::string_view word) {
+        for (int land = 0; land < 3; ++land) {
+            if (words[static_cast<std::size_t>(land)] == word) {
+                return land;
+            }
+        }
+        return -1;
+    };
+    const int fill = landOf(parts[0]);
+    const int named = landOf(parts[2]);
+    const int other = landOf(parts[4]);
+    const std::string_view side = parts[1];
+    const std::string_view pos = parts[3];
+    if (fill < 0 || named < 0 || other < 0 || fill == named || fill == other || named == other || side.size() != 1 || pos.size() != 1) {
+        return lands;
+    }
+    for (int corner = 0; corner < 4; ++corner) {
+        const bool right = (corner & 1) != 0;
+        const bool bottom = (corner & 2) != 0;
+        const bool across = side == "t" || side == "b";
+        const bool inFill = side == "t" ? !bottom : side == "b" ? bottom : side == "l" ? !right : right;
+        const bool atNamed = across ? (pos == "r") == right : (pos == "b") == bottom;
+        lands[static_cast<std::size_t>(corner)] = inFill ? fill : atNamed ? named : other;
+    }
+    return lands;
+}
+
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
     for (const char* third : {"Ice", "Mars", "Metal", "Crystal", "Acid"}) {
         if (std::string greenLush = triGreenLushName(graph, corners, third); !greenLush.empty()) {
