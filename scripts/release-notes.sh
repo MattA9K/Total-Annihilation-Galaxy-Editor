@@ -20,6 +20,23 @@ sudo apt install ./galaxy-editor_${version}_amd64.deb
 \`apt\` installs the command \`galaxy-editor\` and pulls in zlib, OpenGL, X11, and Zenity. The \`.deb\` does not include the two \`.hpi\` files. Those stay in the Linux archive, beside the program.
 EOF
 
+if [ "$version" = "1.1.12" ]; then
+  cat <<EOF
+
+## New
+
+**Blended ground.** The Tile Brush blends the base ground of one tileset into another. Paint one land beside another and the edge between them is drawn with matching blend pieces instead of a hard seam. Two-way blends join GreenWorld, Lush, Archipelago, Desert, Lava, Mars, Ice, Crystal, Acid, and Metal ground, and three-way blends fill the cells where three lands meet.
+
+**Several maps at once.** Opening a map or making a new one adds it as a tab under the toolbar instead of replacing the map you have open. Each map keeps its own undo history, selection, zoom, and 3D camera, and copy and paste work between maps. A new map is called Untitled Map 1, Untitled Map 2, and so on. A dot on a tab marks unsaved changes. Close a tab with its × button, a middle click, or File > Close Map (Ctrl+W). Galaxy Editor asks about each map with unsaved changes before it closes a tab or quits.
+
+**Export PNG.** File > Export PNG saves the whole map as a PNG image.
+
+**Total Annihilation v3.1 warning.** When a map has more than 65,536 tile images, or is larger than 63 x 63, the left end of the status bar says Does Not Support Total Annihilation v3.1 in yellow. Point at it to see why.
+
+**Sidebar.** The tabs at the top of the left sidebar are icons, as in Xcode. The button at the right end of the toolbar, or Ctrl+0, hides and shows the sidebar, and it slides in and out.
+EOF
+fi
+
 if [ "$version" = "1.1.11" ]; then
   cat <<EOF
 
