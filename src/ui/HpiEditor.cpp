@@ -897,13 +897,16 @@ void HpiEditor::draw() {
     }
     windowCenter_ = ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x * 0.5f, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y * 0.5f);
 
+    // Cursor positions count from the window's corner, title bar included, so every bar is placed
+    // from where the content starts, just under the title bar.
+    const ImVec2 origin = ImGui::GetCursorPos();
     const ImVec2 total = ImGui::GetContentRegionAvail();
     const float toolbarHeight = theme::toolbarHeight();
     const float pathHeight = std::floor(26.0f * u);
     const float statusHeight = std::floor(ImGui::GetFrameHeight() + 2.0f);
     const float bodyHeight = std::max(1.0f, total.y - toolbarHeight - pathHeight - statusHeight);
 
-    ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetCursorPos(origin);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * u, std::floor((toolbarHeight - theme::toolbarItemHeight()) * 0.5f)));
     ImGui::BeginChild("##hpi-toolbar", ImVec2(total.x, toolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
@@ -911,10 +914,10 @@ void HpiEditor::draw() {
     drawToolbar();
     ImGui::EndChild();
 
-    ImGui::SetCursorPos(ImVec2(0.0f, toolbarHeight));
+    ImGui::SetCursorPos(ImVec2(origin.x, origin.y + toolbarHeight));
     drawBody(bodyHeight);
 
-    ImGui::SetCursorPos(ImVec2(0.0f, toolbarHeight + bodyHeight));
+    ImGui::SetCursorPos(ImVec2(origin.x, origin.y + toolbarHeight + bodyHeight));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * u, std::floor((pathHeight - ImGui::GetFontSize() * 11.0f / 13.0f) * 0.5f) - 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
     ImGui::BeginChild("##hpi-path", ImVec2(total.x, pathHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -923,7 +926,7 @@ void HpiEditor::draw() {
     drawPathBar();
     ImGui::EndChild();
 
-    ImGui::SetCursorPos(ImVec2(0.0f, toolbarHeight + bodyHeight + pathHeight));
+    ImGui::SetCursorPos(ImVec2(origin.x, origin.y + toolbarHeight + bodyHeight + pathHeight));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * u, std::floor((statusHeight - ImGui::GetFontSize() * 11.0f / 13.0f) * 0.5f)));
     ImGui::BeginChild("##hpi-status", ImVec2(total.x, statusHeight), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();

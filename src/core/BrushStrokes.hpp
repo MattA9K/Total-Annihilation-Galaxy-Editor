@@ -100,6 +100,28 @@ namespace galaxy {
 // Lava, GreenWorld and Desert share a cell the same way, and every name has Grass and Desert in it.
 // Lava, Archipelago and Desert share a cell the same way, and every name has Archi and Desert in it.
 // Lava, Ice and Desert share a cell the same way, and every name has Ice and Desert in it.
+// Lava, GreenWorld and Mars share a cell the same way, and every name has Grass and Mars in it.
+// Lava, Ice and Lush share a cell the same way, and every name has Ice and Lush in it.
+// Lava, Desert and Lush share a cell the same way, and every name has Desert and Lush in it.
+// Lava, GreenWorld and Crystal share a cell the same way, and every name has Grass and Crystal in it.
+// Lava, Archipelago and GreenWorld share a cell the same way, and every name has Grass and Archi in it.
+// Lava, Acid and Archipelago share a cell the same way, and every name has Acid and Archi in it.
+// Lava, Ice and Crystal share a cell the same way, and every name has Ice and Crystal in it.
+// Lava, Ice and Acid share a cell the same way, and every name has Ice and Acid in it.
+// Lava, Archipelago and Lush share a cell the same way, and every name has Archi and Lush in it.
+// Lava, Crystal and Lush share a cell the same way, and every name has Crystal and Lush in it.
+// Lava, Desert and Mars share a cell the same way, and every name has Desert and Mars in it.
+// Lava, Acid and Lush share a cell the same way, and every name has Acid and Lush in it.
+// Lava, Acid and Mars share a cell the same way, and every name has Acid and Mars in it.
+// Lava, Archipelago and Mars share a cell the same way, and every name has Archi and Mars in it.
+// Lava, Crystal and Mars share a cell the same way, and every name has Crystal and Mars in it.
+// Lava, GreenWorld and Metal share a cell the same way, and every name has Grass and Metal in it.
+// Lava, Desert and Metal share a cell the same way, and every name has Desert and Metal in it.
+// Lava, Archipelago and Metal share a cell the same way, and every name has Archi and Metal in it.
+// Lava, Lush and Metal share a cell the same way, and every name has Lush and Metal in it.
+// Lava, Ice and Metal share a cell the same way, and every name has Ice and Metal in it.
+// Lava, Acid and Metal share a cell the same way, and every name has Acid and Metal in it.
+// Lava, Crystal and Metal share a cell the same way, and every name has Crystal and Metal in it.
 inline constexpr int kBrushCellTiles = 16;
 
 // Corner bits of a cell mask.
@@ -1012,6 +1034,1304 @@ inline std::string triGreenDesertName(const BrushGraph& graph, const std::array<
     return {};
 }
 
+// Lava, GreenWorld and Mars in one cell. Grass filling a side names Mars
+// (Blend-Tri-Grass-T-Mars-L). Mars filling a side names Grass
+// (Blend-Tri-Mars-T-Grass-L). Lava filling a side names Grass and ends in
+// -Mars (Blend-Tri-Lava-T-Grass-L-Mars), so it does not match the Ice Grass
+// piece, the Ice Mars piece, or the Green Desert piece. Every name has Grass
+// and Mars in it.
+inline std::string triGreenMarsName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int greenLevel = -1;
+    int marsLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Green" && graph.height(level) == 85) {
+            greenLevel = level;
+        } else if (graph.world(level) == "Mars" && graph.height(level) == 85) {
+            marsLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (greenLevel < 0 || marsLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {greenLevel, "Grass"}, {marsLevel, "Mars"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == greenLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Mars" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Ice and Lush in one cell. Ice filling a side names Lush
+// (Blend-Tri-Ice-T-Lush-L). Lush filling a side names Ice
+// (Blend-Tri-Lush-T-Ice-L). Lava filling a side names Ice and ends in
+// -Lush (Blend-Tri-Lava-T-Ice-L-Lush), so it does not match the Ice Grass
+// piece, the Ice Desert piece, or the Lush GreenWorld piece. Every name has
+// Ice and Lush in it.
+inline std::string triIceLushName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int iceLevel = -1;
+    int lushLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Ice" && graph.height(level) == 85) {
+            iceLevel = level;
+        } else if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (iceLevel < 0 || lushLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {iceLevel, "Ice"}, {lushLevel, "Lush"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == iceLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Lush" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Ice and Crystal in one cell. Ice filling a side names Crystal
+// (Blend-Tri-Ice-T-Crystal-L). Crystal filling a side names Ice
+// (Blend-Tri-Crystal-T-Ice-L). Lava filling a side names Ice and ends in
+// -Crystal (Blend-Tri-Lava-T-Ice-L-Crystal), so it does not match the Ice Lush
+// lava piece, the Ice Desert lava piece, or the Crystal Archipelago lava piece.
+// Every name has Ice and Crystal in it.
+inline std::string triIceCrystalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int iceLevel = -1;
+    int crystalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Ice" && graph.height(level) == 85) {
+            iceLevel = level;
+        } else if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (iceLevel < 0 || crystalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {iceLevel, "Ice"}, {crystalLevel, "Crystal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == iceLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Crystal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Ice and Acid in one cell. Ice filling a side names Acid
+// (Blend-Tri-Ice-T-Acid-L). Acid filling a side names Ice
+// (Blend-Tri-Acid-T-Ice-L). Lava filling a side names Ice and ends in
+// -Acid (Blend-Tri-Lava-T-Ice-L-Acid), so it does not match the Ice Crystal
+// lava piece, the Ice Lush lava piece, or the Acid Crystal lava piece. Every
+// name has Ice and Acid in it.
+inline std::string triIceAcidName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int iceLevel = -1;
+    int acidLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Ice" && graph.height(level) == 85) {
+            iceLevel = level;
+        } else if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (iceLevel < 0 || acidLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {iceLevel, "Ice"}, {acidLevel, "Acid"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == iceLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Acid" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Desert and Lush in one cell. Lush filling a side names Desert
+// (Blend-Tri-Lush-T-Desert-L). Desert filling a side names Lush
+// (Blend-Tri-Desert-T-Lush-L). Lava filling a side names Lush and ends in
+// -Desert (Blend-Tri-Lava-T-Lush-L-Desert), so it does not match the Lush
+// GreenWorld piece, the Lush Mars piece, or the Green Desert piece. Every
+// name has Lush and Desert in it.
+inline std::string triDesertLushName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int desertLevel = -1;
+    int lushLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (desertLevel < 0 || lushLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {lushLevel, "Lush"}, {desertLevel, "Desert"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == lushLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Desert" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, GreenWorld and Crystal in one cell. Grass filling a side names Crystal
+// (Blend-Tri-Grass-T-Crystal-L). Crystal filling a side names Grass
+// (Blend-Tri-Crystal-T-Grass-L). Lava filling a side names Grass and ends in
+// -Crystal (Blend-Tri-Lava-T-Grass-L-Crystal), so it does not match the Ice
+// Grass piece, the Green Mars piece, or the Crystal Archipelago piece. Every
+// name has Grass and Crystal in it.
+inline std::string triGreenCrystalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int greenLevel = -1;
+    int crystalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Green" && graph.height(level) == 85) {
+            greenLevel = level;
+        } else if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (greenLevel < 0 || crystalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {greenLevel, "Grass"}, {crystalLevel, "Crystal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == greenLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Crystal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Archipelago and GreenWorld in one cell. Grass filling a side names Archipelago
+// (Blend-Tri-Grass-T-Archi-L). Archipelago filling a side names Grass
+// (Blend-Tri-Archi-T-Grass-L). Lava filling a side names Grass and ends in
+// -Archi (Blend-Tri-Lava-T-Grass-L-Archi), so it does not match the Ice Grass
+// piece, the Ice Archipelago piece, or the Archipelago Desert piece. Every
+// name has Grass and Archi in it.
+inline std::string triArchiGreenName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int archiLevel = -1;
+    int greenLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Green" && graph.height(level) == 85) {
+            greenLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (archiLevel < 0 || greenLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {greenLevel, "Grass"}, {archiLevel, "Archi"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == greenLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Archi" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Archipelago and Lush in one cell. Lush filling a side names Archipelago
+// (Blend-Tri-Lush-T-Archi-L). Archipelago filling a side names Lush
+// (Blend-Tri-Archi-T-Lush-L). Lava filling a side names Lush and ends in
+// -Archi (Blend-Tri-Lava-T-Lush-L-Archi), so it does not match the Lush
+// GreenWorld piece, the Lush Mars piece, or the Archipelago GreenWorld piece.
+// Every name has Archi and Lush in it.
+inline std::string triArchiLushName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int archiLevel = -1;
+    int lushLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (archiLevel < 0 || lushLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {lushLevel, "Lush"}, {archiLevel, "Archi"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == lushLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Archi" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Crystal and Lush in one cell. Lush filling a side names Crystal
+// (Blend-Tri-Lush-T-Crystal-L). Crystal filling a side names Lush
+// (Blend-Tri-Crystal-T-Lush-L). Lava filling a side names Lush and ends in
+// -Crystal (Blend-Tri-Lava-T-Lush-L-Crystal), so it does not match the Lush
+// GreenWorld piece, the Lush Mars piece, the Lush Archipelago piece, or the
+// Crystal Archipelago lava piece. Every name has Crystal and Lush in it.
+inline std::string triLushCrystalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int crystalLevel = -1;
+    int lushLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (crystalLevel < 0 || lushLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {lushLevel, "Lush"}, {crystalLevel, "Crystal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == lushLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Crystal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Desert and Mars in one cell. Desert filling a side names Mars
+// (Blend-Tri-Desert-T-Mars-L). Mars filling a side names Desert
+// (Blend-Tri-Mars-T-Desert-L). Lava filling a side names Desert and ends in
+// -Mars (Blend-Tri-Lava-T-Desert-L-Mars), so it does not match the Acid Desert
+// lava piece, the Ice Mars piece, or the Green Mars piece. Every name has
+// Desert and Mars in it.
+inline std::string triDesertMarsName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int desertLevel = -1;
+    int marsLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Mars" && graph.height(level) == 85) {
+            marsLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (desertLevel < 0 || marsLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {desertLevel, "Desert"}, {marsLevel, "Mars"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == desertLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Mars" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Acid and Lush in one cell. Lush filling a side names Acid
+// (Blend-Tri-Lush-T-Acid-L). Acid filling a side names Lush
+// (Blend-Tri-Acid-T-Lush-L). Lava filling a side names Lush and ends in
+// -Acid (Blend-Tri-Lava-T-Lush-L-Acid), so it does not match the Lush
+// GreenWorld piece, the Lush Mars piece, the Acid Crystal lava piece, or the
+// Ice Acid lava piece. Every name has Acid and Lush in it.
+inline std::string triAcidLushName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int acidLevel = -1;
+    int lushLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (acidLevel < 0 || lushLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {lushLevel, "Lush"}, {acidLevel, "Acid"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == lushLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Acid" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Acid and Mars in one cell. Acid filling a side names Mars
+// (Blend-Tri-Acid-T-Mars-L). Mars filling a side names Acid
+// (Blend-Tri-Mars-T-Acid-L). Lava filling a side names Acid and ends in
+// -Mars (Blend-Tri-Lava-T-Acid-L-Mars), so it does not match the Acid Crystal
+// lava piece, the Ice Mars piece, or the Green Mars piece. Every name has
+// Acid and Mars in it.
+inline std::string triAcidMarsName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int acidLevel = -1;
+    int marsLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Mars" && graph.height(level) == 85) {
+            marsLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (acidLevel < 0 || marsLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {acidLevel, "Acid"}, {marsLevel, "Mars"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == acidLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Mars" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Archipelago and Mars in one cell. Archipelago filling a side names Mars
+// (Blend-Tri-Archi-T-Mars-L). Mars filling a side names Archipelago
+// (Blend-Tri-Mars-T-Archi-L). Lava filling a side names Archipelago and ends in
+// -Mars (Blend-Tri-Lava-T-Archi-L-Mars), so it does not match the Ice
+// Archipelago lava piece, the Ice Mars piece, or the Green Mars piece. Every
+// name has Archi and Mars in it.
+inline std::string triArchiMarsName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int archiLevel = -1;
+    int marsLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Mars" && graph.height(level) == 85) {
+            marsLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (archiLevel < 0 || marsLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {archiLevel, "Archi"}, {marsLevel, "Mars"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == archiLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Mars" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Crystal and Mars in one cell. Crystal filling a side names Mars
+// (Blend-Tri-Crystal-T-Mars-L). Mars filling a side names Crystal
+// (Blend-Tri-Mars-T-Crystal-L). Lava filling a side names Crystal and ends in
+// -Mars (Blend-Tri-Lava-T-Crystal-L-Mars), so it does not match the Crystal
+// Archipelago lava piece, the Ice Mars piece, or the Green Mars piece. Every
+// name has Crystal and Mars in it.
+inline std::string triCrystalMarsName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int crystalLevel = -1;
+    int marsLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Mars" && graph.height(level) == 85) {
+            marsLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (crystalLevel < 0 || marsLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {crystalLevel, "Crystal"}, {marsLevel, "Mars"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == crystalLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Mars" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, GreenWorld and Metal in one cell. GreenWorld filling a side names Metal
+// (Blend-Tri-Grass-T-Metal-L). Metal filling a side names Grass
+// (Blend-Tri-Metal-T-Grass-L). Lava filling a side names Grass and ends in
+// -Metal (Blend-Tri-Lava-T-Grass-L-Metal), so it does not match the Ice
+// GreenWorld lava piece, the Green Mars piece, or the Green Crystal piece.
+// Every name has Grass and Metal in it.
+inline std::string triGreenMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int greenLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Green" && graph.height(level) == 85) {
+            greenLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (greenLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {greenLevel, "Grass"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == greenLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Desert and Metal in one cell. Desert filling a side names Metal
+// (Blend-Tri-Desert-T-Metal-L). Metal filling a side names Desert
+// (Blend-Tri-Metal-T-Desert-L). Lava filling a side names Desert and ends in
+// -Metal (Blend-Tri-Lava-T-Desert-L-Metal), so it does not match the Acid
+// Desert lava piece, the Green Metal lava piece, or the Desert Mars piece.
+// Every name has Desert and Metal in it.
+inline std::string triDesertMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int desertLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Desert" && graph.height(level) == 80) {
+            desertLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (desertLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {desertLevel, "Desert"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == desertLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Archipelago and Metal in one cell. Archipelago filling a side names Metal
+// (Blend-Tri-Archi-T-Metal-L). Metal filling a side names Archipelago
+// (Blend-Tri-Metal-T-Archi-L). Lava filling a side names Archipelago and ends in
+// -Metal (Blend-Tri-Lava-T-Archi-L-Metal), so it does not match the Ice
+// Archipelago lava piece, the Green Metal lava piece, or the Archipelago Mars
+// piece. Every name has Archi and Metal in it.
+inline std::string triArchiMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int archiLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (archiLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {archiLevel, "Archi"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == archiLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Lush and Metal in one cell. Lush filling a side names Metal
+// (Blend-Tri-Lush-T-Metal-L). Metal filling a side names Lush
+// (Blend-Tri-Metal-T-Lush-L). Lava filling a side names Lush and ends in
+// -Metal (Blend-Tri-Lava-T-Lush-L-Metal), so it does not match the Lush
+// GreenWorld lava piece, the Lush Mars piece, or the Green Metal lava piece.
+// Every name has Lush and Metal in it.
+inline std::string triLushMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int lushLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Lush" && graph.height(level) == 77) {
+            lushLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (lushLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {lushLevel, "Lush"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == lushLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Ice and Metal in one cell. Ice filling a side names Metal
+// (Blend-Tri-Ice-T-Metal-L). Metal filling a side names Ice
+// (Blend-Tri-Metal-T-Ice-L). Lava filling a side names Ice and ends in
+// -Metal (Blend-Tri-Lava-T-Ice-L-Metal), so it does not match the Ice Lush
+// lava piece, the Ice Crystal lava piece, or the Lush Metal lava piece.
+// Every name has Ice and Metal in it.
+inline std::string triIceMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int iceLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Ice" && graph.height(level) == 85) {
+            iceLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (iceLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {iceLevel, "Ice"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == iceLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Acid and Metal in one cell. Acid filling a side names Metal
+// (Blend-Tri-Acid-T-Metal-L). Metal filling a side names Acid
+// (Blend-Tri-Metal-T-Acid-L). Lava filling a side names Acid and ends in
+// -Metal (Blend-Tri-Lava-T-Acid-L-Metal), so it does not match the Acid
+// Crystal lava piece, the Acid Mars lava piece, or the Ice Metal lava piece.
+// Every name has Acid and Metal in it.
+inline std::string triAcidMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int acidLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (acidLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {acidLevel, "Acid"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == acidLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Crystal and Metal in one cell. Crystal filling a side names Metal
+// (Blend-Tri-Crystal-T-Metal-L). Metal filling a side names Crystal
+// (Blend-Tri-Metal-T-Crystal-L). Lava filling a side names Crystal and ends in
+// -Metal (Blend-Tri-Lava-T-Crystal-L-Metal), so it does not match the Crystal
+// Archipelago lava piece, the Crystal Mars lava piece, or the Acid Metal lava
+// piece. Every name has Crystal and Metal in it.
+inline std::string triCrystalMetalName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int crystalLevel = -1;
+    int metalLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Crystal" && graph.height(level) == 85) {
+            crystalLevel = level;
+        } else if (graph.world(level) == "Metal" && graph.height(level) == 85) {
+            metalLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (crystalLevel < 0 || metalLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {crystalLevel, "Crystal"}, {metalLevel, "Metal"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == crystalLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Metal" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
+// Lava, Acid and Archipelago in one cell. Acid filling a side names Archipelago
+// (Blend-Tri-Acid-T-Archi-L). Archipelago filling a side names Acid
+// (Blend-Tri-Archi-T-Acid-L). Lava filling a side names Acid and ends in
+// -Archi (Blend-Tri-Lava-T-Acid-L-Archi), so it does not match the Acid Crystal
+// lava piece, the GreenWorld Acid piece, or the Ice Archipelago piece. Every
+// name has Acid and Archi in it.
+inline std::string triAcidArchiName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    int acidLevel = -1;
+    int archiLevel = -1;
+    int lavaLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == "Acid" && graph.height(level) == 85) {
+            acidLevel = level;
+        } else if (graph.world(level) == "Archi" && graph.height(level) == 78) {
+            archiLevel = level;
+        } else if (graph.world(level) == "Lava" && graph.height(level) == 86) {
+            lavaLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (acidLevel < 0 || archiLevel < 0 || lavaLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; };
+    const Land lands[3] = {{lavaLevel, "Lava"}, {acidLevel, "Acid"}, {archiLevel, "Archi"}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const Land& named = fill.level == acidLevel ? lands[2] : lands[1];
+        const int namedMask = maskOf(named.level);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        const char* suffix = fill.level == lavaLevel ? "-Archi" : "";
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + named.name + "-" + where + suffix;
+    }
+    return {};
+}
+
 // Lava, Archipelago and Desert in one cell. Archipelago filling a side names Desert
 // (Blend-Tri-Archi-T-Desert-L). Desert filling a side names Archipelago
 // (Blend-Tri-Desert-T-Archi-L). Lava filling a side names Archipelago and ends in
@@ -1132,7 +2452,199 @@ inline std::string triIceDesertName(const BrushGraph& graph, const std::array<in
 // split the opposite side, so the piece is Blend-Tri-Acid-R-Grass-B when acid
 // is on the right and grass is the bottom of the left side. Any other layout
 // of these three lands has no section. Ice and Lava with a third land use triIceName.
+// GreenWorld, Ice and Lush in one cell, laid out the same way as triIceName. Every name ends in the
+// land it does not otherwise give, so none matches a piece of another set:
+//  - Ice filling a side names the grass: Blend-Tri-Ice-T-Grass-L-Lush has ice along the top, grass
+//    bottom left and Lush bottom right.
+//  - GreenWorld filling a side names the ice: Blend-Tri-Grass-T-Ice-L-Lush.
+//  - Lush filling a side names the grass: Blend-Tri-Lush-T-Grass-L-Ice.
+// The pivot land, GreenWorld unless given, fills or meets the other two: Archipelago, Desert and Lush use
+// Lush as the pivot, named Lush, with Archipelago in Ice's place and Desert in Lush's:
+// Blend-Tri-Archi-T-Lush-L-Desert has Archipelago along the top. Archipelago, Ice and Lush do the same
+// with Ice in Desert's place: Blend-Tri-Archi-T-Lush-L-Ice.
+// GreenWorld, Mars and Lush use the same names with Mars in place of Ice, and GreenWorld, Ice and
+// Mars use them with Mars in place of Lush: Blend-Tri-Mars-T-Grass-L-Ice has Mars along the top.
+// GreenWorld, Metal and Lush use Metal in place of Ice: Blend-Tri-Metal-T-Grass-L-Lush, and Crystal,
+// GreenWorld and Lush use Crystal: Blend-Tri-Crystal-T-Grass-L-Lush.
+// Archipelago, GreenWorld and Lush use Archipelago Base-78 in place of Ice: Blend-Tri-Archi-T-Grass-L-Lush.
+// Archipelago, GreenWorld and Mars use Mars in place of Lush too: Blend-Tri-Mars-T-Grass-L-Archi.
+// Desert, GreenWorld and Lush use Desert Base-80 in place of Ice: Blend-Tri-Desert-T-Grass-L-Lush.
+// Archipelago, Desert and GreenWorld use Archipelago in place of Ice and Desert in place of Lush:
+// Blend-Tri-Desert-T-Grass-L-Archi has Desert along the top. Acid, Archipelago and GreenWorld do the
+// same with Acid in place of Desert: Blend-Tri-Acid-T-Grass-L-Archi, and Archipelago, Crystal and
+// GreenWorld with Crystal: Blend-Tri-Crystal-T-Grass-L-Archi, and Archipelago, GreenWorld and Metal
+// with Metal: Blend-Tri-Metal-T-Grass-L-Archi, and Archipelago, GreenWorld and Ice with Ice:
+// Blend-Tri-Ice-T-Grass-L-Archi. GreenWorld, Mars and Metal use Mars in place of Ice and Metal in place
+// of Lush: Blend-Tri-Metal-T-Grass-L-Mars has Metal along the top. GreenWorld, Ice and Metal use Metal
+// in place of Lush: Blend-Tri-Metal-T-Grass-L-Ice.
+inline std::string triGreenLushName(const BrushGraph& graph, const std::array<int, 4>& corners, const char* thirdWorld,
+                                    const char* lastWorld = "Lush", int lastHeight = 77, int thirdHeight = 85,
+                                    const char* pivotWorld = "Green", int pivotHeight = 85, const char* pivotName = "Grass") {
+    int greenLevel = -1;
+    int iceLevel = -1;
+    int lushLevel = -1;
+    for (const int level : corners) {
+        if (graph.world(level) == pivotWorld && graph.height(level) == pivotHeight) {
+            greenLevel = level;
+        } else if (graph.world(level) == thirdWorld && graph.height(level) == thirdHeight) {
+            iceLevel = level;
+        } else if (graph.world(level) == lastWorld && graph.height(level) == lastHeight) {
+            lushLevel = level;
+        } else {
+            return {};
+        }
+    }
+    if (greenLevel < 0 || iceLevel < 0 || lushLevel < 0) {
+        return {};
+    }
+    const auto maskOf = [&](int level) {
+        int mask = 0;
+        for (int corner = 0; corner < 4; ++corner) {
+            mask |= corners[static_cast<std::size_t>(corner)] == level ? (1 << corner) : 0;
+        }
+        return mask;
+    };
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    struct Land { int level; const char* name; int named; const char* suffix; };
+    const Land lands[3] = {{iceLevel, thirdWorld, greenLevel, lastWorld}, {greenLevel, pivotName, iceLevel, lastWorld}, {lushLevel, lastWorld, greenLevel, thirdWorld}};
+    for (const Land& fill : lands) {
+        const char* side = sideOf(maskOf(fill.level));
+        if (side == nullptr) {
+            continue;
+        }
+        const int namedMask = maskOf(fill.named);
+        if (cornerCount(namedMask) != 1) {
+            return {};
+        }
+        const char* namedName = fill.named == greenLevel ? pivotName : thirdWorld;
+        const char* where = side[0] == 'T' || side[0] == 'B'
+            ? ((namedMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((namedMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+        return std::string("Blend-Tri-") + fill.name + "-" + side + "-" + namedName + "-" + where + "-" + fill.suffix;
+    }
+    return {};
+}
+
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    for (const char* third : {"Ice", "Mars", "Metal", "Crystal", "Acid"}) {
+        if (std::string greenLush = triGreenLushName(graph, corners, third); !greenLush.empty()) {
+            return greenLush;
+        }
+    }
+    if (std::string greenIceMars = triGreenLushName(graph, corners, "Ice", "Mars", 85); !greenIceMars.empty()) {
+        return greenIceMars;
+    }
+    if (std::string archiGreenLush = triGreenLushName(graph, corners, "Archi", "Lush", 77, 78); !archiGreenLush.empty()) {
+        return archiGreenLush;
+    }
+    if (std::string archiGreenMars = triGreenLushName(graph, corners, "Archi", "Mars", 85, 78); !archiGreenMars.empty()) {
+        return archiGreenMars;
+    }
+    if (std::string desertGreenLush = triGreenLushName(graph, corners, "Desert", "Lush", 77, 80); !desertGreenLush.empty()) {
+        return desertGreenLush;
+    }
+    if (std::string archiDesertGreen = triGreenLushName(graph, corners, "Archi", "Desert", 80, 78); !archiDesertGreen.empty()) {
+        return archiDesertGreen;
+    }
+    if (std::string acidArchiGreen = triGreenLushName(graph, corners, "Archi", "Acid", 85, 78); !acidArchiGreen.empty()) {
+        return acidArchiGreen;
+    }
+    if (std::string archiCrystalGreen = triGreenLushName(graph, corners, "Archi", "Crystal", 85, 78); !archiCrystalGreen.empty()) {
+        return archiCrystalGreen;
+    }
+    if (std::string archiGreenMetal = triGreenLushName(graph, corners, "Archi", "Metal", 85, 78); !archiGreenMetal.empty()) {
+        return archiGreenMetal;
+    }
+    if (std::string archiGreenIce = triGreenLushName(graph, corners, "Archi", "Ice", 85, 78); !archiGreenIce.empty()) {
+        return archiGreenIce;
+    }
+    if (std::string greenMarsMetal = triGreenLushName(graph, corners, "Mars", "Metal", 85); !greenMarsMetal.empty()) {
+        return greenMarsMetal;
+    }
+    if (std::string greenIceMetal = triGreenLushName(graph, corners, "Ice", "Metal", 85); !greenIceMetal.empty()) {
+        return greenIceMetal;
+    }
+    // More sets with GreenWorld, each named as triGreenLushName describes: the second land in Ice's place
+    // and the last in Lush's. Acid, GreenWorld and Lush use the loop above.
+    struct GreenTri { const char* second; int secondHeight; const char* last; int lastHeight; };
+    static constexpr GreenTri kMoreGreenTris[] = {
+        {"Desert", 80, "Ice", 85}, {"Desert", 80, "Mars", 85}, {"Desert", 80, "Metal", 85}, {"Ice", 85, "Crystal", 85},
+        {"Mars", 85, "Crystal", 85}, {"Metal", 85, "Crystal", 85}, {"Desert", 80, "Crystal", 85}, {"Ice", 85, "Acid", 85},
+        {"Mars", 85, "Acid", 85}, {"Metal", 85, "Acid", 85}, {"Crystal", 85, "Acid", 85},
+        {"Desert", 80, "Acid", 85},
+    };
+    for (const GreenTri& tri : kMoreGreenTris) {
+        if (std::string name = triGreenLushName(graph, corners, tri.second, tri.last, tri.lastHeight, tri.secondHeight); !name.empty()) {
+            return name;
+        }
+    }
+    // Sets without GreenWorld, with another land as the pivot in its place.
+    struct PivotTri { const char* pivot; int pivotHeight; const char* second; int secondHeight; const char* last; int lastHeight; };
+    static constexpr PivotTri kPivotTris[] = {
+        {"Lush", 77, "Archi", 78, "Desert", 80}, {"Lush", 77, "Archi", 78, "Ice", 85}, {"Lush", 77, "Archi", 78, "Mars", 85},
+        {"Lush", 77, "Archi", 78, "Metal", 85}, {"Ice", 85, "Archi", 78, "Metal", 85},
+        {"Mars", 85, "Archi", 78, "Metal", 85},
+        {"Crystal", 85, "Archi", 78, "Desert", 80},
+        {"Crystal", 85, "Archi", 78, "Ice", 85},
+        {"Lush", 77, "Archi", 78, "Crystal", 85},
+        {"Crystal", 85, "Archi", 78, "Mars", 85},
+        {"Crystal", 85, "Archi", 78, "Metal", 85},
+        {"Desert", 80, "Archi", 78, "Ice", 85},
+        {"Desert", 80, "Archi", 78, "Mars", 85},
+        {"Desert", 80, "Archi", 78, "Metal", 85},
+        {"Desert", 80, "Crystal", 85, "Ice", 85},
+        {"Crystal", 85, "Archi", 78, "Acid", 85},
+        {"Desert", 80, "Archi", 78, "Acid", 85},
+        {"Ice", 85, "Archi", 78, "Acid", 85},
+        {"Lush", 77, "Archi", 78, "Acid", 85},
+        {"Mars", 85, "Archi", 78, "Acid", 85},
+        {"Metal", 85, "Archi", 78, "Acid", 85},
+        {"Ice", 85, "Crystal", 85, "Acid", 85},
+        {"Ice", 85, "Desert", 80, "Acid", 85},
+        {"Lush", 77, "Ice", 85, "Acid", 85},
+        {"Ice", 85, "Mars", 85, "Acid", 85},
+        {"Ice", 85, "Metal", 85, "Acid", 85},
+        {"Lush", 77, "Ice", 85, "Crystal", 85},
+        {"Ice", 85, "Mars", 85, "Crystal", 85},
+        {"Ice", 85, "Metal", 85, "Crystal", 85},
+        {"Lush", 77, "Desert", 80, "Ice", 85},
+        {"Desert", 80, "Mars", 85, "Ice", 85},
+        {"Desert", 80, "Metal", 85, "Ice", 85},
+        {"Lush", 77, "Ice", 85, "Mars", 85},
+        {"Lush", 77, "Ice", 85, "Metal", 85},
+        {"Ice", 85, "Mars", 85, "Metal", 85},
+        {"Desert", 80, "Mars", 85, "Metal", 85}, {"Lush", 77, "Desert", 80, "Metal", 85},
+        {"Lush", 77, "Desert", 80, "Mars", 85},
+        {"Crystal", 85, "Mars", 85, "Metal", 85},
+        {"Lush", 77, "Crystal", 85, "Metal", 85},
+        {"Lush", 77, "Crystal", 85, "Mars", 85},
+        {"Desert", 80, "Crystal", 85, "Metal", 85},
+        {"Desert", 80, "Crystal", 85, "Mars", 85},
+        {"Lush", 77, "Desert", 80, "Crystal", 85},
+        {"Desert", 80, "Crystal", 85, "Acid", 85},
+        {"Lush", 77, "Desert", 80, "Acid", 85},
+        {"Desert", 80, "Mars", 85, "Acid", 85},
+        {"Desert", 80, "Metal", 85, "Acid", 85},
+        {"Lush", 77, "Crystal", 85, "Acid", 85},
+        {"Crystal", 85, "Mars", 85, "Acid", 85},
+        {"Crystal", 85, "Metal", 85, "Acid", 85},
+        {"Lush", 77, "Mars", 85, "Acid", 85},
+        {"Lush", 77, "Metal", 85, "Acid", 85},
+        {"Mars", 85, "Metal", 85, "Acid", 85},
+        {"Lush", 77, "Mars", 85, "Metal", 85},
+    };
+    for (const PivotTri& tri : kPivotTris) {
+        if (std::string name = triGreenLushName(graph, corners, tri.second, tri.last, tri.lastHeight, tri.secondHeight, tri.pivot, tri.pivotHeight, tri.pivot);
+            !name.empty()) {
+            return name;
+        }
+    }
     if (std::string ice = triIceName(graph, corners); !ice.empty()) {
         return ice;
     }
@@ -1154,11 +2666,77 @@ inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4
     if (std::string greenDesert = triGreenDesertName(graph, corners); !greenDesert.empty()) {
         return greenDesert;
     }
+    if (std::string greenMars = triGreenMarsName(graph, corners); !greenMars.empty()) {
+        return greenMars;
+    }
     if (std::string archiDesert = triArchiDesertName(graph, corners); !archiDesert.empty()) {
         return archiDesert;
     }
     if (std::string iceDesert = triIceDesertName(graph, corners); !iceDesert.empty()) {
         return iceDesert;
+    }
+    if (std::string iceLush = triIceLushName(graph, corners); !iceLush.empty()) {
+        return iceLush;
+    }
+    if (std::string iceCrystal = triIceCrystalName(graph, corners); !iceCrystal.empty()) {
+        return iceCrystal;
+    }
+    if (std::string iceAcid = triIceAcidName(graph, corners); !iceAcid.empty()) {
+        return iceAcid;
+    }
+    if (std::string desertLush = triDesertLushName(graph, corners); !desertLush.empty()) {
+        return desertLush;
+    }
+    if (std::string greenCrystal = triGreenCrystalName(graph, corners); !greenCrystal.empty()) {
+        return greenCrystal;
+    }
+    if (std::string archiGreen = triArchiGreenName(graph, corners); !archiGreen.empty()) {
+        return archiGreen;
+    }
+    if (std::string archiLush = triArchiLushName(graph, corners); !archiLush.empty()) {
+        return archiLush;
+    }
+    if (std::string lushCrystal = triLushCrystalName(graph, corners); !lushCrystal.empty()) {
+        return lushCrystal;
+    }
+    if (std::string desertMars = triDesertMarsName(graph, corners); !desertMars.empty()) {
+        return desertMars;
+    }
+    if (std::string acidLush = triAcidLushName(graph, corners); !acidLush.empty()) {
+        return acidLush;
+    }
+    if (std::string acidMars = triAcidMarsName(graph, corners); !acidMars.empty()) {
+        return acidMars;
+    }
+    if (std::string archiMars = triArchiMarsName(graph, corners); !archiMars.empty()) {
+        return archiMars;
+    }
+    if (std::string crystalMars = triCrystalMarsName(graph, corners); !crystalMars.empty()) {
+        return crystalMars;
+    }
+    if (std::string greenMetal = triGreenMetalName(graph, corners); !greenMetal.empty()) {
+        return greenMetal;
+    }
+    if (std::string desertMetal = triDesertMetalName(graph, corners); !desertMetal.empty()) {
+        return desertMetal;
+    }
+    if (std::string archiMetal = triArchiMetalName(graph, corners); !archiMetal.empty()) {
+        return archiMetal;
+    }
+    if (std::string lushMetal = triLushMetalName(graph, corners); !lushMetal.empty()) {
+        return lushMetal;
+    }
+    if (std::string iceMetal = triIceMetalName(graph, corners); !iceMetal.empty()) {
+        return iceMetal;
+    }
+    if (std::string acidMetal = triAcidMetalName(graph, corners); !acidMetal.empty()) {
+        return acidMetal;
+    }
+    if (std::string crystalMetal = triCrystalMetalName(graph, corners); !crystalMetal.empty()) {
+        return crystalMetal;
+    }
+    if (std::string acidArchi = triAcidArchiName(graph, corners); !acidArchi.empty()) {
+        return acidArchi;
     }
     int greenLevel = -1;
     int acidLevel = -1;
@@ -1196,16 +2774,37 @@ inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4
     } else if (acidMask == (kCornerTopRight | kCornerBottomRight)) {
         acidSide = "R";
     }
-    if (acidSide == nullptr || cornerCount(grassMask) != 1) {
+    const auto sideOf = [](int mask) -> const char* {
+        if (mask == (kCornerTopLeft | kCornerTopRight)) return "T";
+        if (mask == (kCornerBottomLeft | kCornerBottomRight)) return "B";
+        if (mask == (kCornerTopLeft | kCornerBottomLeft)) return "L";
+        if (mask == (kCornerTopRight | kCornerBottomRight)) return "R";
+        return nullptr;
+    };
+    // Where a one-corner land sits along the side opposite the filled one.
+    const auto cornerOf = [](const char* side, int mask) {
+        return side[0] == 'T' || side[0] == 'B'
+            ? ((mask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L")
+            : ((mask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T");
+    };
+    if (acidSide != nullptr) {
+        if (cornerCount(grassMask) != 1) {
+            return {};
+        }
+        return std::string("Blend-Tri-Acid-") + acidSide + "-Grass-" + cornerOf(acidSide, grassMask);
+    }
+    // GreenWorld or Lava filling a side names where the acid is. Lava filling a side ends in -Grass,
+    // since the Acid, Crystal and Lava set already has Blend-Tri-Lava-T-Acid-L.
+    if (cornerCount(acidMask) != 1) {
         return {};
     }
-    const char* grassSide = nullptr;
-    if (acidSide[0] == 'T' || acidSide[0] == 'B') {
-        grassSide = (grassMask & (kCornerTopRight | kCornerBottomRight)) != 0 ? "R" : "L";
-    } else {
-        grassSide = (grassMask & (kCornerBottomLeft | kCornerBottomRight)) != 0 ? "B" : "T";
+    if (const char* grassSide = sideOf(grassMask)) {
+        return std::string("Blend-Tri-Grass-") + grassSide + "-Acid-" + cornerOf(grassSide, acidMask);
     }
-    return std::string("Blend-Tri-Acid-") + acidSide + "-Grass-" + grassSide;
+    if (const char* lavaSide = sideOf(maskOf(lavaLevel))) {
+        return std::string("Blend-Tri-Lava-") + lavaSide + "-Acid-" + cornerOf(lavaSide, acidMask) + "-Grass";
+    }
+    return {};
 }
 
 // The section a cell needs, from the level at each of its corners, without a

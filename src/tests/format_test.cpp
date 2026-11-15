@@ -1,4 +1,5 @@
 #include "core/ArchiveDocument.hpp"
+#include "core/BlendColours.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
@@ -3180,8 +3181,17 @@ void testBrushCells() {
     expect(brushPieceName(lavaLands, {5, 5, 4, 6}) == "Blend-Tri-Acid-T-Grass-L", "acid along the top, grass at the bottom left");
     expect(brushPieceName(lavaLands, {6, 4, 5, 5}) == "Blend-Tri-Acid-B-Grass-R", "acid along the bottom, grass at the top right");
     expect(brushPieceName(lavaLands, {4, 6, 5, 5}) == "Blend-Tri-Acid-B-Grass-L", "acid along the bottom, grass at the top left");
-    expect(brushPieceName(lavaLands, {4, 4, 6, 5}).empty(), "grass filling one side has no three-way section");
-    expect(brushPieceName(lavaLands, {3, 5, 4, 5}).empty(), "Mars does not join the green, acid and lava piece");
+    // GreenWorld or Lava filling a side names where the acid is, so every layout with a filled side
+    // has a piece. Lava filling a side ends in -Grass, apart from the Acid, Crystal and Lava set.
+    expect(brushPieceName(lavaLands, {4, 4, 5, 6}) == "Blend-Tri-Grass-T-Acid-L" && brushPieceName(lavaLands, {6, 5, 4, 4}) == "Blend-Tri-Grass-B-Acid-R"
+        && brushPieceName(lavaLands, {4, 5, 4, 6}) == "Blend-Tri-Grass-L-Acid-T", "grass filling a side names where the acid is");
+    expect(brushPieceName(lavaLands, {6, 6, 5, 4}) == "Blend-Tri-Lava-T-Acid-L-Grass" && brushPieceName(lavaLands, {5, 6, 4, 6}) == "Blend-Tri-Lava-R-Acid-T-Grass",
+        "lava filling a side names where the acid is and ends in -Grass");
+    expect(brushPieceName(lavaLands, {4, 5, 6, 4}).empty(), "a layout with no side filled still has no piece");
+    expect(brushPieceName(lavaLands, {4, 4, 6, 5}) == "Blend-Tri-Grass-T-Acid-R", "grass filling one side has its own three-way section");
+    // Mars, Acid and GreenWorld have their own set, so a cell of those three gets its piece rather than
+    // a green, acid and lava one.
+    expect(brushPieceName(lavaLands, {3, 5, 4, 5}) == "Blend-Tri-Acid-R-Grass-B-Mars", "Mars, Acid and GreenWorld use their own three-way piece");
     BrushTestLattice acidOnGreenLava(6, 6, 4, lavaLands);
     acidOnGreenLava.paint(3, 2, 1, 6);
     acidOnGreenLava.paint(2, 3, 1, 5);
@@ -3700,6 +3710,986 @@ void testBrushCells() {
         "Lava, Lush and Mars three-way pieces, and no piece without a filled side");
     expect(transitionVariation("Blend-Tri-Lava-T-Lush-L-Mars-01", "Blend-Tri-Lava-T-Lush-L") < 0 && transitionVariation("Blend-Tri-Lava-T-Lush-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Mars") == 1,
         "the Mars set's lava pieces are not taken for the GreenWorld set's");
+
+    // GreenWorld Base-85, Mars Base-85 and Lava Base-86 share a cell. Grass filling a
+    // side names Mars; Mars filling a side names Grass; Lava filling a side
+    // names Grass and ends in -Mars, so none matches the Ice Grass set, the Ice
+    // Mars set, or the Green Desert set.
+    const BrushGraph lavaGreenMars(std::vector<int>{85, 85, 86}, {"Green", "Mars", "Lava"});
+    expect(lavaGreenMars.style(0, 1) == TransitionStyle::WorldBlend && lavaGreenMars.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaGreenMars.style(1, 2) == TransitionStyle::WorldBlend,
+        "GreenWorld, Mars and Lava each join the other two");
+    expect(brushPieceName(lavaGreenMars, {0, 0, 1, 2}) == "Blend-Tri-Grass-T-Mars-L"
+        && brushPieceName(lavaGreenMars, {1, 1, 0, 2}) == "Blend-Tri-Mars-T-Grass-L"
+        && brushPieceName(lavaGreenMars, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Grass-L-Mars"
+        && brushPieceName(lavaGreenMars, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Grass-T-Mars"
+        && brushPieceName(lavaGreenMars, {0, 1, 2, 0}).empty(),
+        "GreenWorld, Mars and Lava three-way pieces, and no piece without a filled side");
+    expect(brushPieceName(lavaLands, {4, 4, 3, 6}) == "Blend-Tri-Grass-T-Mars-L",
+        "Grass along the top, Mars at the bottom left, Lava at the bottom right");
+    expect(transitionVariation("Blend-Tri-Lava-T-Grass-L-Mars-01", "Blend-Tri-Lava-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Mars-L-01", "Blend-Tri-Grass-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Mars-L-01", "Blend-Tri-Grass-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Mars-L-01", "Blend-Tri-Grass-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Grass-L-01", "Blend-Tri-Mars-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Grass-L-01", "Blend-Tri-Mars-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Mars") == 1,
+        "the Green Mars set's three-way pieces are not taken for the other Grass or Mars sets");
+
+    // Ice Base-85, Lush Base-77 and Lava Base-86 share a cell. Ice filling a
+    // side names Lush; Lush filling a side names Ice; Lava filling a side
+    // names Ice and ends in -Lush, so none matches the Ice Grass set, the Ice
+    // Desert set, or the Lush GreenWorld set.
+    const BrushGraph lavaIceLush(std::vector<int>{77, 85, 86}, {"Lush", "Ice", "Lava"});
+    expect(lavaIceLush.style(0, 1) == TransitionStyle::WorldBlend && lavaIceLush.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaIceLush.style(1, 2) == TransitionStyle::WorldBlend,
+        "Ice, Lush and Lava each join the other two");
+    expect(brushPieceName(lavaIceLush, {1, 1, 0, 2}) == "Blend-Tri-Ice-T-Lush-L"
+        && brushPieceName(lavaIceLush, {0, 0, 1, 2}) == "Blend-Tri-Lush-T-Ice-L"
+        && brushPieceName(lavaIceLush, {2, 2, 1, 0}) == "Blend-Tri-Lava-T-Ice-L-Lush"
+        && brushPieceName(lavaIceLush, {1, 2, 0, 2}) == "Blend-Tri-Lava-R-Ice-T-Lush"
+        && brushPieceName(lavaIceLush, {0, 1, 2, 0}).empty(),
+        "Ice, Lush and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Ice-L-Lush-01", "Blend-Tri-Lava-T-Ice-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Lush-01", "Blend-Tri-Lava-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Lush-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Lush-L-01", "Blend-Tri-Ice-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Lush-L-01", "Blend-Tri-Ice-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Lush-L-01", "Blend-Tri-Ice-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Lush-L-01", "Blend-Tri-Ice-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Ice-L-01", "Blend-Tri-Lush-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Ice-L-01", "Blend-Tri-Lush-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Lush-01", "Blend-Tri-Lava-T-Ice-L-Lush") == 1,
+        "the Ice Lush set's three-way pieces are not taken for the other Ice or Lush sets");
+
+    // Ice Base-85, Crystal Base-85 and Lava Base-86 share a cell. Ice filling a
+    // side names Crystal; Crystal filling a side names Ice; Lava filling a side
+    // names Ice and ends in -Crystal, so none matches the Ice Lush lava piece, the
+    // Ice Desert lava piece, or the Crystal Archipelago lava piece.
+    const BrushGraph lavaIceCrystal(std::vector<int>{85, 85, 86}, {"Ice", "Crystal", "Lava"});
+    expect(lavaIceCrystal.style(0, 1) == TransitionStyle::WorldBlend && lavaIceCrystal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaIceCrystal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Ice, Crystal and Lava each join the other two");
+    expect(brushPieceName(lavaIceCrystal, {0, 0, 1, 2}) == "Blend-Tri-Ice-T-Crystal-L"
+        && brushPieceName(lavaIceCrystal, {1, 1, 0, 2}) == "Blend-Tri-Crystal-T-Ice-L"
+        && brushPieceName(lavaIceCrystal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Ice-L-Crystal"
+        && brushPieceName(lavaIceCrystal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Ice-T-Crystal"
+        && brushPieceName(lavaIceCrystal, {0, 1, 2, 0}).empty(),
+        "Ice, Crystal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Ice-L-Crystal-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Crystal-01", "Blend-Tri-Lava-T-Ice-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Crystal-01", "Blend-Tri-Lava-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Crystal-01", "Blend-Tri-Lava-T-Grass-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Crystal-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Crystal-L-01", "Blend-Tri-Ice-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Crystal-L-01", "Blend-Tri-Ice-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Crystal-L-01", "Blend-Tri-Ice-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Crystal-L-01", "Blend-Tri-Ice-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Crystal-L-01", "Blend-Tri-Ice-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Ice-L-01", "Blend-Tri-Crystal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Ice-L-01", "Blend-Tri-Crystal-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Ice-L-01", "Blend-Tri-Crystal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Ice-L-01", "Blend-Tri-Crystal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Crystal-01", "Blend-Tri-Lava-T-Ice-L-Crystal") == 1,
+        "the Ice Crystal set's three-way pieces are not taken for the other Ice or Crystal sets");
+
+    // Ice Base-85, Acid Base-85 and Lava Base-86 share a cell. Ice filling a
+    // side names Acid; Acid filling a side names Ice; Lava filling a side
+    // names Ice and ends in -Acid, so none matches the Ice Crystal lava piece,
+    // the Ice Lush lava piece, or the Acid Crystal lava piece.
+    const BrushGraph lavaIceAcid(std::vector<int>{85, 85, 86}, {"Ice", "Acid", "Lava"});
+    expect(lavaIceAcid.style(0, 1) == TransitionStyle::WorldBlend && lavaIceAcid.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaIceAcid.style(1, 2) == TransitionStyle::WorldBlend,
+        "Ice, Acid and Lava each join the other two");
+    expect(brushPieceName(lavaIceAcid, {0, 0, 1, 2}) == "Blend-Tri-Ice-T-Acid-L"
+        && brushPieceName(lavaIceAcid, {1, 1, 0, 2}) == "Blend-Tri-Acid-T-Ice-L"
+        && brushPieceName(lavaIceAcid, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Ice-L-Acid"
+        && brushPieceName(lavaIceAcid, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Ice-T-Acid"
+        && brushPieceName(lavaIceAcid, {0, 1, 2, 0}).empty(),
+        "Ice, Acid and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Ice-L-Acid-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Acid-01", "Blend-Tri-Lava-T-Ice-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Acid-01", "Blend-Tri-Lava-T-Ice-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Acid-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Acid-01", "Blend-Tri-Lava-T-Acid-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Acid-L-01", "Blend-Tri-Ice-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Acid-L-01", "Blend-Tri-Ice-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Acid-L-01", "Blend-Tri-Ice-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Acid-L-01", "Blend-Tri-Ice-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Acid-L-01", "Blend-Tri-Ice-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Acid-L-01", "Blend-Tri-Ice-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Ice-L-01", "Blend-Tri-Acid-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Ice-L-01", "Blend-Tri-Acid-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Ice-L-01", "Blend-Tri-Acid-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Ice-L-01", "Blend-Tri-Acid-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Acid-01", "Blend-Tri-Lava-T-Ice-L-Acid") == 1,
+        "the Ice Acid set's three-way pieces are not taken for the other Ice or Acid sets");
+
+    // Desert Base-80, Lush Base-77 and Lava Base-86 share a cell. Lush filling a
+    // side names Desert; Desert filling a side names Lush; Lava filling a side
+    // names Lush and ends in -Desert, so none matches the Lush GreenWorld set,
+    // the Lush Mars set, or the Green Desert set.
+    const BrushGraph lavaDesertLush(std::vector<int>{77, 80, 86}, {"Lush", "Desert", "Lava"});
+    expect(lavaDesertLush.style(0, 1) == TransitionStyle::WorldBlend && lavaDesertLush.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaDesertLush.style(1, 2) == TransitionStyle::WorldBlend,
+        "Desert, Lush and Lava each join the other two");
+    expect(brushPieceName(lavaDesertLush, {0, 0, 1, 2}) == "Blend-Tri-Lush-T-Desert-L"
+        && brushPieceName(lavaDesertLush, {1, 1, 0, 2}) == "Blend-Tri-Desert-T-Lush-L"
+        && brushPieceName(lavaDesertLush, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Lush-L-Desert"
+        && brushPieceName(lavaDesertLush, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Lush-T-Desert"
+        && brushPieceName(lavaDesertLush, {0, 1, 2, 0}).empty(),
+        "Desert, Lush and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Lush-L-Desert-01", "Blend-Tri-Lava-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Desert-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Desert-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Desert-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Desert-L-01", "Blend-Tri-Lush-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Desert-L-01", "Blend-Tri-Lush-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Desert-L-01", "Blend-Tri-Lush-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Lush-L-01", "Blend-Tri-Desert-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Lush-L-01", "Blend-Tri-Desert-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Lush-L-01", "Blend-Tri-Desert-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Desert-01", "Blend-Tri-Lava-T-Lush-L-Desert") == 1,
+        "the Desert Lush set's three-way pieces are not taken for the other Desert or Lush sets");
+
+    // GreenWorld Base-85, Crystal Base-85 and Lava Base-86 share a cell. Grass filling a
+    // side names Crystal; Crystal filling a side names Grass; Lava filling a side
+    // names Grass and ends in -Crystal, so none matches the Ice Grass set, the
+    // Green Mars set, or the Crystal Archipelago set.
+    const BrushGraph lavaGreenCrystal(std::vector<int>{85, 85, 86}, {"Green", "Crystal", "Lava"});
+    expect(lavaGreenCrystal.style(0, 1) == TransitionStyle::WorldBlend && lavaGreenCrystal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaGreenCrystal.style(1, 2) == TransitionStyle::WorldBlend,
+        "GreenWorld, Crystal and Lava each join the other two");
+    expect(brushPieceName(lavaGreenCrystal, {0, 0, 1, 2}) == "Blend-Tri-Grass-T-Crystal-L"
+        && brushPieceName(lavaGreenCrystal, {1, 1, 0, 2}) == "Blend-Tri-Crystal-T-Grass-L"
+        && brushPieceName(lavaGreenCrystal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Grass-L-Crystal"
+        && brushPieceName(lavaGreenCrystal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Grass-T-Crystal"
+        && brushPieceName(lavaGreenCrystal, {0, 1, 2, 0}).empty(),
+        "GreenWorld, Crystal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Grass-L-Crystal-01", "Blend-Tri-Lava-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Crystal-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Crystal-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Crystal-01", "Blend-Tri-Lava-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Crystal-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Crystal-L-01", "Blend-Tri-Grass-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Crystal-L-01", "Blend-Tri-Grass-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Crystal-L-01", "Blend-Tri-Grass-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Grass-L-01", "Blend-Tri-Crystal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Grass-L-01", "Blend-Tri-Crystal-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Grass-L-01", "Blend-Tri-Crystal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Crystal-01", "Blend-Tri-Lava-T-Grass-L-Crystal") == 1,
+        "the Green Crystal set's three-way pieces are not taken for the other Grass or Crystal sets");
+
+    // Archipelago Base-78, GreenWorld Base-85 and Lava Base-86 share a cell. Grass filling a
+    // side names Archipelago; Archipelago filling a side names Grass; Lava filling a side
+    // names Grass and ends in -Archi, so none matches the Ice Grass set, the Ice
+    // Archipelago set, or the Archipelago Desert set.
+    const BrushGraph lavaArchiGreen(std::vector<int>{78, 85, 86}, {"Archi", "Green", "Lava"});
+    expect(lavaArchiGreen.style(0, 1) == TransitionStyle::WorldBlend && lavaArchiGreen.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaArchiGreen.style(1, 2) == TransitionStyle::WorldBlend,
+        "Archipelago, GreenWorld and Lava each join the other two");
+    expect(brushPieceName(lavaArchiGreen, {1, 1, 0, 2}) == "Blend-Tri-Grass-T-Archi-L"
+        && brushPieceName(lavaArchiGreen, {0, 0, 1, 2}) == "Blend-Tri-Archi-T-Grass-L"
+        && brushPieceName(lavaArchiGreen, {2, 2, 1, 0}) == "Blend-Tri-Lava-T-Grass-L-Archi"
+        && brushPieceName(lavaArchiGreen, {1, 2, 0, 2}) == "Blend-Tri-Lava-R-Grass-T-Archi"
+        && brushPieceName(lavaArchiGreen, {0, 1, 2, 0}).empty(),
+        "Archipelago, GreenWorld and Lava three-way pieces, and no piece without a filled side");
+    expect(brushPieceName(lavaLands, {4, 4, 1, 6}) == "Blend-Tri-Grass-T-Archi-L",
+        "Grass along the top, Archipelago at the bottom left, Lava at the bottom right");
+    expect(transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Grass-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Archi-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Archi-L-01", "Blend-Tri-Grass-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Archi-L-01", "Blend-Tri-Grass-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Archi-L-01", "Blend-Tri-Grass-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Grass-L-01", "Blend-Tri-Archi-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Grass-L-01", "Blend-Tri-Archi-T-Crystal-R") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Grass-L-01", "Blend-Tri-Archi-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Archi-01", "Blend-Tri-Lava-T-Grass-L-Archi") == 1,
+        "the Archipelago Green set's three-way pieces are not taken for the other Archipelago or Grass sets");
+
+    // Acid Base-85, Archipelago Base-78 and Lava Base-86 share a cell. Acid filling a
+    // side names Archipelago; Archipelago filling a side names Acid; Lava filling a side
+    // names Acid and ends in -Archi, so none matches the Acid Crystal lava piece, the
+    // GreenWorld Acid piece, or the Ice Archipelago piece.
+    const BrushGraph lavaAcidArchi(std::vector<int>{78, 85, 86}, {"Archi", "Acid", "Lava"});
+    expect(lavaAcidArchi.style(0, 1) == TransitionStyle::WorldBlend && lavaAcidArchi.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaAcidArchi.style(1, 2) == TransitionStyle::WorldBlend,
+        "Acid, Archipelago and Lava each join the other two");
+    expect(brushPieceName(lavaAcidArchi, {1, 1, 0, 2}) == "Blend-Tri-Acid-T-Archi-L"
+        && brushPieceName(lavaAcidArchi, {0, 0, 1, 2}) == "Blend-Tri-Archi-T-Acid-L"
+        && brushPieceName(lavaAcidArchi, {2, 2, 1, 0}) == "Blend-Tri-Lava-T-Acid-L-Archi"
+        && brushPieceName(lavaAcidArchi, {1, 2, 0, 2}) == "Blend-Tri-Lava-R-Acid-T-Archi"
+        && brushPieceName(lavaAcidArchi, {0, 1, 2, 0}).empty(),
+        "Acid, Archipelago and Lava three-way pieces, and no piece without a filled side");
+    expect(brushPieceName(lavaLands, {5, 5, 1, 6}) == "Blend-Tri-Acid-T-Archi-L",
+        "Acid along the top, Archipelago at the bottom left, Lava at the bottom right");
+    expect(transitionVariation("Blend-Tri-Lava-T-Acid-L-Archi-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Archi-01", "Blend-Tri-Lava-T-Archi-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Archi-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Archi-01", "Blend-Tri-Lava-T-Grass-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Archi-L-01", "Blend-Tri-Acid-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Archi-L-01", "Blend-Tri-Acid-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Archi-L-01", "Blend-Tri-Acid-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Acid-L-01", "Blend-Tri-Archi-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Acid-L-01", "Blend-Tri-Archi-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Acid-L-01", "Blend-Tri-Archi-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Acid-L-01", "Blend-Tri-Archi-T-Crystal-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Archi-01", "Blend-Tri-Lava-T-Acid-L-Archi") == 1,
+        "the Acid Archipelago set's three-way pieces are not taken for the other Acid or Archipelago sets");
+
+    // Archipelago Base-78, Lush Base-77 and Lava Base-86 share a cell. Lush filling a
+    // side names Archipelago; Archipelago filling a side names Lush; Lava filling a side
+    // names Lush and ends in -Archi, so none matches the Lush GreenWorld piece, the
+    // Lush Mars piece, or the Archipelago GreenWorld piece.
+    const BrushGraph lavaArchiLush(std::vector<int>{77, 78, 86}, {"Lush", "Archi", "Lava"});
+    expect(lavaArchiLush.style(0, 1) == TransitionStyle::WorldBlend && lavaArchiLush.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaArchiLush.style(1, 2) == TransitionStyle::WorldBlend,
+        "Archipelago, Lush and Lava each join the other two");
+    expect(brushPieceName(lavaArchiLush, {0, 0, 1, 2}) == "Blend-Tri-Lush-T-Archi-L"
+        && brushPieceName(lavaArchiLush, {1, 1, 0, 2}) == "Blend-Tri-Archi-T-Lush-L"
+        && brushPieceName(lavaArchiLush, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Lush-L-Archi"
+        && brushPieceName(lavaArchiLush, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Lush-T-Archi"
+        && brushPieceName(lavaArchiLush, {0, 1, 2, 0}).empty(),
+        "Archipelago, Lush and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Lush-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Lush-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Grass-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Archi-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Archi-L-01", "Blend-Tri-Lush-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Archi-L-01", "Blend-Tri-Lush-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Archi-L-01", "Blend-Tri-Lush-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Archi-L-01", "Blend-Tri-Lush-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Lush-L-01", "Blend-Tri-Archi-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Lush-L-01", "Blend-Tri-Archi-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Lush-L-01", "Blend-Tri-Archi-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Lush-L-01", "Blend-Tri-Archi-T-Crystal-R") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Lush-L-01", "Blend-Tri-Archi-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Archi-01", "Blend-Tri-Lava-T-Lush-L-Archi") == 1,
+        "the Archipelago Lush set's three-way pieces are not taken for the other Archipelago or Lush sets");
+
+    // Crystal Base-85, Lush Base-77 and Lava Base-86 share a cell. Lush filling a
+    // side names Crystal; Crystal filling a side names Lush; Lava filling a side
+    // names Lush and ends in -Crystal, so none matches the Lush GreenWorld piece,
+    // the Lush Mars piece, the Lush Archipelago piece, or the Crystal Archipelago
+    // lava piece.
+    const BrushGraph lavaLushCrystal(std::vector<int>{77, 85, 86}, {"Lush", "Crystal", "Lava"});
+    expect(lavaLushCrystal.style(0, 1) == TransitionStyle::WorldBlend && lavaLushCrystal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaLushCrystal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Crystal, Lush and Lava each join the other two");
+    expect(brushPieceName(lavaLushCrystal, {0, 0, 1, 2}) == "Blend-Tri-Lush-T-Crystal-L"
+        && brushPieceName(lavaLushCrystal, {1, 1, 0, 2}) == "Blend-Tri-Crystal-T-Lush-L"
+        && brushPieceName(lavaLushCrystal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Lush-L-Crystal"
+        && brushPieceName(lavaLushCrystal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Lush-T-Crystal"
+        && brushPieceName(lavaLushCrystal, {0, 1, 2, 0}).empty(),
+        "Crystal, Lush and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Lush-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Lush-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Lush-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Grass-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Ice-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Crystal-L-01", "Blend-Tri-Lush-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Crystal-L-01", "Blend-Tri-Lush-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Crystal-L-01", "Blend-Tri-Lush-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Crystal-L-01", "Blend-Tri-Lush-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Crystal-L-01", "Blend-Tri-Lush-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Lush-L-01", "Blend-Tri-Crystal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Lush-L-01", "Blend-Tri-Crystal-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Lush-L-01", "Blend-Tri-Crystal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Lush-L-01", "Blend-Tri-Crystal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Lush-L-01", "Blend-Tri-Crystal-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Crystal-01", "Blend-Tri-Lava-T-Lush-L-Crystal") == 1,
+        "the Crystal Lush set's three-way pieces are not taken for the other Crystal or Lush sets");
+
+    // Desert Base-80, Mars Base-85 and Lava Base-86 share a cell. Desert filling a
+    // side names Mars; Mars filling a side names Desert; Lava filling a side
+    // names Desert and ends in -Mars, so none matches the Acid Desert lava piece,
+    // the Ice Mars piece, or the Green Mars piece.
+    const BrushGraph lavaDesertMars(std::vector<int>{80, 85, 86}, {"Desert", "Mars", "Lava"});
+    expect(lavaDesertMars.style(0, 1) == TransitionStyle::WorldBlend && lavaDesertMars.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaDesertMars.style(1, 2) == TransitionStyle::WorldBlend,
+        "Desert, Mars and Lava each join the other two");
+    expect(brushPieceName(lavaDesertMars, {0, 0, 1, 2}) == "Blend-Tri-Desert-T-Mars-L"
+        && brushPieceName(lavaDesertMars, {1, 1, 0, 2}) == "Blend-Tri-Mars-T-Desert-L"
+        && brushPieceName(lavaDesertMars, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Desert-L-Mars"
+        && brushPieceName(lavaDesertMars, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Desert-T-Mars"
+        && brushPieceName(lavaDesertMars, {0, 1, 2, 0}).empty(),
+        "Desert, Mars and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Ice-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-L-Mars-B") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Mars-L-01", "Blend-Tri-Desert-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Mars-L-01", "Blend-Tri-Desert-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Mars-L-01", "Blend-Tri-Desert-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Mars-L-01", "Blend-Tri-Desert-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Mars-L-01", "Blend-Tri-Desert-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Mars-L-01", "Blend-Tri-Desert-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Desert-L-01", "Blend-Tri-Mars-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Desert-L-01", "Blend-Tri-Mars-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Desert-L-01", "Blend-Tri-Mars-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Mars-01", "Blend-Tri-Lava-T-Desert-L-Mars") == 1,
+        "the Desert Mars set's three-way pieces are not taken for the other Desert or Mars sets");
+
+    // Acid Base-85, Lush Base-77 and Lava Base-86 share a cell. Lush filling a
+    // side names Acid; Acid filling a side names Lush; Lava filling a side
+    // names Lush and ends in -Acid, so none matches the Lush GreenWorld piece,
+    // the Lush Mars piece, the Acid Crystal lava piece, or the Ice Acid lava piece.
+    const BrushGraph lavaAcidLush(std::vector<int>{77, 85, 86}, {"Lush", "Acid", "Lava"});
+    expect(lavaAcidLush.style(0, 1) == TransitionStyle::WorldBlend && lavaAcidLush.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaAcidLush.style(1, 2) == TransitionStyle::WorldBlend,
+        "Acid, Lush and Lava each join the other two");
+    expect(brushPieceName(lavaAcidLush, {0, 0, 1, 2}) == "Blend-Tri-Lush-T-Acid-L"
+        && brushPieceName(lavaAcidLush, {1, 1, 0, 2}) == "Blend-Tri-Acid-T-Lush-L"
+        && brushPieceName(lavaAcidLush, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Lush-L-Acid"
+        && brushPieceName(lavaAcidLush, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Lush-T-Acid"
+        && brushPieceName(lavaAcidLush, {0, 1, 2, 0}).empty(),
+        "Acid, Lush and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Lush-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Lush-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Lush-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Lush-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Acid-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Ice-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Acid-L-01", "Blend-Tri-Lush-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Acid-L-01", "Blend-Tri-Lush-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Acid-L-01", "Blend-Tri-Lush-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Acid-L-01", "Blend-Tri-Lush-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Acid-L-01", "Blend-Tri-Lush-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Acid-L-01", "Blend-Tri-Lush-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Lush-L-01", "Blend-Tri-Acid-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Lush-L-01", "Blend-Tri-Acid-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Lush-L-01", "Blend-Tri-Acid-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Lush-L-01", "Blend-Tri-Acid-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Lush-L-01", "Blend-Tri-Acid-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Acid-01", "Blend-Tri-Lava-T-Lush-L-Acid") == 1,
+        "the Acid Lush set's three-way pieces are not taken for the other Acid or Lush sets");
+
+    // Acid Base-85, Mars Base-85 and Lava Base-86 share a cell. Acid filling a
+    // side names Mars; Mars filling a side names Acid; Lava filling a side
+    // names Acid and ends in -Mars, so none matches the Acid Crystal lava piece,
+    // the Ice Mars piece, or the Green Mars piece.
+    const BrushGraph lavaAcidMars(std::vector<int>{85, 85, 86}, {"Acid", "Mars", "Lava"});
+    expect(lavaAcidMars.style(0, 1) == TransitionStyle::WorldBlend && lavaAcidMars.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaAcidMars.style(1, 2) == TransitionStyle::WorldBlend,
+        "Acid, Mars and Lava each join the other two");
+    expect(brushPieceName(lavaAcidMars, {0, 0, 1, 2}) == "Blend-Tri-Acid-T-Mars-L"
+        && brushPieceName(lavaAcidMars, {1, 1, 0, 2}) == "Blend-Tri-Mars-T-Acid-L"
+        && brushPieceName(lavaAcidMars, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Acid-L-Mars"
+        && brushPieceName(lavaAcidMars, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Acid-T-Mars"
+        && brushPieceName(lavaAcidMars, {0, 1, 2, 0}).empty(),
+        "Acid, Mars and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Acid-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Ice-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-L-Mars-B") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Desert-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Mars-L-01", "Blend-Tri-Acid-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Mars-L-01", "Blend-Tri-Acid-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Mars-L-01", "Blend-Tri-Acid-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Mars-L-01", "Blend-Tri-Acid-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Mars-L-01", "Blend-Tri-Acid-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Mars-L-01", "Blend-Tri-Acid-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Acid-L-01", "Blend-Tri-Mars-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Acid-L-01", "Blend-Tri-Mars-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Acid-L-01", "Blend-Tri-Mars-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Acid-L-01", "Blend-Tri-Mars-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Mars-01", "Blend-Tri-Lava-T-Acid-L-Mars") == 1,
+        "the Acid Mars set's three-way pieces are not taken for the other Acid or Mars sets");
+
+    // Archipelago Base-78, Mars Base-85 and Lava Base-86 share a cell. Archipelago
+    // filling a side names Mars; Mars filling a side names Archipelago; Lava filling
+    // a side names Archipelago and ends in -Mars, so none matches the Ice Archipelago
+    // lava piece, the Ice Mars piece, or the Green Mars piece.
+    const BrushGraph lavaArchiMars(std::vector<int>{78, 85, 86}, {"Archi", "Mars", "Lava"});
+    expect(lavaArchiMars.style(0, 1) == TransitionStyle::WorldBlend && lavaArchiMars.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaArchiMars.style(1, 2) == TransitionStyle::WorldBlend,
+        "Archipelago, Mars and Lava each join the other two");
+    expect(brushPieceName(lavaArchiMars, {0, 0, 1, 2}) == "Blend-Tri-Archi-T-Mars-L"
+        && brushPieceName(lavaArchiMars, {1, 1, 0, 2}) == "Blend-Tri-Mars-T-Archi-L"
+        && brushPieceName(lavaArchiMars, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Archi-L-Mars"
+        && brushPieceName(lavaArchiMars, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Archi-T-Mars"
+        && brushPieceName(lavaArchiMars, {0, 1, 2, 0}).empty(),
+        "Archipelago, Mars and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Archi-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Acid-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-L-Mars-B") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Desert-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Acid-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Mars-L-01", "Blend-Tri-Archi-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Mars-L-01", "Blend-Tri-Archi-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Mars-L-01", "Blend-Tri-Archi-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Archi-L-01", "Blend-Tri-Mars-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Archi-L-01", "Blend-Tri-Mars-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Archi-L-01", "Blend-Tri-Mars-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Archi-L-01", "Blend-Tri-Mars-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Mars-01", "Blend-Tri-Lava-T-Archi-L-Mars") == 1,
+        "the Archipelago Mars set's three-way pieces are not taken for the other Archipelago or Mars sets");
+
+    // Crystal Base-85, Mars Base-85 and Lava Base-86 share a cell. Crystal filling a
+    // side names Mars; Mars filling a side names Crystal; Lava filling a side names
+    // Crystal and ends in -Mars, so none matches the Crystal Archipelago lava piece,
+    // the Ice Mars piece, or the Green Mars piece.
+    const BrushGraph lavaCrystalMars(std::vector<int>{85, 85, 86}, {"Crystal", "Mars", "Lava"});
+    expect(lavaCrystalMars.style(0, 1) == TransitionStyle::WorldBlend && lavaCrystalMars.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaCrystalMars.style(1, 2) == TransitionStyle::WorldBlend,
+        "Crystal, Mars and Lava each join the other two");
+    expect(brushPieceName(lavaCrystalMars, {0, 0, 1, 2}) == "Blend-Tri-Crystal-T-Mars-L"
+        && brushPieceName(lavaCrystalMars, {1, 1, 0, 2}) == "Blend-Tri-Mars-T-Crystal-L"
+        && brushPieceName(lavaCrystalMars, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Crystal-L-Mars"
+        && brushPieceName(lavaCrystalMars, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Crystal-T-Mars"
+        && brushPieceName(lavaCrystalMars, {0, 1, 2, 0}).empty(),
+        "Crystal, Mars and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Ice-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-L-Mars-B") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Desert-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Acid-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Archi-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Mars-L-01", "Blend-Tri-Crystal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Mars-L-01", "Blend-Tri-Crystal-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Mars-L-01", "Blend-Tri-Crystal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Mars-L-01", "Blend-Tri-Crystal-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Mars-L-01", "Blend-Tri-Crystal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Mars-L-01", "Blend-Tri-Crystal-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Crystal-L-01", "Blend-Tri-Mars-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Crystal-L-01", "Blend-Tri-Mars-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Crystal-L-01", "Blend-Tri-Mars-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Crystal-L-01", "Blend-Tri-Mars-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Mars-T-Crystal-L-01", "Blend-Tri-Mars-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Mars-01", "Blend-Tri-Lava-T-Crystal-L-Mars") == 1,
+        "the Crystal Mars set's three-way pieces are not taken for the other Crystal or Mars sets");
+
+    // GreenWorld Base-85, Metal Base-85 and Lava Base-86 share a cell. GreenWorld
+    // filling a side names Metal; Metal filling a side names Grass; Lava filling a
+    // side names Grass and ends in -Metal, so none matches the Ice GreenWorld lava
+    // piece, the Green Mars piece, or the Green Crystal piece.
+    const BrushGraph lavaGreenMetal(std::vector<int>{85, 85, 86}, {"Green", "Metal", "Lava"});
+    expect(lavaGreenMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaGreenMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaGreenMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "GreenWorld, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaGreenMetal, {0, 0, 1, 2}) == "Blend-Tri-Grass-T-Metal-L"
+        && brushPieceName(lavaGreenMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Grass-L"
+        && brushPieceName(lavaGreenMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Grass-L-Metal"
+        && brushPieceName(lavaGreenMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Grass-T-Metal"
+        && brushPieceName(lavaGreenMetal, {0, 1, 2, 0}).empty(),
+        "GreenWorld, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-B-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Metal-L-01", "Blend-Tri-Grass-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Metal-L-01", "Blend-Tri-Grass-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Metal-L-01", "Blend-Tri-Grass-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Metal-L-01", "Blend-Tri-Grass-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Metal-L-01", "Blend-Tri-Grass-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Grass-T-Metal-L-01", "Blend-Tri-Grass-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Grass-L-01", "Blend-Tri-Grass-T-Metal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Grass-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") == 1,
+        "the GreenWorld Metal set's three-way pieces are not taken for the other GreenWorld sets");
+
+    // Desert Base-80, Metal Base-85 and Lava Base-86 share a cell. Desert filling a
+    // side names Metal; Metal filling a side names Desert; Lava filling a side
+    // names Desert and ends in -Metal, so none matches the Acid Desert lava piece,
+    // the Green Metal lava piece, or the Desert Mars piece.
+    const BrushGraph lavaDesertMetal(std::vector<int>{80, 85, 86}, {"Desert", "Metal", "Lava"});
+    expect(lavaDesertMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaDesertMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaDesertMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Desert, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaDesertMetal, {0, 0, 1, 2}) == "Blend-Tri-Desert-T-Metal-L"
+        && brushPieceName(lavaDesertMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Desert-L"
+        && brushPieceName(lavaDesertMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Desert-L-Metal"
+        && brushPieceName(lavaDesertMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Desert-T-Metal"
+        && brushPieceName(lavaDesertMetal, {0, 1, 2, 0}).empty(),
+        "Desert, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Desert-T-Metal-L-01", "Blend-Tri-Desert-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Desert-L-01", "Blend-Tri-Metal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Desert-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Metal") == 1,
+        "the Desert Metal set's three-way pieces are not taken for the other Desert or Metal sets");
+
+    // Archipelago Base-78, Metal Base-85 and Lava Base-86 share a cell. Archipelago
+    // filling a side names Metal; Metal filling a side names Archipelago; Lava filling
+    // a side names Archipelago and ends in -Metal, so none matches the Ice
+    // Archipelago lava piece, the Green Metal lava piece, or the Archipelago Mars piece.
+    const BrushGraph lavaArchiMetal(std::vector<int>{78, 85, 86}, {"Archi", "Metal", "Lava"});
+    expect(lavaArchiMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaArchiMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaArchiMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Archipelago, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaArchiMetal, {0, 0, 1, 2}) == "Blend-Tri-Archi-T-Metal-L"
+        && brushPieceName(lavaArchiMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Archi-L"
+        && brushPieceName(lavaArchiMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Archi-L-Metal"
+        && brushPieceName(lavaArchiMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Archi-T-Metal"
+        && brushPieceName(lavaArchiMetal, {0, 1, 2, 0}).empty(),
+        "Archipelago, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Archi-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Acid-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Metal-L-01", "Blend-Tri-Archi-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Metal-L-01", "Blend-Tri-Archi-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Metal-L-01", "Blend-Tri-Archi-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Metal-L-01", "Blend-Tri-Archi-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Archi-T-Metal-L-01", "Blend-Tri-Archi-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Archi-L-01", "Blend-Tri-Metal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Archi-L-01", "Blend-Tri-Metal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Archi-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Metal") == 1,
+        "the Archipelago Metal set's three-way pieces are not taken for the other Archipelago or Metal sets");
+
+    // Lush Base-77, Metal Base-85 and Lava Base-86 share a cell. Lush filling a
+    // side names Metal; Metal filling a side names Lush; Lava filling a side
+    // names Lush and ends in -Metal, so none matches the Lush GreenWorld lava
+    // piece, the Lush Mars piece, or the Green Metal lava piece.
+    const BrushGraph lavaLushMetal(std::vector<int>{77, 85, 86}, {"Lush", "Metal", "Lava"});
+    expect(lavaLushMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaLushMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaLushMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Lush, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaLushMetal, {0, 0, 1, 2}) == "Blend-Tri-Lush-T-Metal-L"
+        && brushPieceName(lavaLushMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Lush-L"
+        && brushPieceName(lavaLushMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Lush-L-Metal"
+        && brushPieceName(lavaLushMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Lush-T-Metal"
+        && brushPieceName(lavaLushMetal, {0, 1, 2, 0}).empty(),
+        "Lush, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-R") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Metal-L-01", "Blend-Tri-Lush-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Metal-L-01", "Blend-Tri-Lush-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Metal-L-01", "Blend-Tri-Lush-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Metal-L-01", "Blend-Tri-Lush-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lush-T-Metal-L-01", "Blend-Tri-Lush-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Lush-L-01", "Blend-Tri-Metal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Lush-L-01", "Blend-Tri-Metal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Lush-L-01", "Blend-Tri-Metal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Lush-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Metal") == 1,
+        "the Lush Metal set's three-way pieces are not taken for the other Lush or Metal sets");
+
+    // Ice Base-85, Metal Base-85 and Lava Base-86 share a cell. Ice filling a
+    // side names Metal; Metal filling a side names Ice; Lava filling a side
+    // names Ice and ends in -Metal, so none matches the Ice Lush lava piece,
+    // the Ice Crystal lava piece, or the Lush Metal lava piece.
+    const BrushGraph lavaIceMetal(std::vector<int>{85, 85, 86}, {"Ice", "Metal", "Lava"});
+    expect(lavaIceMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaIceMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaIceMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Ice, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaIceMetal, {0, 0, 1, 2}) == "Blend-Tri-Ice-T-Metal-L"
+        && brushPieceName(lavaIceMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Ice-L"
+        && brushPieceName(lavaIceMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Ice-L-Metal"
+        && brushPieceName(lavaIceMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Ice-T-Metal"
+        && brushPieceName(lavaIceMetal, {0, 1, 2, 0}).empty(),
+        "Ice, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Lush") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Ice-T-Metal-L-01", "Blend-Tri-Ice-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Ice-L-01", "Blend-Tri-Metal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Ice-L-01", "Blend-Tri-Metal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Ice-L-01", "Blend-Tri-Metal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Ice-L-01", "Blend-Tri-Metal-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Ice-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Metal") == 1,
+        "the Ice Metal set's three-way pieces are not taken for the other Ice or Metal sets");
+
+    // Acid Base-85, Metal Base-85 and Lava Base-86 share a cell. Acid filling a
+    // side names Metal; Metal filling a side names Acid; Lava filling a side
+    // names Acid and ends in -Metal, so none matches the Acid Crystal lava
+    // piece, the Acid Mars lava piece, or the Ice Metal lava piece.
+    const BrushGraph lavaAcidMetal(std::vector<int>{85, 85, 86}, {"Acid", "Metal", "Lava"});
+    expect(lavaAcidMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaAcidMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaAcidMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Acid, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaAcidMetal, {0, 0, 1, 2}) == "Blend-Tri-Acid-T-Metal-L"
+        && brushPieceName(lavaAcidMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Acid-L"
+        && brushPieceName(lavaAcidMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Acid-L-Metal"
+        && brushPieceName(lavaAcidMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Acid-T-Metal"
+        && brushPieceName(lavaAcidMetal, {0, 1, 2, 0}).empty(),
+        "Acid, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Acid-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Acid-L-Archi") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Acid") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Acid-T-Metal-L-01", "Blend-Tri-Acid-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Acid-L-01", "Blend-Tri-Metal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Acid-L-01", "Blend-Tri-Metal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Acid-L-01", "Blend-Tri-Metal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Acid-L-01", "Blend-Tri-Metal-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Acid-L-01", "Blend-Tri-Metal-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Acid-L-Metal-01", "Blend-Tri-Lava-T-Acid-L-Metal") == 1,
+        "the Acid Metal set's three-way pieces are not taken for the other Acid or Metal sets");
+
+    // Crystal Base-85, Metal Base-85 and Lava Base-86 share a cell. Crystal filling a
+    // side names Metal; Metal filling a side names Crystal; Lava filling a side
+    // names Crystal and ends in -Metal, so none matches the Crystal Archipelago
+    // lava piece, the Crystal Mars lava piece, or the Acid Metal lava piece.
+    const BrushGraph lavaCrystalMetal(std::vector<int>{85, 85, 86}, {"Crystal", "Metal", "Lava"});
+    expect(lavaCrystalMetal.style(0, 1) == TransitionStyle::WorldBlend && lavaCrystalMetal.style(0, 2) == TransitionStyle::WorldBlend
+        && lavaCrystalMetal.style(1, 2) == TransitionStyle::WorldBlend,
+        "Crystal, Metal and Lava each join the other two");
+    expect(brushPieceName(lavaCrystalMetal, {0, 0, 1, 2}) == "Blend-Tri-Crystal-T-Metal-L"
+        && brushPieceName(lavaCrystalMetal, {1, 1, 0, 2}) == "Blend-Tri-Metal-T-Crystal-L"
+        && brushPieceName(lavaCrystalMetal, {2, 2, 0, 1}) == "Blend-Tri-Lava-T-Crystal-L-Metal"
+        && brushPieceName(lavaCrystalMetal, {0, 2, 1, 2}) == "Blend-Tri-Lava-R-Crystal-T-Metal"
+        && brushPieceName(lavaCrystalMetal, {0, 1, 2, 0}).empty(),
+        "Crystal, Metal and Lava three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Crystal-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Crystal-L-Mars") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Crystal-L-Desert") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Crystal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Grass-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Desert-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Archi-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Lush-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Ice-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Acid-L-Metal") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Mars-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Crystal-T-Metal-L-01", "Blend-Tri-Crystal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Crystal-L-01", "Blend-Tri-Metal-T-Grass-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Crystal-L-01", "Blend-Tri-Metal-T-Desert-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Crystal-L-01", "Blend-Tri-Metal-T-Archi-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Crystal-L-01", "Blend-Tri-Metal-T-Lush-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Crystal-L-01", "Blend-Tri-Metal-T-Ice-L") < 0
+        && transitionVariation("Blend-Tri-Metal-T-Crystal-L-01", "Blend-Tri-Metal-T-Acid-L") < 0
+        && transitionVariation("Blend-Tri-Lava-T-Crystal-L-Metal-01", "Blend-Tri-Lava-T-Crystal-L-Metal") == 1,
+        "the Crystal Metal set's three-way pieces are not taken for the other Crystal or Metal sets");
+
+    // GreenWorld, Ice and Lush share a cell. Every name ends in the land it does not otherwise give.
+    const BrushGraph greenIceLush(std::vector<int>{77, 85, 85}, {"Lush", "Green", "Ice"});
+    expect(brushPieceName(greenIceLush, {2, 2, 1, 0}) == "Blend-Tri-Ice-T-Grass-L-Lush" && brushPieceName(greenIceLush, {1, 1, 0, 2}) == "Blend-Tri-Grass-T-Ice-R-Lush"
+        && brushPieceName(greenIceLush, {0, 1, 0, 2}) == "Blend-Tri-Lush-L-Grass-T-Ice" && brushPieceName(greenIceLush, {0, 1, 2, 0}).empty(),
+        "GreenWorld, Ice and Lush three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Lush-T-Grass-L-Ice-01", "Blend-Tri-Lush-T-Grass-L") < 0 && transitionVariation("Blend-Tri-Ice-T-Grass-L-Lush-01", "Blend-Tri-Ice-T-Grass-L") < 0,
+        "the GreenWorld, Ice and Lush pieces are not taken for the Lava sets' pieces");
+
+    // GreenWorld, Mars and Lush use the same names with Mars in place of Ice.
+    const BrushGraph greenMarsLush(std::vector<int>{77, 85, 85}, {"Lush", "Green", "Mars"});
+    expect(brushPieceName(greenMarsLush, {2, 2, 1, 0}) == "Blend-Tri-Mars-T-Grass-L-Lush" && brushPieceName(greenMarsLush, {1, 1, 0, 2}) == "Blend-Tri-Grass-T-Mars-R-Lush"
+        && brushPieceName(greenMarsLush, {0, 1, 0, 2}) == "Blend-Tri-Lush-L-Grass-T-Mars" && brushPieceName(greenMarsLush, {0, 1, 2, 0}).empty(),
+        "GreenWorld, Mars and Lush three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Mars-T-Grass-L-Lush-01", "Blend-Tri-Mars-T-Grass-L") < 0,
+        "the GreenWorld, Mars and Lush pieces are not taken for the GreenWorld, Mars and Lava pieces");
+
+    // GreenWorld, Ice and Mars use the same names with Mars in place of Lush.
+    const BrushGraph greenIceMars(std::vector<int>{85, 85, 85}, {"Green", "Ice", "Mars"});
+    expect(brushPieceName(greenIceMars, {1, 1, 0, 2}) == "Blend-Tri-Ice-T-Grass-L-Mars" && brushPieceName(greenIceMars, {0, 0, 2, 1}) == "Blend-Tri-Grass-T-Ice-R-Mars"
+        && brushPieceName(greenIceMars, {2, 0, 2, 1}) == "Blend-Tri-Mars-L-Grass-T-Ice" && brushPieceName(greenIceMars, {2, 0, 1, 2}).empty(),
+        "GreenWorld, Ice and Mars three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Mars-T-Grass-L-Ice-01", "Blend-Tri-Mars-T-Grass-L") < 0 && transitionVariation("Blend-Tri-Ice-T-Grass-L-Mars-01", "Blend-Tri-Ice-T-Grass-L") < 0,
+        "the GreenWorld, Ice and Mars pieces are not taken for the Lava sets' pieces");
+
+    // GreenWorld, Metal and Lush use the same names with Metal in place of Ice.
+    const BrushGraph greenMetalLush(std::vector<int>{77, 85, 85}, {"Lush", "Green", "Metal"});
+    expect(brushPieceName(greenMetalLush, {2, 2, 1, 0}) == "Blend-Tri-Metal-T-Grass-L-Lush" && brushPieceName(greenMetalLush, {1, 1, 0, 2}) == "Blend-Tri-Grass-T-Metal-R-Lush"
+        && brushPieceName(greenMetalLush, {0, 1, 0, 2}) == "Blend-Tri-Lush-L-Grass-T-Metal" && brushPieceName(greenMetalLush, {0, 1, 2, 0}).empty(),
+        "GreenWorld, Metal and Lush three-way pieces, and no piece without a filled side");
+
+    // Archipelago, GreenWorld and Lush use the same names with Archipelago in place of Ice.
+    const BrushGraph archiGreenLush(std::vector<int>{77, 78, 85}, {"Lush", "Archi", "Green"});
+    expect(brushPieceName(archiGreenLush, {1, 1, 2, 0}) == "Blend-Tri-Archi-T-Grass-L-Lush" && brushPieceName(archiGreenLush, {2, 2, 0, 1}) == "Blend-Tri-Grass-T-Archi-R-Lush"
+        && brushPieceName(archiGreenLush, {0, 2, 0, 1}) == "Blend-Tri-Lush-L-Grass-T-Archi" && brushPieceName(archiGreenLush, {0, 2, 1, 0}).empty(),
+        "Archipelago, GreenWorld and Lush three-way pieces, and no piece without a filled side");
+
+    // Archipelago, GreenWorld and Mars use the same names with Mars in place of Lush.
+    const BrushGraph archiGreenMars(std::vector<int>{78, 85, 85}, {"Archi", "Green", "Mars"});
+    expect(brushPieceName(archiGreenMars, {0, 0, 1, 2}) == "Blend-Tri-Archi-T-Grass-L-Mars" && brushPieceName(archiGreenMars, {1, 1, 2, 0}) == "Blend-Tri-Grass-T-Archi-R-Mars"
+        && brushPieceName(archiGreenMars, {2, 1, 2, 0}) == "Blend-Tri-Mars-L-Grass-T-Archi" && brushPieceName(archiGreenMars, {2, 1, 0, 2}).empty(),
+        "Archipelago, GreenWorld and Mars three-way pieces, and no piece without a filled side");
+
+    // Desert, GreenWorld and Lush use the same names with Desert in place of Ice.
+    const BrushGraph desertGreenLush(std::vector<int>{77, 80, 85}, {"Lush", "Desert", "Green"});
+    expect(brushPieceName(desertGreenLush, {1, 1, 2, 0}) == "Blend-Tri-Desert-T-Grass-L-Lush" && brushPieceName(desertGreenLush, {2, 2, 0, 1}) == "Blend-Tri-Grass-T-Desert-R-Lush"
+        && brushPieceName(desertGreenLush, {0, 2, 0, 1}) == "Blend-Tri-Lush-L-Grass-T-Desert" && brushPieceName(desertGreenLush, {0, 2, 1, 0}).empty(),
+        "Desert, GreenWorld and Lush three-way pieces, and no piece without a filled side");
+
+    // Crystal, GreenWorld and Lush use the same names with Crystal in place of Ice.
+    const BrushGraph crystalGreenLush(std::vector<int>{77, 85, 85}, {"Lush", "Green", "Crystal"});
+    expect(brushPieceName(crystalGreenLush, {2, 2, 1, 0}) == "Blend-Tri-Crystal-T-Grass-L-Lush" && brushPieceName(crystalGreenLush, {1, 1, 0, 2}) == "Blend-Tri-Grass-T-Crystal-R-Lush"
+        && brushPieceName(crystalGreenLush, {0, 1, 0, 2}) == "Blend-Tri-Lush-L-Grass-T-Crystal" && brushPieceName(crystalGreenLush, {0, 1, 2, 0}).empty(),
+        "Crystal, GreenWorld and Lush three-way pieces, and no piece without a filled side");
+
+    // Archipelago, Desert and GreenWorld use the same names with Desert in place of Lush.
+    const BrushGraph archiDesertGreen(std::vector<int>{78, 80, 85}, {"Archi", "Desert", "Green"});
+    expect(brushPieceName(archiDesertGreen, {0, 0, 2, 1}) == "Blend-Tri-Archi-T-Grass-L-Desert" && brushPieceName(archiDesertGreen, {2, 2, 1, 0}) == "Blend-Tri-Grass-T-Archi-R-Desert"
+        && brushPieceName(archiDesertGreen, {1, 2, 1, 0}) == "Blend-Tri-Desert-L-Grass-T-Archi" && brushPieceName(archiDesertGreen, {1, 2, 0, 1}).empty(),
+        "Archipelago, Desert and GreenWorld three-way pieces, and no piece without a filled side");
+
+    // Acid, Archipelago and GreenWorld use the same names with Acid in place of Lush.
+    const BrushGraph acidArchiGreen(std::vector<int>{78, 85, 85}, {"Archi", "Acid", "Green"});
+    expect(brushPieceName(acidArchiGreen, {0, 0, 2, 1}) == "Blend-Tri-Archi-T-Grass-L-Acid" && brushPieceName(acidArchiGreen, {2, 2, 1, 0}) == "Blend-Tri-Grass-T-Archi-R-Acid"
+        && brushPieceName(acidArchiGreen, {1, 2, 1, 0}) == "Blend-Tri-Acid-L-Grass-T-Archi" && brushPieceName(acidArchiGreen, {1, 2, 0, 1}).empty(),
+        "Acid, Archipelago and GreenWorld three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Acid-T-Grass-L-Archi-01", "Blend-Tri-Acid-T-Grass-L") < 0,
+        "the Acid, Archipelago and GreenWorld pieces are not taken for the Acid, GreenWorld and Lava pieces");
+
+    // Archipelago, Crystal and GreenWorld use the same names with Crystal in place of Lush.
+    const BrushGraph archiCrystalGreen(std::vector<int>{78, 85, 85}, {"Archi", "Crystal", "Green"});
+    expect(brushPieceName(archiCrystalGreen, {0, 0, 2, 1}) == "Blend-Tri-Archi-T-Grass-L-Crystal" && brushPieceName(archiCrystalGreen, {2, 2, 1, 0}) == "Blend-Tri-Grass-T-Archi-R-Crystal"
+        && brushPieceName(archiCrystalGreen, {1, 2, 1, 0}) == "Blend-Tri-Crystal-L-Grass-T-Archi" && brushPieceName(archiCrystalGreen, {1, 2, 0, 1}).empty(),
+        "Archipelago, Crystal and GreenWorld three-way pieces, and no piece without a filled side");
+
+    // Archipelago, GreenWorld and Metal use the same names with Metal in place of Lush.
+    const BrushGraph archiGreenMetal(std::vector<int>{78, 85, 85}, {"Archi", "Metal", "Green"});
+    expect(brushPieceName(archiGreenMetal, {0, 0, 2, 1}) == "Blend-Tri-Archi-T-Grass-L-Metal" && brushPieceName(archiGreenMetal, {2, 2, 1, 0}) == "Blend-Tri-Grass-T-Archi-R-Metal"
+        && brushPieceName(archiGreenMetal, {1, 2, 1, 0}) == "Blend-Tri-Metal-L-Grass-T-Archi" && brushPieceName(archiGreenMetal, {1, 2, 0, 1}).empty(),
+        "Archipelago, GreenWorld and Metal three-way pieces, and no piece without a filled side");
+
+    // Archipelago, GreenWorld and Ice use the same names with Ice in place of Lush.
+    const BrushGraph archiGreenIce(std::vector<int>{78, 85, 85}, {"Archi", "Ice", "Green"});
+    expect(brushPieceName(archiGreenIce, {0, 0, 2, 1}) == "Blend-Tri-Archi-T-Grass-L-Ice" && brushPieceName(archiGreenIce, {2, 2, 1, 0}) == "Blend-Tri-Grass-T-Archi-R-Ice"
+        && brushPieceName(archiGreenIce, {1, 2, 1, 0}) == "Blend-Tri-Ice-L-Grass-T-Archi" && brushPieceName(archiGreenIce, {1, 2, 0, 1}).empty(),
+        "Archipelago, GreenWorld and Ice three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Ice-T-Grass-L-Archi-01", "Blend-Tri-Ice-T-Grass-L") < 0,
+        "the Archipelago, GreenWorld and Ice pieces are not taken for the Ice, GreenWorld and Lava pieces");
+
+    // GreenWorld, Mars and Metal use the same names with Mars in place of Ice and Metal in place of Lush.
+    const BrushGraph greenMarsMetal(std::vector<int>{85, 85, 85}, {"Green", "Mars", "Metal"});
+    expect(brushPieceName(greenMarsMetal, {1, 1, 0, 2}) == "Blend-Tri-Mars-T-Grass-L-Metal" && brushPieceName(greenMarsMetal, {0, 0, 2, 1}) == "Blend-Tri-Grass-T-Mars-R-Metal"
+        && brushPieceName(greenMarsMetal, {2, 0, 2, 1}) == "Blend-Tri-Metal-L-Grass-T-Mars" && brushPieceName(greenMarsMetal, {2, 0, 1, 2}).empty(),
+        "GreenWorld, Mars and Metal three-way pieces, and no piece without a filled side");
+    expect(transitionVariation("Blend-Tri-Mars-T-Grass-L-Metal-01", "Blend-Tri-Mars-T-Grass-L") < 0,
+        "the GreenWorld, Mars and Metal pieces are not taken for the GreenWorld, Mars and Lava pieces");
+
+    // GreenWorld, Ice and Metal use the same names with Metal in place of Lush.
+    const BrushGraph greenIceMetal(std::vector<int>{85, 85, 85}, {"Green", "Ice", "Metal"});
+    expect(brushPieceName(greenIceMetal, {1, 1, 0, 2}) == "Blend-Tri-Ice-T-Grass-L-Metal" && brushPieceName(greenIceMetal, {0, 0, 2, 1}) == "Blend-Tri-Grass-T-Ice-R-Metal"
+        && brushPieceName(greenIceMetal, {2, 0, 2, 1}) == "Blend-Tri-Metal-L-Grass-T-Ice" && brushPieceName(greenIceMetal, {2, 0, 1, 2}).empty(),
+        "GreenWorld, Ice and Metal three-way pieces, and no piece without a filled side");
+
+    // More GreenWorld three-way sets, named the same way: the second land in Ice's place and the last in Lush's.
+    struct GreenTriCase { const char* second; int secondHeight; const char* last; int lastHeight; };
+    for (const GreenTriCase& tri : {GreenTriCase{"Desert", 80, "Ice", 85}, GreenTriCase{"Desert", 80, "Mars", 85}, GreenTriCase{"Desert", 80, "Metal", 85}, GreenTriCase{"Ice", 85, "Crystal", 85}, GreenTriCase{"Mars", 85, "Crystal", 85}, GreenTriCase{"Metal", 85, "Crystal", 85}, GreenTriCase{"Desert", 80, "Crystal", 85}, GreenTriCase{"Acid", 85, "Lush", 77}, GreenTriCase{"Ice", 85, "Acid", 85}, GreenTriCase{"Mars", 85, "Acid", 85}, GreenTriCase{"Metal", 85, "Acid", 85}, GreenTriCase{"Crystal", 85, "Acid", 85}, GreenTriCase{"Desert", 80, "Acid", 85}}) {
+        // Levels sorted by height: GreenWorld 85 sorts after lower lands and before the other 85 land.
+        std::vector<std::pair<int, std::string>> order = {{tri.secondHeight, tri.second}, {85, "Green"}, {tri.lastHeight, tri.last}};
+        std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<int> heights;
+        std::vector<std::string> worlds;
+        for (const auto& [height, world] : order) {
+            heights.push_back(height);
+            worlds.push_back(world);
+        }
+        const BrushGraph graph(heights, worlds);
+        const auto levelOf = [&](const std::string& world) {
+            return static_cast<int>(std::find(worlds.begin(), worlds.end(), world) - worlds.begin());
+        };
+        const int green = levelOf("Green");
+        const int second = levelOf(tri.second);
+        const int last = levelOf(tri.last);
+        const std::string secondName = tri.second;
+        const std::string lastName = tri.last;
+        expect(brushPieceName(graph, {second, second, green, last}) == "Blend-Tri-" + secondName + "-T-Grass-L-" + lastName
+                && brushPieceName(graph, {green, green, last, second}) == "Blend-Tri-Grass-T-" + secondName + "-R-" + lastName
+                && brushPieceName(graph, {last, green, last, second}) == "Blend-Tri-" + lastName + "-L-Grass-T-" + secondName
+                && brushPieceName(graph, {last, green, second, last}).empty(),
+            "GreenWorld, " + secondName + " and " + lastName + " three-way pieces, and no piece without a filled side");
+    }
+
+    // Archipelago, Desert and Lush have no GreenWorld: Lush takes its place in the names.
+    const BrushGraph archiDesertLush(std::vector<int>{77, 78, 80}, {"Lush", "Archi", "Desert"});
+    expect(brushPieceName(archiDesertLush, {1, 1, 0, 2}) == "Blend-Tri-Archi-T-Lush-L-Desert" && brushPieceName(archiDesertLush, {0, 0, 2, 1}) == "Blend-Tri-Lush-T-Archi-R-Desert"
+        && brushPieceName(archiDesertLush, {2, 0, 2, 1}) == "Blend-Tri-Desert-L-Lush-T-Archi" && brushPieceName(archiDesertLush, {2, 0, 1, 2}).empty(),
+        "Archipelago, Desert and Lush three-way pieces, and no piece without a filled side");
+    const BrushGraph archiIceLush(std::vector<int>{77, 78, 85}, {"Lush", "Archi", "Ice"});
+    expect(brushPieceName(archiIceLush, {1, 1, 0, 2}) == "Blend-Tri-Archi-T-Lush-L-Ice" && brushPieceName(archiIceLush, {0, 0, 2, 1}) == "Blend-Tri-Lush-T-Archi-R-Ice"
+        && brushPieceName(archiIceLush, {2, 0, 2, 1}) == "Blend-Tri-Ice-L-Lush-T-Archi" && brushPieceName(archiIceLush, {2, 0, 1, 2}).empty(),
+        "Archipelago, Ice and Lush three-way pieces, and no piece without a filled side");
+    const BrushGraph archiLushMars(std::vector<int>{77, 78, 85}, {"Lush", "Archi", "Mars"});
+    expect(brushPieceName(archiLushMars, {1, 1, 0, 2}) == "Blend-Tri-Archi-T-Lush-L-Mars" && brushPieceName(archiLushMars, {0, 0, 2, 1}) == "Blend-Tri-Lush-T-Archi-R-Mars"
+        && brushPieceName(archiLushMars, {2, 0, 2, 1}) == "Blend-Tri-Mars-L-Lush-T-Archi" && brushPieceName(archiLushMars, {2, 0, 1, 2}).empty(),
+        "Archipelago, Lush and Mars three-way pieces, and no piece without a filled side");
+    const BrushGraph archiLushMetal(std::vector<int>{77, 78, 85}, {"Lush", "Archi", "Metal"});
+    expect(brushPieceName(archiLushMetal, {1, 1, 0, 2}) == "Blend-Tri-Archi-T-Lush-L-Metal" && brushPieceName(archiLushMetal, {0, 0, 2, 1}) == "Blend-Tri-Lush-T-Archi-R-Metal"
+        && brushPieceName(archiLushMetal, {2, 0, 2, 1}) == "Blend-Tri-Metal-L-Lush-T-Archi" && brushPieceName(archiLushMetal, {2, 0, 1, 2}).empty(),
+        "Archipelago, Lush and Metal three-way pieces, and no piece without a filled side");
+    // Archipelago, Ice and Metal use Ice as the pivot.
+    const BrushGraph archiIceMetal(std::vector<int>{78, 85, 85}, {"Archi", "Ice", "Metal"});
+    expect(brushPieceName(archiIceMetal, {0, 0, 1, 2}) == "Blend-Tri-Archi-T-Ice-L-Metal" && brushPieceName(archiIceMetal, {1, 1, 2, 0}) == "Blend-Tri-Ice-T-Archi-R-Metal"
+        && brushPieceName(archiIceMetal, {2, 1, 2, 0}) == "Blend-Tri-Metal-L-Ice-T-Archi" && brushPieceName(archiIceMetal, {2, 1, 0, 2}).empty(),
+        "Archipelago, Ice and Metal three-way pieces, and no piece without a filled side");
+
+    // Crystal, Desert and Ice use Desert as the pivot.
+    const BrushGraph crystalDesertIce(std::vector<int>{80, 85, 85}, {"Desert", "Crystal", "Ice"});
+    expect(brushPieceName(crystalDesertIce, {1, 1, 0, 2}) == "Blend-Tri-Crystal-T-Desert-L-Ice" && brushPieceName(crystalDesertIce, {0, 0, 2, 1}) == "Blend-Tri-Desert-T-Crystal-R-Ice"
+        && brushPieceName(crystalDesertIce, {2, 0, 2, 1}) == "Blend-Tri-Ice-L-Desert-T-Crystal" && brushPieceName(crystalDesertIce, {2, 0, 1, 2}).empty(),
+        "Crystal, Desert and Ice three-way pieces, and no piece without a filled side");
+    // Acid, Crystal and Ice use Ice as the pivot.
+    const BrushGraph acidCrystalIce(std::vector<int>{85, 85, 85}, {"Ice", "Crystal", "Acid"});
+    expect(brushPieceName(acidCrystalIce, {1, 1, 0, 2}) == "Blend-Tri-Crystal-T-Ice-L-Acid" && brushPieceName(acidCrystalIce, {0, 0, 2, 1}) == "Blend-Tri-Ice-T-Crystal-R-Acid"
+        && brushPieceName(acidCrystalIce, {2, 0, 2, 1}) == "Blend-Tri-Acid-L-Ice-T-Crystal" && brushPieceName(acidCrystalIce, {2, 0, 1, 2}).empty(),
+        "Acid, Crystal and Ice three-way pieces, and no piece without a filled side");
+    // More sets without GreenWorld: a pivot land in its place, a second land, and a last.
+    struct TriCase { const char* pivot; int pivotHeight; const char* second; int secondHeight; const char* last; int lastHeight; };
+    for (const TriCase& tri : {TriCase{"Lush", 77, "Ice", 85, "Crystal", 85}, TriCase{"Ice", 85, "Mars", 85, "Crystal", 85}, TriCase{"Ice", 85, "Metal", 85, "Crystal", 85}, TriCase{"Lush", 77, "Desert", 80, "Ice", 85}, TriCase{"Desert", 80, "Mars", 85, "Ice", 85}, TriCase{"Desert", 80, "Metal", 85, "Ice", 85}, TriCase{"Lush", 77, "Ice", 85, "Mars", 85}, TriCase{"Lush", 77, "Ice", 85, "Metal", 85}, TriCase{"Ice", 85, "Mars", 85, "Metal", 85}, TriCase{"Desert", 80, "Mars", 85, "Metal", 85}, TriCase{"Lush", 77, "Desert", 80, "Metal", 85}, TriCase{"Lush", 77, "Desert", 80, "Mars", 85}, TriCase{"Crystal", 85, "Mars", 85, "Metal", 85}, TriCase{"Lush", 77, "Crystal", 85, "Metal", 85}, TriCase{"Lush", 77, "Crystal", 85, "Mars", 85}, TriCase{"Desert", 80, "Crystal", 85, "Metal", 85}, TriCase{"Desert", 80, "Crystal", 85, "Mars", 85}, TriCase{"Lush", 77, "Desert", 80, "Crystal", 85}, TriCase{"Desert", 80, "Crystal", 85, "Acid", 85}, TriCase{"Lush", 77, "Desert", 80, "Acid", 85}, TriCase{"Desert", 80, "Mars", 85, "Acid", 85}, TriCase{"Desert", 80, "Metal", 85, "Acid", 85}, TriCase{"Lush", 77, "Crystal", 85, "Acid", 85}, TriCase{"Crystal", 85, "Mars", 85, "Acid", 85}, TriCase{"Crystal", 85, "Metal", 85, "Acid", 85}, TriCase{"Lush", 77, "Mars", 85, "Acid", 85}, TriCase{"Lush", 77, "Metal", 85, "Acid", 85}, TriCase{"Mars", 85, "Metal", 85, "Acid", 85}, TriCase{"Lush", 77, "Mars", 85, "Metal", 85}}) {
+        std::vector<std::pair<int, std::string>> order = {{tri.pivotHeight, tri.pivot}, {tri.secondHeight, tri.second}, {tri.lastHeight, tri.last}};
+        std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<int> heights;
+        std::vector<std::string> worlds;
+        for (const auto& [height, world] : order) {
+            heights.push_back(height);
+            worlds.push_back(world);
+        }
+        const BrushGraph graph(heights, worlds);
+        const auto levelOf = [&](const std::string& world) {
+            return static_cast<int>(std::find(worlds.begin(), worlds.end(), world) - worlds.begin());
+        };
+        const int pivot = levelOf(tri.pivot);
+        const int second = levelOf(tri.second);
+        const int last = levelOf(tri.last);
+        const std::string pivotName = tri.pivot;
+        const std::string secondName = tri.second;
+        const std::string lastName = tri.last;
+        expect(brushPieceName(graph, {second, second, pivot, last}) == "Blend-Tri-" + secondName + "-T-" + pivotName + "-L-" + lastName
+                && brushPieceName(graph, {pivot, pivot, last, second}) == "Blend-Tri-" + pivotName + "-T-" + secondName + "-R-" + lastName
+                && brushPieceName(graph, {last, pivot, last, second}) == "Blend-Tri-" + lastName + "-L-" + pivotName + "-T-" + secondName
+                && brushPieceName(graph, {last, pivot, second, last}).empty(),
+            secondName + ", " + pivotName + " and " + lastName + " three-way pieces, and no piece without a filled side");
+    }
+    // Acid with Ice and one more land, named the same way with Acid last.
+    struct AcidTriCase { const char* pivot; int pivotHeight; const char* second; int secondHeight; };
+    for (const AcidTriCase& tri : {AcidTriCase{"Ice", 85, "Desert", 80}, AcidTriCase{"Lush", 77, "Ice", 85}, AcidTriCase{"Ice", 85, "Mars", 85}, AcidTriCase{"Ice", 85, "Metal", 85}}) {
+        std::vector<std::pair<int, std::string>> order = {{tri.pivotHeight, tri.pivot}, {tri.secondHeight, tri.second}, {85, "Acid"}};
+        std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<int> heights;
+        std::vector<std::string> worlds;
+        for (const auto& [height, world] : order) {
+            heights.push_back(height);
+            worlds.push_back(world);
+        }
+        const BrushGraph graph(heights, worlds);
+        const auto levelOf = [&](const std::string& world) {
+            return static_cast<int>(std::find(worlds.begin(), worlds.end(), world) - worlds.begin());
+        };
+        const int pivot = levelOf(tri.pivot);
+        const int second = levelOf(tri.second);
+        const int acid = levelOf("Acid");
+        const std::string pivotName = tri.pivot;
+        const std::string secondName = tri.second;
+        expect(brushPieceName(graph, {second, second, pivot, acid}) == "Blend-Tri-" + secondName + "-T-" + pivotName + "-L-Acid"
+                && brushPieceName(graph, {pivot, pivot, acid, second}) == "Blend-Tri-" + pivotName + "-T-" + secondName + "-R-Acid"
+                && brushPieceName(graph, {acid, pivot, acid, second}) == "Blend-Tri-Acid-L-" + pivotName + "-T-" + secondName
+                && brushPieceName(graph, {acid, pivot, second, acid}).empty(),
+            "Acid, " + pivotName + " and " + secondName + " three-way pieces, and no piece without a filled side");
+    }
+    // More sets with Archipelago and no GreenWorld, each with a pivot land in GreenWorld's place.
+    struct PivotTriCase { const char* pivot; int pivotHeight; const char* last; int lastHeight; };
+    for (const PivotTriCase& tri : {PivotTriCase{"Mars", 85, "Metal", 85}, PivotTriCase{"Crystal", 85, "Desert", 80}, PivotTriCase{"Crystal", 85, "Ice", 85}, PivotTriCase{"Lush", 77, "Crystal", 85}, PivotTriCase{"Crystal", 85, "Mars", 85}, PivotTriCase{"Crystal", 85, "Metal", 85}, PivotTriCase{"Desert", 80, "Ice", 85}, PivotTriCase{"Desert", 80, "Mars", 85}, PivotTriCase{"Desert", 80, "Metal", 85}, PivotTriCase{"Crystal", 85, "Acid", 85}, PivotTriCase{"Desert", 80, "Acid", 85}, PivotTriCase{"Ice", 85, "Acid", 85}, PivotTriCase{"Lush", 77, "Acid", 85}, PivotTriCase{"Mars", 85, "Acid", 85}, PivotTriCase{"Metal", 85, "Acid", 85}}) {
+        std::vector<std::pair<int, std::string>> order = {{78, "Archi"}, {tri.pivotHeight, tri.pivot}, {tri.lastHeight, tri.last}};
+        std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<int> heights;
+        std::vector<std::string> worlds;
+        for (const auto& [height, world] : order) {
+            heights.push_back(height);
+            worlds.push_back(world);
+        }
+        const BrushGraph graph(heights, worlds);
+        const auto levelOf = [&](const std::string& world) {
+            return static_cast<int>(std::find(worlds.begin(), worlds.end(), world) - worlds.begin());
+        };
+        const int pivot = levelOf(tri.pivot);
+        const int archi = levelOf("Archi");
+        const int last = levelOf(tri.last);
+        const std::string pivotName = tri.pivot;
+        const std::string lastName = tri.last;
+        expect(brushPieceName(graph, {archi, archi, pivot, last}) == "Blend-Tri-Archi-T-" + pivotName + "-L-" + lastName
+                && brushPieceName(graph, {pivot, pivot, last, archi}) == "Blend-Tri-" + pivotName + "-T-Archi-R-" + lastName
+                && brushPieceName(graph, {last, pivot, last, archi}) == "Blend-Tri-" + lastName + "-L-" + pivotName + "-T-Archi"
+                && brushPieceName(graph, {last, pivot, archi, last}).empty(),
+            "Archipelago, " + pivotName + " and " + lastName + " three-way pieces, and no piece without a filled side");
+    }
 
     // Ice Base-85 and Lava Base-86 meet with the Blend-IceLava pieces, which mark the ice.
     // Ice keeps its own coast and cliffs, and Lava keeps its own shore.
@@ -4817,9 +5807,48 @@ void testSlopes() {
     expect(oneArm.at(2, 1) == "Single-High-TR" && oneArm.at(3, 1) == "Single-High-T", "one arm of a GreenWorld high corner stays a single, got " + oneArm.at(2, 1) + " and " + oneArm.at(3, 1));
 }
 
+// Every colour test that tells two lands of a blend apart must read each land's plain base tiles as
+// that land. One that does not makes the brush misread the blend, and painting beside it breaks it up.
+// The base tiles come from the favorites archive the build folder keeps; without it this is skipped.
+void testBlendColours() {
+    using namespace galaxy;
+    const std::filesystem::path favorites = std::filesystem::path(GALAXY_SOURCE_DIR) / "build" / "GE-Favorites-RandomMapGeneratorTiles.hpi";
+    if (!std::filesystem::exists(favorites)) {
+        std::cout << "skipped blend colour checks: " << favorites.string() << " is missing" << std::endl;
+        return;
+    }
+    const HpiArchive archive = HpiArchive::open(favorites);
+    const auto misreads = [&](const char* base, BlendColourTest isYes, bool want, int& tiles) {
+        const HpiFile* file = archive.find(std::string("sections/BaseTiles/") + base + ".sct");
+        if (file == nullptr) {
+            tiles = -1;
+            return 0;
+        }
+        const SectionStamp stamp = loadSectionStamp(archive.extract(*file));
+        tiles = stamp.tileCount;
+        int wrong = 0;
+        for (int tile = 0; tile < stamp.tileCount; ++tile) {
+            wrong += isYes(stamp.tileImages.data() + static_cast<std::size_t>(tile) * 1024) != want;
+        }
+        return wrong;
+    };
+    for (const BlendColourPair& pair : kBlendColourPairs) {
+        int yesTiles = 0;
+        int noTiles = 0;
+        const int yesWrong = misreads(pair.yesBase, pair.isYes, true, yesTiles);
+        const int noWrong = misreads(pair.noBase, pair.isYes, false, noTiles);
+        expect(yesTiles > 0 && noTiles > 0, std::string(pair.blend) + " blend colour check finds both base sections");
+        expect(yesWrong == 0, std::string(pair.blend) + " blend colour test reads " + std::to_string(yesWrong) + " of "
+            + std::to_string(yesTiles) + " " + pair.yesBase + " tiles as the other land");
+        expect(noWrong == 0, std::string(pair.blend) + " blend colour test reads " + std::to_string(noWrong) + " of "
+            + std::to_string(noTiles) + " " + pair.noBase + " tiles as the other land");
+    }
+}
+
 int main() {
     testBrushStrokeNames();
     testBrushCells();
+    testBlendColours();
     testRivers();
     testRidges();
     testSlopes();

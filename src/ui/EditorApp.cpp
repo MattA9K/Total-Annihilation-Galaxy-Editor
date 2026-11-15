@@ -1,5 +1,6 @@
 #include "ui/EditorApp.hpp"
 
+#include "core/BlendColours.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
@@ -272,7 +273,6 @@ bool isBaseBrushTile(std::string_view world, std::string_view name) {
     return lowerText(world) == "basetiles" && lowerText(name).starts_with("base");
 }
 
-
 // Pieces for one tileset live in a category such as GreenWorld or Lava. River
 // pieces are filed under GreenLand and still belong to the GreenWorld brush.
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
@@ -307,16 +307,6 @@ std::uint64_t hashBrushTile(const std::uint8_t* bytes) {
         hash *= 1099511628211ull;
     }
     return hash;
-}
-
-// Grass in the green-acid blend is much greener than the acid ground.
-bool greenAcidTileIsGrass(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
-    }
-    return score >= 20 * 1024;
 }
 
 // 0 is grass, 1 is lava, and 2 is acid. The three-way tiles share one height
@@ -414,14 +404,977 @@ int crystalArchiTileLand(const std::uint8_t* bytes) {
     return sand >= lava ? 1 : 0;
 }
 
-// Lush ground is green. Archipelago sand in the same blend is pale.
-bool archiLushTileIsLush(const std::uint8_t* bytes) {
-    int score = 0;
+// 0 is GreenWorld grass, 1 is ice, and 2 is Lush grass, for the GreenWorld, Ice and Lush three-way
+// tiles: whichever colour covers most of the tile. GreenWorld grass is yellow-green with red in it and
+// about 40% brown specks, so its count is weighted up; ice is white and blue; Lush is blue-green.
+// 0 is GreenWorld grass, 1 is ice, and 2 is Mars, for the GreenWorld, Ice and Mars three-way tiles.
+// The Archipelago, GreenWorld and Mars tiles use it too, with 1 for the sand, which is about as bright
+// as ice (about 222).
+// The three are the same height, so the tile's average colour decides: ice is far brighter than either
+// ground (about 228 against 75), and Mars has about 50 more red than green where grass has about 38
+// less.
+int triGreenIceMarsTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    int redOverGreen = 0;
     for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        redOverGreen += r - g;
     }
-    return score >= 40 * 1024;
+    if (brightness >= 150L * 100 * 1024) {
+        return 1;
+    }
+    return redOverGreen >= 6 * 1024 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Metal, and 2 is Lush, for the GreenWorld, Metal and Lush three-way tiles:
+// whichever land's typical colour the tile's average is nearest, by red over green and blue over red.
+// Grass is about (-38, -28), Lush (-79, 38), and Metal plating, a warm grey, (8, -11).
+int triGreenMetalLushTileLand(const std::uint8_t* bytes) {
+    long redOverGreen = 0;
+    long blueOverRed = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        redOverGreen += r - g;
+        blueOverRed += b - r;
+    }
+    const double x = redOverGreen / 1024.0;
+    const double y = blueOverRed / 1024.0;
+    const double centres[3][2] = {{-38, -28}, {8, -11}, {-79, 38}};
+    int best = 0;
+    double bestDistance = 1e18;
+    for (int land = 0; land < 3; ++land) {
+        const double dx = x - centres[land][0];
+        const double dy = y - centres[land][1];
+        if (dx * dx + dy * dy < bestDistance) {
+            bestDistance = dx * dx + dy * dy;
+            best = land;
+        }
+    }
+    return best;
+}
+
+// 0 is GreenWorld grass, 1 is Archipelago sand, and 2 is Lush, for the Archipelago, GreenWorld and Lush
+// three-way tiles. Sand is far brighter than either grass (about 222 against 75 and 57); of the two
+// grasses, Lush has about 38 more blue than red and GreenWorld about 28 less. The Desert, GreenWorld and
+// Lush tiles use it with a lower cut for the sand, since Desert sand is about 150 bright.
+int triArchiGreenLushTileLand(const std::uint8_t* bytes, int sandBrightness = 140) {
+    long brightness = 0;
+    int blueOverRed = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        blueOverRed += b - r;
+    }
+    if (brightness >= static_cast<long>(sandBrightness) * 100 * 1024) {
+        return 1;
+    }
+    return blueOverRed >= 5 * 1024 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Crystal, and 2 is Lush, for the Crystal, GreenWorld and Lush three-way
+// tiles: whichever land's typical colour the tile's average is nearest, by red over green and blue over
+// green. Grass is about (-38, -66), Lush (-79, -41), and purple Crystal (21, 40).
+int triGreenCrystalLushTileLand(const std::uint8_t* bytes) {
+    long redOverGreen = 0;
+    long blueOverGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        redOverGreen += r - g;
+        blueOverGreen += b - g;
+    }
+    const double x = redOverGreen / 1024.0;
+    const double y = blueOverGreen / 1024.0;
+    const double centres[3][2] = {{-38, -66}, {21, 40}, {-79, -41}};
+    int best = 0;
+    double bestDistance = 1e18;
+    for (int land = 0; land < 3; ++land) {
+        const double dx = x - centres[land][0];
+        const double dy = y - centres[land][1];
+        if (dx * dx + dy * dy < bestDistance) {
+            bestDistance = dx * dx + dy * dy;
+            best = land;
+        }
+    }
+    return best;
+}
+
+// 0 is GreenWorld grass, 1 is Archipelago sand, and 2 is Desert sand, for the Archipelago, Desert and
+// GreenWorld three-way tiles: whichever land's typical colour the tile's average is nearest, by
+// brightness and red over green. Grass is about (74, -38), Desert (150, 25), and the paler, greyer
+// Archipelago sand (222, 7).
+int triArchiDesertGreenTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    long redOverGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        redOverGreen += r - g;
+    }
+    const double x = brightness / (100.0 * 1024.0);
+    const double y = redOverGreen / 1024.0;
+    const double centres[3][2] = {{74, -38}, {222, 7}, {150, 25}};
+    int best = 0;
+    double bestDistance = 1e18;
+    for (int land = 0; land < 3; ++land) {
+        const double dx = x - centres[land][0];
+        const double dy = y - centres[land][1];
+        if (dx * dx + dy * dy < bestDistance) {
+            bestDistance = dx * dx + dy * dy;
+            best = land;
+        }
+    }
+    return best;
+}
+
+// 0 is GreenWorld grass, 1 is Archipelago sand, and 2 is Acid, for the Acid, Archipelago and GreenWorld
+// three-way tiles. Sand is far brighter than either (about 222 against 75 and 80). Acid ground is olive,
+// with about 5 less red than green, where GreenWorld grass has about 38 less.
+int triAcidArchiGreenTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    int redOverGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        redOverGreen += r - g;
+    }
+    if (brightness >= 150L * 100 * 1024) {
+        return 1;
+    }
+    return redOverGreen >= -24 * 1024 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Archipelago sand, and 2 is Crystal, for the Archipelago, Crystal and
+// GreenWorld three-way tiles. Sand is far brighter than either (about 222 against 75 and 78). Purple
+// Crystal ground has about 40 more blue than green, where GreenWorld grass has about 66 less.
+int triArchiCrystalGreenTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    int blueOverGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        blueOverGreen += b - g;
+    }
+    if (brightness >= 150L * 100 * 1024) {
+        return 1;
+    }
+    return blueOverGreen >= -13 * 1024 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Archipelago sand, and 2 is Metal, for the Archipelago, GreenWorld and
+// Metal three-way tiles. Sand is far brighter than either (about 222; Metal tiles reach about 104).
+// Metal plating is a warm grey, with 2 to 25 more red than green, where GreenWorld grass has about 38
+// less.
+int triArchiGreenMetalTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    int redOverGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        redOverGreen += r - g;
+    }
+    if (brightness >= 150L * 100 * 1024) {
+        return 1;
+    }
+    return redOverGreen >= -18 * 1024 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Archipelago sand, and 2 is ice, for the Archipelago, GreenWorld and Ice
+// three-way tiles. Sand and ice are both far brighter than grass (about 222 and 228 against 75), and
+// blue tells them apart: ice has about 37 more blue than red, and sand about 30 less.
+int triArchiGreenIceTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    int blueOverRed = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        brightness += 30 * r + 59 * g + 11 * b;
+        blueOverRed += b - r;
+    }
+    if (brightness < 150L * 100 * 1024) {
+        return 0;
+    }
+    return blueOverRed >= 4 * 1024 ? 2 : 1;
+}
+
+// 0 is GreenWorld grass, 1 is Mars, and 2 is Metal, for the GreenWorld, Mars and Metal three-way tiles.
+// The three are the same height and differ in red over green: Mars about 50, Metal plating 2 to 25,
+// and GreenWorld grass about -38. The cuts match marsMetalColourIsMars and the grass reading beside Metal.
+int triGreenMarsMetalTileLand(const std::uint8_t* bytes) {
+    const int red = redOverGreen(bytes);
+    if (red >= 36) {
+        return 1;
+    }
+    return red >= -18 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is ice, and 2 is Metal, for the GreenWorld, Ice and Metal three-way tiles.
+// Ice is far brighter than either ground (about 228; Metal tiles reach about 104). Metal plating is a
+// warm grey with 2 to 25 more red than green, where GreenWorld grass has about 38 less.
+int triGreenIceMetalTileLand(const std::uint8_t* bytes) {
+    long brightness = 0;
+    for (int i = 0; i < 1024; ++i) {
+        brightness += 30 * kTaPalette[bytes[i]][0] + 59 * kTaPalette[bytes[i]][1] + 11 * kTaPalette[bytes[i]][2];
+    }
+    if (brightness >= 150L * 100 * 1024) {
+        return 1;
+    }
+    return redOverGreen(bytes) >= -18 ? 2 : 0;
+}
+
+// A tile's average brightness and colour differences, for telling lands apart by colour.
+struct TileColourMeans {
+    double brightness = 0;
+    double redOverGreen = 0;
+    double blueOverGreen = 0;
+    double blueOverRed = 0;
+};
+
+TileColourMeans tileColourMeans(const std::uint8_t* bytes) {
+    TileColourMeans means;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        means.brightness += (30 * r + 59 * g + 11 * b) / 100.0;
+        means.redOverGreen += r - g;
+        means.blueOverGreen += b - g;
+        means.blueOverRed += b - r;
+    }
+    means.brightness /= 1024;
+    means.redOverGreen /= 1024;
+    means.blueOverGreen /= 1024;
+    means.blueOverRed /= 1024;
+    return means;
+}
+
+// Which of three lands' typical colours (x, y) is nearest.
+int nearestLand(double x, double y, const double (&centres)[3][2]) {
+    int best = 0;
+    double bestDistance = 1e18;
+    for (int land = 0; land < 3; ++land) {
+        const double dx = x - centres[land][0];
+        const double dy = y - centres[land][1];
+        if (dx * dx + dy * dy < bestDistance) {
+            bestDistance = dx * dx + dy * dy;
+            best = land;
+        }
+    }
+    return best;
+}
+
+// 0 is GreenWorld grass, 1 is Desert sand, and 2 is ice. Ice is the brightest (about 228) and the only
+// one with more blue than red; Desert sand is about 150 bright and grass about 75.
+int triDesertGreenIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150 && means.blueOverRed >= 0) {
+        return 2;
+    }
+    return means.brightness >= 110 ? 1 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Desert sand, and 2 is Mars. Desert sand is about 150 bright, against
+// about 75 for both grounds; Mars has about 50 more red than green, and grass about 38 less.
+int triDesertGreenMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 110) {
+        return 1;
+    }
+    return means.redOverGreen >= 6 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Desert sand, and 2 is Metal. Desert sand is at least 146 bright, and
+// Metal plating at most about 104; Metal has 2 to 25 more red than green, and grass about 38 less.
+int triDesertGreenMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 125) {
+        return 1;
+    }
+    return means.redOverGreen >= -18 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is ice, and 2 is Crystal. Ice is far brighter than either ground (about
+// 228); purple Crystal has about 40 more blue than green, where grass has about 66 less.
+int triCrystalGreenIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.blueOverGreen >= -13 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Mars, and 2 is Crystal: the nearest typical colour by red over green and
+// blue over green. Grass is about (-38, -66), Mars (50, -15), and Crystal (21, 40).
+int triCrystalGreenMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{-38, -66}, {50, -15}, {21, 40}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is GreenWorld grass, 1 is Metal, and 2 is Crystal: the nearest typical colour by red over green and
+// blue over green. Grass is about (-38, -66), Metal plating (8, -4), and Crystal (21, 40).
+int triCrystalGreenMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{-38, -66}, {8, -4}, {21, 40}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is GreenWorld grass, 1 is Desert sand, and 2 is Crystal. Desert sand is about 150 bright, against
+// at most about 86 for either ground; Crystal has about 40 more blue than green, and grass about 66 less.
+int triCrystalDesertGreenTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 115) {
+        return 1;
+    }
+    return means.blueOverGreen >= -13 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Acid, and 2 is Lush: the nearest typical colour by red over green and blue
+// over red. Grass is about (-38, -28), olive Acid (-3, -18), and blue-green Lush (-79, 38).
+int triAcidGreenLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{-38, -28}, {-3, -18}, {-79, 38}};
+    return nearestLand(means.redOverGreen, means.blueOverRed, centres);
+}
+
+// 0 is GreenWorld grass, 1 is ice, and 2 is Acid. Ice is far brighter than either ground (about 228
+// against 75 and at most about 94); olive Acid has about 5 less red than green, and grass about 38 less.
+int triAcidGreenIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= -24 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Mars, and 2 is Acid. The three are the same height and differ in red over
+// green: Mars about 50, olive Acid about -5, and grass about -38. The Mars cut matches acidMarsColourIsMars.
+int triAcidGreenMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.redOverGreen >= 24) {
+        return 1;
+    }
+    return means.redOverGreen >= -24 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Metal, and 2 is Acid, all the same height. Twice the green over red plus
+// the green over blue, the score acidMetalTileIsAcid uses, puts the three far apart: grass tiles score
+// 140 to 146, olive Acid 18 to 38, and warm-grey Metal plating 4 or less.
+int triAcidGreenMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    const double score = -2 * means.redOverGreen - means.blueOverGreen;
+    if (score >= 90) {
+        return 0;
+    }
+    return score >= 11 ? 2 : 1;
+}
+
+// 0 is GreenWorld grass, 1 is Crystal, and 2 is Acid, all the same height. Blue over green puts them in
+// order: purple Crystal has at least 35 more blue than green, olive Acid 9 to 30 less, and grass about
+// 66 less.
+int triAcidCrystalGreenTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.blueOverGreen >= 13) {
+        return 1;
+    }
+    return means.blueOverGreen >= -48 ? 2 : 0;
+}
+
+// 0 is GreenWorld grass, 1 is Desert sand, and 2 is Acid. Desert sand is at least 146 bright, against at
+// most about 94 for Acid and 75 for grass; olive Acid has about 5 less red than green, and grass about
+// 38 less.
+int triAcidDesertGreenTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 120) {
+        return 1;
+    }
+    return means.redOverGreen >= -24 ? 2 : 0;
+}
+
+// 0 is Lush, 1 is Archipelago sand, and 2 is Desert sand, for the Archipelago, Desert and Lush three-way
+// tiles: the nearest typical colour by brightness and red over green. Lush is about (57, -79), the pale,
+// greyer Archipelago sand (222, 7), and Desert sand (150, 25).
+int triArchiDesertLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{57, -79}, {222, 7}, {150, 25}};
+    return nearestLand(means.brightness, means.redOverGreen, centres);
+}
+
+// 0 is Lush, 1 is Archipelago sand, and 2 is ice. Lush is dark (about 57 bright) and both others far
+// brighter (about 222 and 228); blue tells them apart: ice has about 37 more blue than red, and sand
+// about 30 less.
+int triArchiIceLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness < 140) {
+        return 0;
+    }
+    return means.blueOverRed >= 4 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is Archipelago sand, and 2 is Mars. Sand is far brighter than either (about 222 against
+// 57 and 75); Mars has about 50 more red than green, and blue-green Lush about 79 less.
+int triArchiLushMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 140) {
+        return 1;
+    }
+    return means.redOverGreen >= -15 ? 2 : 0;
+}
+
+// 0 is Lush, 1 is Archipelago sand, and 2 is Metal. Sand is far brighter than either (about 222; Metal
+// tiles reach about 104); warm-grey Metal has 2 to 25 more red than green, and blue-green Lush about 79
+// less.
+int triArchiLushMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= -38 ? 2 : 0;
+}
+
+// 0 is ice, 1 is Archipelago sand, and 2 is Metal. Metal plating is dark (at most about 104 bright) and
+// both others far brighter (about 228 and 222); blue tells those apart: ice has about 37 more blue than
+// red, and sand about 30 less.
+int triArchiIceMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness < 150) {
+        return 2;
+    }
+    return means.blueOverRed >= 4 ? 0 : 1;
+}
+
+// 0 is Mars, 1 is Archipelago sand, and 2 is Metal. Sand is far brighter than either (about 222; Metal tiles
+// reach about 104); Mars has at least 47 more red than green and Metal plating at most 25.
+int triArchiMarsMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= 36 ? 0 : 2;
+}
+
+// 0 is Crystal, 1 is Archipelago sand, and 2 is Desert sand, by brightness alone: Archipelago sand is at
+// least 221 bright, Desert sand 146 to 153, and Crystal ground at most about 86.
+int triArchiCrystalDesertTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 186) {
+        return 1;
+    }
+    return means.brightness >= 116 ? 2 : 0;
+}
+
+// 0 is Crystal, 1 is Archipelago sand, and 2 is ice. Crystal is dark (at most about 86 bright) and the
+// others far brighter; ice has about 37 more blue than red, and sand about 30 less.
+int triArchiCrystalIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness < 150) {
+        return 0;
+    }
+    return means.blueOverRed >= 4 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is Archipelago sand, and 2 is Crystal. Sand is far brighter than either; purple Crystal
+// has about 40 more blue than green, and blue-green Lush about 41 less.
+int triArchiCrystalLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.blueOverGreen >= 0 ? 2 : 0;
+}
+
+// 0 is Crystal, 1 is Archipelago sand, and 2 is Mars. Sand is far brighter than either; purple Crystal
+// has about 40 more blue than green, and Mars about 15 less.
+int triArchiCrystalMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.blueOverGreen >= 12 ? 0 : 2;
+}
+
+// 0 is Crystal, 1 is Archipelago sand, and 2 is Metal. Sand is far brighter than either; purple Crystal
+// has at least 35 more blue than green, and Metal plating at most about 2.
+int triArchiCrystalMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.blueOverGreen >= 18 ? 0 : 2;
+}
+
+// 0 is Desert sand, 1 is Archipelago sand, and 2 is ice. Desert sand is at most about 153 bright and the
+// others at least 221; ice has about 37 more blue than red, and Archipelago sand about 30 less.
+int triArchiDesertIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness < 186) {
+        return 0;
+    }
+    return means.blueOverRed >= 4 ? 2 : 1;
+}
+
+// 0 is Desert sand, 1 is Archipelago sand, and 2 is Mars, by brightness alone: Archipelago sand is at
+// least 221 bright, Desert sand 146 to 153, and Mars ground at most about 77.
+int triArchiDesertMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 186) {
+        return 1;
+    }
+    return means.brightness >= 112 ? 0 : 2;
+}
+
+// 0 is Desert sand, 1 is Archipelago sand, and 2 is Metal, by brightness alone: Archipelago sand is at
+// least 221 bright, Desert sand 146 to 153, and Metal plating at most about 104.
+int triArchiDesertMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 186) {
+        return 1;
+    }
+    return means.brightness >= 125 ? 0 : 2;
+}
+
+// 0 is Desert sand, 1 is Crystal, and 2 is ice, by brightness alone: ice is at least 227 bright, Desert
+// sand 146 to 153, and Crystal ground at most about 86.
+int triCrystalDesertIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 190) {
+        return 2;
+    }
+    return means.brightness >= 116 ? 0 : 1;
+}
+
+// 0 is Crystal, 1 is Archipelago sand, and 2 is Acid. Sand is far brighter than either; purple Crystal has
+// at least 35 more blue than green, and olive Acid 9 to 30 less.
+int triAcidArchiCrystalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.blueOverGreen >= 13 ? 0 : 2;
+}
+
+// 0 is Desert sand, 1 is Archipelago sand, and 2 is Acid, by brightness alone: Archipelago sand is at
+// least 221 bright, Desert sand 146 to 153, and Acid ground at most about 94.
+int triAcidArchiDesertTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 186) {
+        return 1;
+    }
+    return means.brightness >= 120 ? 0 : 2;
+}
+
+// 0 is ice, 1 is Archipelago sand, and 2 is Acid. Acid is dark (at most about 94 bright) and the others
+// far brighter; ice has about 37 more blue than red, and sand about 30 less.
+int triAcidArchiIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness < 150) {
+        return 2;
+    }
+    return means.blueOverRed >= 4 ? 0 : 1;
+}
+
+// 0 is Lush, 1 is Archipelago sand, and 2 is Acid. Sand is far brighter than either; olive Acid has about
+// 5 less red than green, and blue-green Lush about 79 less.
+int triAcidArchiLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= -40 ? 2 : 0;
+}
+
+// 0 is Mars, 1 is Archipelago sand, and 2 is Acid. Sand is far brighter than either; Mars has at least
+// 47 more red than green, and olive Acid at most about 1.
+int triAcidArchiMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= 24 ? 0 : 2;
+}
+
+// 0 is Metal, 1 is Archipelago sand, and 2 is Acid. Sand is far brighter than either; twice the green
+// over red plus the green over blue, as acidMetalTileIsAcid uses, is at least 18 for Acid and at most 4
+// for Metal plating.
+int triAcidArchiMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return -2 * means.redOverGreen - means.blueOverGreen >= 11 ? 2 : 0;
+}
+
+// 0 is ice, 1 is Crystal, and 2 is Acid. Ice is far brighter than either ground (about 228 against at
+// most 86 and 94); purple Crystal has at least 35 more blue than green, and olive Acid 9 to 30 less.
+int triAcidCrystalIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 0;
+    }
+    return means.blueOverGreen >= 13 ? 1 : 2;
+}
+
+// 0 is ice, 1 is Desert sand, and 2 is Acid, by brightness alone: ice is at least 227 bright, Desert sand
+// 146 to 153, and Acid ground at most about 94.
+int triAcidDesertIceTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 190) {
+        return 0;
+    }
+    return means.brightness >= 120 ? 1 : 2;
+}
+
+// 0 is Lush, 1 is ice, and 2 is Acid. Ice is far brighter than either ground; olive Acid has about 5 less
+// red than green, and blue-green Lush about 79 less.
+int triAcidIceLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= -40 ? 2 : 0;
+}
+
+// 0 is ice, 1 is Mars, and 2 is Acid. Ice is far brighter than either ground; Mars has at least 47 more
+// red than green, and olive Acid at most about 1.
+int triAcidIceMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 0;
+    }
+    return means.redOverGreen >= 24 ? 1 : 2;
+}
+
+// 0 is ice, 1 is Metal, and 2 is Acid. Ice is far brighter than either ground; twice the green over red
+// plus the green over blue, as acidMetalTileIsAcid uses, is at least 18 for Acid and at most 4 for Metal.
+int triAcidIceMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 0;
+    }
+    return -2 * means.redOverGreen - means.blueOverGreen >= 11 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is ice, and 2 is Crystal. Ice is far brighter than either ground; purple Crystal has about
+// 40 more blue than green, and blue-green Lush about 41 less.
+int triCrystalIceLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.blueOverGreen >= 0 ? 2 : 0;
+}
+
+// 0 is ice, 1 is Mars, and 2 is Crystal. Ice is far brighter than either ground; purple Crystal has about
+// 40 more blue than green, and Mars about 15 less.
+int triCrystalIceMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 0;
+    }
+    return means.blueOverGreen >= 12 ? 2 : 1;
+}
+
+// 0 is ice, 1 is Metal, and 2 is Crystal. Ice is far brighter than either ground; purple Crystal has at
+// least 35 more blue than green, and Metal plating at most about 2.
+int triCrystalIceMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 0;
+    }
+    return means.blueOverGreen >= 18 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is Desert sand, and 2 is ice, by brightness alone: ice is at least 227 bright, Desert sand
+// 146 to 153, and Lush ground at most about 58.
+int triDesertIceLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 190) {
+        return 2;
+    }
+    return means.brightness >= 103 ? 1 : 0;
+}
+
+// 0 is Desert sand, 1 is Mars, and 2 is ice, by brightness alone: ice is at least 227 bright, Desert sand
+// 146 to 153, and Mars ground at most about 77.
+int triDesertIceMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 190) {
+        return 2;
+    }
+    return means.brightness >= 112 ? 0 : 1;
+}
+
+// 0 is Desert sand, 1 is Metal, and 2 is ice, by brightness alone: ice is at least 227 bright, Desert sand
+// 146 to 153, and Metal plating at most about 104.
+int triDesertIceMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 190) {
+        return 2;
+    }
+    return means.brightness >= 125 ? 0 : 1;
+}
+
+// 0 is Lush, 1 is ice, and 2 is Mars. Ice is far brighter than either ground; Mars has about 50 more red
+// than green, and blue-green Lush about 79 less.
+int triIceLushMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= -15 ? 2 : 0;
+}
+
+// 0 is Lush, 1 is ice, and 2 is Metal. Ice is far brighter than either ground; Metal plating has 2 to 25
+// more red than green, and blue-green Lush about 79 less.
+int triIceLushMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 1;
+    }
+    return means.redOverGreen >= -38 ? 2 : 0;
+}
+
+// 0 is ice, 1 is Mars, and 2 is Metal. Ice is far brighter than either ground; Mars has at least 47 more
+// red than green, and Metal plating at most 25.
+int triIceMarsMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 150) {
+        return 0;
+    }
+    return means.redOverGreen >= 36 ? 1 : 2;
+}
+
+// 0 is Desert sand, 1 is Mars, and 2 is Metal. Desert sand is at least 146 bright, against at most about
+// 77 for Mars and 104 for Metal; Mars has at least 47 more red than green, and Metal plating at most 25.
+int triDesertMarsMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 125) {
+        return 0;
+    }
+    return means.redOverGreen >= 36 ? 1 : 2;
+}
+
+// 0 is Lush, 1 is Desert sand, and 2 is Metal. Desert sand is at least 146 bright, against at most about
+// 58 for Lush and 104 for Metal; Metal plating has 2 to 25 more red than green, and blue-green Lush about
+// 79 less.
+int triDesertLushMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 125) {
+        return 1;
+    }
+    return means.redOverGreen >= -38 ? 2 : 0;
+}
+
+// 0 is Lush, 1 is Desert sand, and 2 is Mars. Desert sand is at least 146 bright, against at most about 58
+// for Lush and 77 for Mars; Mars has about 50 more red than green, and blue-green Lush about 79 less.
+int triDesertLushMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 112) {
+        return 1;
+    }
+    return means.redOverGreen >= -15 ? 2 : 0;
+}
+
+// 0 is Crystal, 1 is Mars, and 2 is Metal: the nearest typical colour by red over green and blue over
+// green. Crystal is about (21, 40), Mars (50, -15), and Metal plating (8, -4).
+int triCrystalMarsMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{21, 40}, {50, -15}, {8, -4}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is Lush, 1 is Crystal, and 2 is Metal: the nearest typical colour by red over green and blue over
+// green. Lush is about (-79, -41), Crystal (21, 40), and Metal plating (8, -4).
+int triCrystalLushMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{-79, -41}, {21, 40}, {8, -4}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is Lush, 1 is Crystal, and 2 is Mars: the nearest typical colour by red over green and blue over
+// green. Lush is about (-79, -41), Crystal (21, 40), and Mars (50, -15).
+int triCrystalLushMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{-79, -41}, {21, 40}, {50, -15}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is Desert sand, 1 is Crystal, and 2 is Metal. Desert sand is at least 146 bright, against at most
+// about 86 and 104; purple Crystal has at least 35 more blue than green, and Metal plating at most 2.
+int triCrystalDesertMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 125) {
+        return 0;
+    }
+    return means.blueOverGreen >= 18 ? 1 : 2;
+}
+
+// 0 is Desert sand, 1 is Crystal, and 2 is Mars. Desert sand is at least 146 bright, against at most
+// about 86 and 77; purple Crystal has about 40 more blue than green, and Mars about 15 less.
+int triCrystalDesertMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 116) {
+        return 0;
+    }
+    return means.blueOverGreen >= 12 ? 1 : 2;
+}
+
+// 0 is Lush, 1 is Desert sand, and 2 is Crystal. Desert sand is at least 146 bright, against at most about
+// 58 and 86; purple Crystal has about 40 more blue than green, and blue-green Lush about 41 less.
+int triCrystalDesertLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 116) {
+        return 1;
+    }
+    return means.blueOverGreen >= 0 ? 2 : 0;
+}
+
+// 0 is Desert sand, 1 is Crystal, and 2 is Acid. Desert sand is at least 146 bright, against at most about
+// 86 and 94; purple Crystal has at least 35 more blue than green, and olive Acid 9 to 30 less.
+int triAcidCrystalDesertTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 120) {
+        return 0;
+    }
+    return means.blueOverGreen >= 13 ? 1 : 2;
+}
+
+// 0 is Lush, 1 is Desert sand, and 2 is Acid. Desert sand is at least 146 bright, against at most about 58
+// and 94; olive Acid has about 5 less red than green, and blue-green Lush about 79 less.
+int triAcidDesertLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 120) {
+        return 1;
+    }
+    return means.redOverGreen >= -40 ? 2 : 0;
+}
+
+// 0 is Desert sand, 1 is Mars, and 2 is Acid. Desert sand is at least 146 bright, against at most about 77
+// and 94; Mars has at least 47 more red than green, and olive Acid at most about 1.
+int triAcidDesertMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 120) {
+        return 0;
+    }
+    return means.redOverGreen >= 24 ? 1 : 2;
+}
+
+// 0 is Desert sand, 1 is Metal, and 2 is Acid. Desert sand is at least 146 bright, against at most about
+// 104 and 94; twice the green over red plus the green over blue is at least 18 for Acid and at most 4 for
+// Metal plating, as acidMetalTileIsAcid uses.
+int triAcidDesertMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.brightness >= 125) {
+        return 0;
+    }
+    return -2 * means.redOverGreen - means.blueOverGreen >= 11 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is Crystal, and 2 is Acid: the nearest typical colour by red over green and blue over
+// green. Lush is about (-79, -41), Crystal (21, 40), and olive Acid (-5, -20).
+int triAcidCrystalLushTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{-79, -41}, {21, 40}, {-5, -20}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is Crystal, 1 is Mars, and 2 is Acid: the nearest typical colour by red over green and blue over
+// green. Crystal is about (21, 40), Mars (50, -15), and olive Acid (-5, -20).
+int triAcidCrystalMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    static constexpr double centres[3][2] = {{21, 40}, {50, -15}, {-5, -20}};
+    return nearestLand(means.redOverGreen, means.blueOverGreen, centres);
+}
+
+// 0 is Crystal, 1 is Metal, and 2 is Acid. Purple Crystal has at least 35 more blue than green, and the
+// others at most about 2; twice the green over red plus the green over blue is at least 18 for Acid and
+// at most 4 for Metal plating, as acidMetalTileIsAcid uses.
+int triAcidCrystalMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.blueOverGreen >= 18) {
+        return 0;
+    }
+    return -2 * means.redOverGreen - means.blueOverGreen >= 11 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is Mars, and 2 is Acid, by red over green: Mars at least 47, olive Acid about -11 to 1, and
+// blue-green Lush about -79.
+int triAcidLushMarsTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.redOverGreen >= 24) {
+        return 1;
+    }
+    return means.redOverGreen >= -40 ? 2 : 0;
+}
+
+// 0 is Lush, 1 is Metal, and 2 is Acid. Blue-green Lush has about 79 less red than green, the others at
+// most about 11 less; twice the green over red plus the green over blue is at least 18 for Acid and at
+// most 4 for Metal plating, as acidMetalTileIsAcid uses.
+int triAcidLushMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.redOverGreen < -40) {
+        return 0;
+    }
+    return -2 * means.redOverGreen - means.blueOverGreen >= 11 ? 2 : 1;
+}
+
+// 0 is Mars, 1 is Metal, and 2 is Acid. Mars has at least 47 more red than green, and the others at most
+// 25; twice the green over red plus the green over blue is at least 18 for Acid and at most 4 for Metal
+// plating, as acidMetalTileIsAcid uses.
+int triAcidMarsMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.redOverGreen >= 36) {
+        return 0;
+    }
+    return -2 * means.redOverGreen - means.blueOverGreen >= 11 ? 2 : 1;
+}
+
+// 0 is Lush, 1 is Mars, and 2 is Metal, by red over green: Mars at least 47, Metal plating 2 to 25, and
+// blue-green Lush about -79.
+int triLushMarsMetalTileLand(const std::uint8_t* bytes) {
+    const TileColourMeans means = tileColourMeans(bytes);
+    if (means.redOverGreen >= 36) {
+        return 1;
+    }
+    return means.redOverGreen >= -38 ? 2 : 0;
+}
+
+// With mars set, the second land is Mars instead: red-brown ground with more red than green.
+int triGreenIceLushTileLand(const std::uint8_t* bytes, bool mars = false) {
+    int grass = 0;
+    int ice = 0;
+    int lush = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const bool greenish = g > r + 10;
+        grass += greenish && r > b + 5;
+        lush += g > r + 25 && b + 5 >= r;
+        ice += mars ? !greenish && r > b + 5 : !greenish && b + 3 >= r;
+    }
+    const double weightedGrass = grass * 1.7;
+    if (ice >= weightedGrass && ice >= lush) {
+        return 1;
+    }
+    return weightedGrass >= lush ? 0 : 2;
 }
 
 std::string_view blendShapeName(std::string_view loweredName, std::string_view prefix) {
@@ -512,11 +1465,6 @@ int blendForceUnmarked(std::string_view shape, int tx, int ty, int tileWidth, in
     return -1;
 }
 
-bool lushMarsTileIsMars(const std::uint8_t* bytes);
-bool desertLavaTileIsDesert(const std::uint8_t* bytes);
-bool crystalLavaTileIsCrystal(const std::uint8_t* bytes);
-bool acidMetalTileIsAcid(const std::uint8_t* bytes);
-
 // Lush grass is green; Acid ground is olive. The named Acid side of a
 // Blend-LushAcid piece must stay Acid at the rim.
 bool lushAcidTileIsLush(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
@@ -564,7 +1512,7 @@ bool marsMetalTileIsMars(const std::uint8_t* bytes, std::string_view loweredName
     if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
         return forced == 1;
     }
-    return lushMarsTileIsMars(bytes);
+    return marsMetalColourIsMars(bytes);
 }
 
 // Mars ground is red; Acid ground is olive. The named Acid side of a
@@ -574,7 +1522,7 @@ bool acidMarsTileIsMars(const std::uint8_t* bytes, std::string_view loweredName,
     if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
         return forced == 1;
     }
-    return lushMarsTileIsMars(bytes);
+    return acidMarsColourIsMars(bytes);
 }
 
 // Metal plating is grey; Acid ground is olive. The named Acid side of a
@@ -605,122 +1553,6 @@ bool greenCrystalTileIsGreen(const std::uint8_t* bytes, std::string_view lowered
         return forced == 1;
     }
     return greenAcidTileIsGrass(bytes);
-}
-
-// Lush grass in the lava blend is green. Lava ground is brown.
-bool lushLavaTileIsLush(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
-    }
-    return score >= 40 * 1024;
-}
-
-// Lush grass is green. Ice in the same blend is pale, and both sides are blue
-// enough that green-minus-red is what separates them.
-bool lushIceTileIsLush(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
-    }
-    return score >= 40 * 1024;
-}
-
-// Ice in the green blend is pale blue. Grass is green.
-bool iceGreenTileIsIce(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[2]) - static_cast<int>(color[0]);
-    }
-    return score >= 12 * 1024;
-}
-
-// Ice in the mars blend is pale blue. Mars ground is red.
-// GreenWorld grass is yellow-green with some red; Lush grass is blue-green with almost none.
-bool greenLushTileIsGreen(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[0]) - static_cast<int>(color[2]);
-    }
-    return score >= 0;
-}
-
-// Mars ground is red; Lush grass is green.
-bool lushMarsTileIsMars(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[0]) - static_cast<int>(color[1]);
-    }
-    return score >= 0;
-}
-
-// Desert sand is pale; Lava dirt is dark. Desert Base-80 tiles average about 150 bright and
-// Lava Base-86 tiles about 66.
-bool desertLavaTileIsDesert(const std::uint8_t* bytes) {
-    long brightness = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        brightness += 30 * color[0] + 59 * color[1] + 11 * color[2];
-    }
-    return brightness >= 105L * 100 * 1024;
-}
-
-// GreenWorld grass is green; Metal plating is grey.
-bool greenMetalTileIsGrass(const std::uint8_t* bytes) {
-    int grass = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        grass += color[1] > color[0] + 15 && color[1] > color[2] + 10;
-    }
-    return grass * 5 >= 1024;
-}
-
-// Metal plating is grey; Lava dirt is dark brown.
-bool metalLavaTileIsMetal(const std::uint8_t* bytes) {
-    int lava = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const int r = kTaPalette[bytes[i]][0];
-        const int g = kTaPalette[bytes[i]][1];
-        const int b = kTaPalette[bytes[i]][2];
-        const int lum = (30 * r + 59 * g + 11 * b) / 100;
-        lava += r > g + 2 && r > b + 8 && lum <= 145;
-    }
-    return lava * 5 < 1024;
-}
-
-// Acid ground is olive; Metal plating is grey.
-bool acidMetalTileIsAcid(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[1]) - static_cast<int>(color[2]);
-    }
-    return score >= 10 * 1024;
-}
-
-// Crystal ground is purple; Lava dirt is brown.
-bool crystalLavaTileIsCrystal(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[2]) - static_cast<int>(color[1]);
-    }
-    return score >= 0;
-}
-
-// Crystal ground is purple; Acid ground is olive.
-bool acidCrystalTileIsCrystal(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[2]) - static_cast<int>(color[1]);
-    }
-    return score >= 0;
 }
 
 // 0 is Lava, 1 is Acid, and 2 is Crystal, for the Acid, Crystal and Lava three-way tiles.
@@ -819,6 +1651,601 @@ int triGreenDesertTileLand(const std::uint8_t* bytes) {
     return 0;
 }
 
+// 0 is Lava, 1 is Grass, and 2 is Mars, for the Lava, GreenWorld and Mars three-way tiles.
+// Mars is redder than lava dirt and is weighted up for its brown specks.
+int triGreenMarsTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int grass = 0;
+    int mars = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool green = g > r + 4 && g > b;
+        grass += green;
+        mars += !green && r > g + 25 && lum <= 140;
+        lava += !green && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedMars = mars * 1.4;
+    if (grass >= weightedMars && grass >= lava) {
+        return 1;
+    }
+    if (weightedMars >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Ice, and 2 is Lush, for the Lava, Ice and Lush three-way tiles.
+// Lush is blue-green; ice is pale; lava dirt is brown. Ice is weighted up for snow specks.
+int triIceLushTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int ice = 0;
+    int lush = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool lushGreen = g > r + 25 && b + 5 >= r;
+        lush += lushGreen;
+        ice += !lushGreen && b + 3 >= r;
+        lava += !lushGreen && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedIce = ice * 1.2;
+    if (lush >= weightedIce && lush >= lava) {
+        return 2;
+    }
+    if (weightedIce >= lava) {
+        return 1;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Ice, and 2 is Crystal, for the Lava, Ice and Crystal three-way tiles.
+// Ice is pale blue; Crystal is purple and is weighted up for its specks; lava dirt is brown.
+int triIceCrystalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int ice = 0;
+    int crystal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool purple = b > g + 5 && lum <= 150;
+        crystal += purple;
+        ice += !purple && b + 3 >= r;
+        lava += !purple && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    const double weightedIce = ice * 1.2;
+    if (weightedIce >= weightedCrystal && weightedIce >= lava) {
+        return 1;
+    }
+    if (weightedCrystal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Ice, and 2 is Acid, for the Lava, Ice and Acid three-way tiles.
+// Ice is pale blue; Acid is olive; lava dirt is brown.
+int triIceAcidTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int ice = 0;
+    int acid = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool pale = b + 3 >= r;
+        const bool olive = !pale && g + 2 >= r && g > b + 2;
+        ice += pale;
+        acid += olive;
+        lava += !pale && !olive && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedIce = ice * 1.2;
+    if (weightedIce >= acid && weightedIce >= lava) {
+        return 1;
+    }
+    if (acid >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Lush, and 2 is Desert, for the Lava, Desert and Lush three-way tiles.
+// Lush is blue-green; Desert sand is pale orange; lava dirt is brown.
+int triDesertLushTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int lush = 0;
+    int desert = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool lushGreen = g > r + 20;
+        lush += lushGreen;
+        desert += !lushGreen && lum >= 130 && r > b;
+        lava += !lushGreen && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedDesert = desert * 1.3;
+    if (lush >= weightedDesert && lush >= lava) {
+        return 1;
+    }
+    if (weightedDesert >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Grass, and 2 is Crystal, for the Lava, GreenWorld and Crystal three-way tiles.
+// Grass is green; Crystal is purple and is weighted up for its specks; lava dirt is brown.
+int triGreenCrystalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int grass = 0;
+    int crystal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool green = g > r + 4 && g > b;
+        const bool purple = !green && b > g + 5 && lum <= 150;
+        grass += green;
+        crystal += purple;
+        lava += !green && !purple && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    if (grass >= weightedCrystal && grass >= lava) {
+        return 1;
+    }
+    if (weightedCrystal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Grass, and 2 is Archipelago, for the Lava, Archipelago and GreenWorld three-way tiles.
+// Grass is green; Archipelago sand is pale; lava dirt is brown.
+int triArchiGreenTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int grass = 0;
+    int archi = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool green = g > r + 4 && g > b;
+        grass += green;
+        archi += !green && lum >= 160 && r > b;
+        lava += !green && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedArchi = archi * 1.2;
+    if (grass >= weightedArchi && grass >= lava) {
+        return 1;
+    }
+    if (weightedArchi >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Lush, and 2 is Archipelago, for the Lava, Archipelago and Lush three-way tiles.
+// Lush is blue-green; Archipelago sand is pale; lava dirt is brown.
+int triArchiLushTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int lush = 0;
+    int archi = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool lushGreen = g > r + 25 && b + 5 >= r;
+        const bool sand = !lushGreen && lum >= 160 && r > b;
+        lush += lushGreen;
+        archi += sand;
+        lava += !lushGreen && !sand && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedArchi = archi * 1.2;
+    if (lush >= weightedArchi && lush >= lava) {
+        return 1;
+    }
+    if (weightedArchi >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Lush, and 2 is Crystal, for the Lava, Crystal and Lush three-way tiles.
+// Lush is blue-green; Crystal is purple and is weighted up for its specks; lava dirt is brown.
+int triLushCrystalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int lush = 0;
+    int crystal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool lushGreen = g > r + 25 && b + 5 >= r;
+        const bool purple = !lushGreen && b > g + 5 && lum <= 150;
+        lush += lushGreen;
+        crystal += purple;
+        lava += !lushGreen && !purple && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    if (lush >= weightedCrystal && lush >= lava) {
+        return 1;
+    }
+    if (weightedCrystal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Desert, and 2 is Mars, for the Lava, Desert and Mars three-way tiles.
+// Desert sand is pale orange; Mars is redder and is weighted up for its specks; lava dirt is brown.
+int triDesertMarsTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int desert = 0;
+    int mars = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool red = r > g + 25 && lum <= 140;
+        mars += red;
+        desert += !red && lum >= 130 && r > b;
+        lava += !red && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedMars = mars * 1.4;
+    const double weightedDesert = desert * 1.3;
+    if (weightedDesert >= weightedMars && weightedDesert >= lava) {
+        return 1;
+    }
+    if (weightedMars >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Lush, and 2 is Acid, for the Lava, Acid and Lush three-way tiles.
+// Lush is blue-green; Acid is olive; lava dirt is brown.
+int triAcidLushTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int lush = 0;
+    int acid = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool lushGreen = g > r + 25 && b + 5 >= r;
+        const bool olive = !lushGreen && g + 2 >= r && g > b + 2;
+        lush += lushGreen;
+        acid += olive;
+        lava += !lushGreen && !olive && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    if (lush >= acid && lush >= lava) {
+        return 1;
+    }
+    if (acid >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Acid, and 2 is Mars, for the Lava, Acid and Mars three-way tiles.
+// Acid is olive; Mars is redder and is weighted up for its specks; lava dirt is brown.
+int triAcidMarsTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int acid = 0;
+    int mars = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool olive = g + 2 >= r && g > b + 2;
+        const bool red = !olive && r > g + 25 && lum <= 140;
+        acid += olive;
+        mars += red;
+        lava += !olive && !red && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedMars = mars * 1.4;
+    if (acid >= weightedMars && acid >= lava) {
+        return 1;
+    }
+    if (weightedMars >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Archipelago, and 2 is Mars, for the Lava, Archipelago and Mars three-way tiles.
+// Archipelago sand is pale; Mars is redder and is weighted up for its specks; lava dirt is brown.
+int triArchiMarsTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int archi = 0;
+    int mars = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool red = r > g + 25 && lum <= 140;
+        const bool sand = !red && lum >= 160 && r > b;
+        archi += sand;
+        mars += red;
+        lava += !red && !sand && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedArchi = archi * 1.2;
+    const double weightedMars = mars * 1.4;
+    if (weightedArchi >= weightedMars && weightedArchi >= lava) {
+        return 1;
+    }
+    if (weightedMars >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Crystal, and 2 is Mars, for the Lava, Crystal and Mars three-way tiles.
+// Crystal is purple and is weighted up for its specks; Mars is redder; lava dirt is brown.
+int triCrystalMarsTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int crystal = 0;
+    int mars = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool purple = b > g + 5 && lum <= 150;
+        const bool red = !purple && r > g + 25 && lum <= 140;
+        crystal += purple;
+        mars += red;
+        lava += !purple && !red && r > b + 8 && lum <= 140 && r <= g + 25;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    const double weightedMars = mars * 1.4;
+    if (weightedCrystal >= weightedMars && weightedCrystal >= lava) {
+        return 1;
+    }
+    if (weightedMars >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Grass, and 2 is Metal, for the Lava, GreenWorld and Metal three-way tiles.
+// Grass is green; Metal plating is grey; lava dirt is brown.
+int triGreenMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int grass = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool green = g > r + 4 && g > b;
+        const bool brown = !green && r > g + 2 && r > b + 8 && lum <= 145;
+        grass += green;
+        lava += brown;
+        metal += !green && !brown;
+    }
+    const double weightedMetal = metal * 1.2;
+    if (grass >= weightedMetal && grass >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Desert, and 2 is Metal, for the Lava, Desert and Metal three-way tiles.
+// Desert sand is pale orange; Metal plating is grey; lava dirt is brown.
+int triDesertMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int desert = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool brown = r > g + 2 && r > b + 8 && lum <= 145;
+        const bool sand = !brown && lum >= 130 && r > b;
+        lava += brown;
+        desert += sand;
+        metal += !brown && !sand;
+    }
+    const double weightedDesert = desert * 1.3;
+    const double weightedMetal = metal * 1.2;
+    if (weightedDesert >= weightedMetal && weightedDesert >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Archipelago, and 2 is Metal, for the Lava, Archipelago and Metal three-way tiles.
+// Archipelago sand is pale; Metal plating is grey; lava dirt is brown.
+int triArchiMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int archi = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool sand = lum >= 160 && r > b;
+        const bool brown = !sand && r > g + 2 && r > b + 8 && lum <= 145;
+        archi += sand;
+        lava += brown;
+        metal += !sand && !brown;
+    }
+    const double weightedArchi = archi * 1.2;
+    const double weightedMetal = metal * 1.2;
+    if (weightedArchi >= weightedMetal && weightedArchi >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Lush, and 2 is Metal, for the Lava, Lush and Metal three-way tiles.
+// Lush is blue-green; Metal plating is grey; lava dirt is brown.
+int triLushMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int lush = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool lushGreen = g > r + 25 && b + 5 >= r;
+        const bool brown = !lushGreen && r > g + 2 && r > b + 8 && lum <= 145;
+        lush += lushGreen;
+        lava += brown;
+        metal += !lushGreen && !brown;
+    }
+    const double weightedMetal = metal * 1.2;
+    if (lush >= weightedMetal && lush >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Ice, and 2 is Metal, for the Lava, Ice and Metal three-way tiles.
+// Ice is pale blue or bright snow; Metal plating is grey; lava dirt is brown.
+int triIceMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int ice = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool pale = (b > r + 4) || (lum >= 170 && b >= r);
+        const bool brown = !pale && r > g + 2 && r > b + 8 && lum <= 145;
+        ice += pale;
+        lava += brown;
+        metal += !pale && !brown;
+    }
+    const double weightedIce = ice * 1.2;
+    const double weightedMetal = metal * 1.2;
+    if (weightedIce >= weightedMetal && weightedIce >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Acid, and 2 is Metal, for the Lava, Acid and Metal three-way tiles.
+// Acid is olive; Metal plating is grey; lava dirt is brown.
+int triAcidMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int acid = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool olive = g + 2 >= r && g > b + 2;
+        const bool brown = !olive && r > g + 2 && r > b + 8 && lum <= 145;
+        acid += olive;
+        lava += brown;
+        metal += !olive && !brown;
+    }
+    const double weightedMetal = metal * 1.2;
+    if (acid >= weightedMetal && acid >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Crystal, and 2 is Metal, for the Lava, Crystal and Metal three-way tiles.
+// Crystal is purple and is weighted up for its specks; Metal plating is grey; lava dirt is brown.
+int triCrystalMetalTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int crystal = 0;
+    int metal = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool purple = b > g + 5 && lum <= 150;
+        const bool brown = !purple && r > g + 2 && r > b + 8 && lum <= 145;
+        crystal += purple;
+        lava += brown;
+        metal += !purple && !brown;
+    }
+    const double weightedCrystal = crystal * 1.5;
+    const double weightedMetal = metal * 1.2;
+    if (weightedCrystal >= weightedMetal && weightedCrystal >= lava) {
+        return 1;
+    }
+    if (weightedMetal >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
+// 0 is Lava, 1 is Acid, and 2 is Archipelago, for the Lava, Acid and Archipelago three-way tiles.
+// Acid is olive; Archipelago sand is pale; lava dirt is brown.
+int triAcidArchiTileLand(const std::uint8_t* bytes) {
+    int lava = 0;
+    int acid = 0;
+    int archi = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const int r = kTaPalette[bytes[i]][0];
+        const int g = kTaPalette[bytes[i]][1];
+        const int b = kTaPalette[bytes[i]][2];
+        const int lum = (30 * r + 59 * g + 11 * b) / 100;
+        const bool sand = lum >= 160 && r > b && !(g > r + 4);
+        const bool olive = !sand && g + 2 >= r && g > b + 2;
+        archi += sand;
+        acid += olive;
+        lava += !sand && !olive && r > g + 2 && r > b + 8 && lum <= 145;
+    }
+    const double weightedArchi = archi * 1.2;
+    if (acid >= weightedArchi && acid >= lava) {
+        return 1;
+    }
+    if (weightedArchi >= lava) {
+        return 2;
+    }
+    return 0;
+}
+
 // 0 is Lava, 1 is Archipelago, and 2 is Desert, for the Lava, Archipelago and Desert three-way tiles.
 // Archipelago sand is pale; Desert sand is darker orange.
 int triArchiDesertTileLand(const std::uint8_t* bytes) {
@@ -872,25 +2299,6 @@ int triIceDesertTileLand(const std::uint8_t* bytes) {
     return 0;
 }
 
-// GreenWorld grass is green; Mars ground is red-brown.
-bool greenMarsTileIsGrass(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[1]) - static_cast<int>(color[0]);
-    }
-    return score >= 0;
-}
-
-bool iceMarsTileIsIce(const std::uint8_t* bytes) {
-    int score = 0;
-    for (int i = 0; i < 1024; ++i) {
-        const std::uint8_t* color = kTaPalette[bytes[i]];
-        score += static_cast<int>(color[2]) - static_cast<int>(color[0]);
-    }
-    return score >= 12 * 1024;
-}
-
 // Ice is pale blue; Crystal ground is purple. The named Ice side of a
 // Blend-IceCrystal piece must stay Ice at the rim.
 bool iceCrystalTileIsCrystal(const std::uint8_t* bytes, std::string_view loweredName, int tx, int ty, int tileWidth, int tileHeight) {
@@ -898,7 +2306,7 @@ bool iceCrystalTileIsCrystal(const std::uint8_t* bytes, std::string_view lowered
     if (const int forced = blendForceUnmarked(shape, tx, ty, tileWidth, tileHeight); forced >= 0) {
         return forced == 1;
     }
-    return !iceMarsTileIsIce(bytes);
+    return !iceCrystalColourIsIce(bytes);
 }
 
 // Desert sand is pale; Acid ground is dark olive. The named Acid side of a
@@ -1384,15 +2792,6 @@ bool desertGreenTileIsDesert(const std::uint8_t* bytes, std::string_view lowered
     return score < -20 * 1024;
 }
 
-// Archipelago sand in the acid blend is pale. Acid ground is much darker.
-bool archiAcidTileIsSand(const std::uint8_t* bytes) {
-    int red = 0;
-    for (int i = 0; i < 1024; ++i) {
-        red += static_cast<int>(kTaPalette[bytes[i]][0]);
-    }
-    return red >= 150 * 1024;
-}
-
 int trailingNumber(std::string_view name) {
     int value = -1;
     int current = 0;
@@ -1508,7 +2907,6 @@ int seaIslandKindOf(std::string_view name, int tiles) {
     }
     return 0;
 }
-
 
 // Map tiles on a side. 8 paints one corner. The others fill whole 16 x 16 cells.
 constexpr int kBrushSizes[] = {8, 16, 32, 64, 128, 256, 512};
@@ -3503,7 +4901,6 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
         }
     }
 }
-
 
 void EditorApp::drawFeatures() {
     theme::helpText("Click a feature, then click the map to place it. With none chosen, click a feature on the map to select it, or drag a box around several. Shift-click adds to the selection. Copy and Paste keep the features' positions. Delete removes the selection. Hold Space and drag to pan. Right-click removes one feature.");
@@ -10185,8 +11582,16 @@ void EditorApp::ensureBrushPaints() {
         // other. Each picture is remembered as the land its color belongs to.
         if (greenLand != nullptr && acidLand != nullptr && lavaGround != nullptr) {
             for (const BrushPiece& piece : brushPieces_) {
-                if (!lowerText(piece.name).starts_with("blend-tri-acid-") || lowerText(piece.name).find("crystal") != std::string::npos
-                    || lowerText(piece.name).find("desert") != std::string::npos) {
+                // The Acid, GreenWorld and Lava set: any three-way name with both acid and grass in it,
+                // such as Blend-Tri-Acid-T-Grass-L, Blend-Tri-Grass-T-Acid-L, or Blend-Tri-Lava-T-Acid-L-Grass.
+                if (!lowerText(piece.name).starts_with("blend-tri-") || lowerText(piece.name).find("acid") == std::string::npos
+                    || lowerText(piece.name).find("grass") == std::string::npos || lowerText(piece.name).find("crystal") != std::string::npos
+                    || lowerText(piece.name).find("desert") != std::string::npos
+                    || lowerText(piece.name).find("archi") != std::string::npos
+                    || lowerText(piece.name).find("ice") != std::string::npos
+                    || lowerText(piece.name).find("lush") != std::string::npos
+                    || lowerText(piece.name).find("mars") != std::string::npos
+                    || lowerText(piece.name).find("metal") != std::string::npos) {
                     continue;
                 }
                 try {
@@ -10268,6 +11673,158 @@ void EditorApp::ensureBrushPaints() {
                     }
                 } catch (const std::exception&) {
                 }
+            }
+        }
+    }
+    // Three-way sets with GreenWorld, named with triGreenLushName: GreenWorld fills or meets two other
+    // lands, the second and last, and each tile's land comes from its colour. These run before the other
+    // three-way checks, several of which look for a single land word such as ice, lush, or grass and
+    // would claim these tiles. Every name has grass and both other lands' words in it.
+    struct GreenTriSet {
+        const char* secondWorld;
+        const char* secondWord;
+        int secondHeight;
+        const char* lastWorld;
+        const char* lastWord;
+        int lastHeight;
+        int (*landOf)(const std::uint8_t*);  // 0 the pivot land, 1 the second land, 2 the last
+        const char* pivotWorld = "Green";
+        const char* pivotWord = "grass";
+        int pivotHeight = 85;
+    };
+    static constexpr GreenTriSet kGreenTriSets[] = {
+        {"Ice", "ice", 85, "Lush", "lush", 77, [](const std::uint8_t* p) { return triGreenIceLushTileLand(p, false); }},
+        {"Mars", "mars", 85, "Lush", "lush", 77, [](const std::uint8_t* p) { return triGreenIceLushTileLand(p, true); }},
+        {"Ice", "ice", 85, "Mars", "mars", 85, triGreenIceMarsTileLand},
+        {"Metal", "metal", 85, "Lush", "lush", 77, triGreenMetalLushTileLand},
+        {"Archi", "archi", 78, "Lush", "lush", 77, [](const std::uint8_t* p) { return triArchiGreenLushTileLand(p, 140); }},
+        {"Archi", "archi", 78, "Mars", "mars", 85, triGreenIceMarsTileLand},
+        {"Desert", "desert", 80, "Lush", "lush", 77, [](const std::uint8_t* p) { return triArchiGreenLushTileLand(p, 110); }},
+        {"Crystal", "crystal", 85, "Lush", "lush", 77, triGreenCrystalLushTileLand},
+        {"Archi", "archi", 78, "Desert", "desert", 80, triArchiDesertGreenTileLand},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiGreenTileLand},
+        {"Archi", "archi", 78, "Crystal", "crystal", 85, triArchiCrystalGreenTileLand},
+        {"Archi", "archi", 78, "Metal", "metal", 85, triArchiGreenMetalTileLand},
+        {"Archi", "archi", 78, "Ice", "ice", 85, triArchiGreenIceTileLand},
+        {"Mars", "mars", 85, "Metal", "metal", 85, triGreenMarsMetalTileLand},
+        {"Ice", "ice", 85, "Metal", "metal", 85, triGreenIceMetalTileLand},
+        {"Desert", "desert", 80, "Ice", "ice", 85, triDesertGreenIceTileLand},
+        {"Desert", "desert", 80, "Mars", "mars", 85, triDesertGreenMarsTileLand},
+        {"Desert", "desert", 80, "Metal", "metal", 85, triDesertGreenMetalTileLand},
+        {"Ice", "ice", 85, "Crystal", "crystal", 85, triCrystalGreenIceTileLand},
+        {"Mars", "mars", 85, "Crystal", "crystal", 85, triCrystalGreenMarsTileLand},
+        {"Metal", "metal", 85, "Crystal", "crystal", 85, triCrystalGreenMetalTileLand},
+        {"Desert", "desert", 80, "Crystal", "crystal", 85, triCrystalDesertGreenTileLand},
+        {"Acid", "acid", 85, "Lush", "lush", 77, triAcidGreenLushTileLand},
+        {"Ice", "ice", 85, "Acid", "acid", 85, triAcidGreenIceTileLand},
+        {"Mars", "mars", 85, "Acid", "acid", 85, triAcidGreenMarsTileLand},
+        {"Metal", "metal", 85, "Acid", "acid", 85, triAcidGreenMetalTileLand},
+        {"Crystal", "crystal", 85, "Acid", "acid", 85, triAcidCrystalGreenTileLand},
+        {"Desert", "desert", 80, "Acid", "acid", 85, triAcidDesertGreenTileLand},
+        {"Archi", "archi", 78, "Desert", "desert", 80, triArchiDesertLushTileLand, "Lush", "lush", 77},
+        {"Archi", "archi", 78, "Ice", "ice", 85, triArchiIceLushTileLand, "Lush", "lush", 77},
+        {"Archi", "archi", 78, "Mars", "mars", 85, triArchiLushMarsTileLand, "Lush", "lush", 77},
+        {"Archi", "archi", 78, "Metal", "metal", 85, triArchiLushMetalTileLand, "Lush", "lush", 77},
+        {"Archi", "archi", 78, "Metal", "metal", 85, triArchiIceMetalTileLand, "Ice", "ice", 85},
+        {"Archi", "archi", 78, "Metal", "metal", 85, triArchiMarsMetalTileLand, "Mars", "mars", 85},
+        {"Archi", "archi", 78, "Desert", "desert", 80, triArchiCrystalDesertTileLand, "Crystal", "crystal", 85},
+        {"Archi", "archi", 78, "Ice", "ice", 85, triArchiCrystalIceTileLand, "Crystal", "crystal", 85},
+        {"Archi", "archi", 78, "Crystal", "crystal", 85, triArchiCrystalLushTileLand, "Lush", "lush", 77},
+        {"Archi", "archi", 78, "Mars", "mars", 85, triArchiCrystalMarsTileLand, "Crystal", "crystal", 85},
+        {"Archi", "archi", 78, "Metal", "metal", 85, triArchiCrystalMetalTileLand, "Crystal", "crystal", 85},
+        {"Archi", "archi", 78, "Ice", "ice", 85, triArchiDesertIceTileLand, "Desert", "desert", 80},
+        {"Archi", "archi", 78, "Mars", "mars", 85, triArchiDesertMarsTileLand, "Desert", "desert", 80},
+        {"Archi", "archi", 78, "Metal", "metal", 85, triArchiDesertMetalTileLand, "Desert", "desert", 80},
+        {"Crystal", "crystal", 85, "Ice", "ice", 85, triCrystalDesertIceTileLand, "Desert", "desert", 80},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiCrystalTileLand, "Crystal", "crystal", 85},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiDesertTileLand, "Desert", "desert", 80},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiIceTileLand, "Ice", "ice", 85},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiLushTileLand, "Lush", "lush", 77},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiMarsTileLand, "Mars", "mars", 85},
+        {"Archi", "archi", 78, "Acid", "acid", 85, triAcidArchiMetalTileLand, "Metal", "metal", 85},
+        {"Crystal", "crystal", 85, "Acid", "acid", 85, triAcidCrystalIceTileLand, "Ice", "ice", 85},
+        {"Desert", "desert", 80, "Acid", "acid", 85, triAcidDesertIceTileLand, "Ice", "ice", 85},
+        {"Ice", "ice", 85, "Acid", "acid", 85, triAcidIceLushTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Acid", "acid", 85, triAcidIceMarsTileLand, "Ice", "ice", 85},
+        {"Metal", "metal", 85, "Acid", "acid", 85, triAcidIceMetalTileLand, "Ice", "ice", 85},
+        {"Ice", "ice", 85, "Crystal", "crystal", 85, triCrystalIceLushTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Crystal", "crystal", 85, triCrystalIceMarsTileLand, "Ice", "ice", 85},
+        {"Metal", "metal", 85, "Crystal", "crystal", 85, triCrystalIceMetalTileLand, "Ice", "ice", 85},
+        {"Desert", "desert", 80, "Ice", "ice", 85, triDesertIceLushTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Ice", "ice", 85, triDesertIceMarsTileLand, "Desert", "desert", 80},
+        {"Metal", "metal", 85, "Ice", "ice", 85, triDesertIceMetalTileLand, "Desert", "desert", 80},
+        {"Ice", "ice", 85, "Mars", "mars", 85, triIceLushMarsTileLand, "Lush", "lush", 77},
+        {"Ice", "ice", 85, "Metal", "metal", 85, triIceLushMetalTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Metal", "metal", 85, triIceMarsMetalTileLand, "Ice", "ice", 85},
+        {"Mars", "mars", 85, "Metal", "metal", 85, triDesertMarsMetalTileLand, "Desert", "desert", 80},
+        {"Desert", "desert", 80, "Metal", "metal", 85, triDesertLushMetalTileLand, "Lush", "lush", 77},
+        {"Desert", "desert", 80, "Mars", "mars", 85, triDesertLushMarsTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Metal", "metal", 85, triCrystalMarsMetalTileLand, "Crystal", "crystal", 85},
+        {"Crystal", "crystal", 85, "Metal", "metal", 85, triCrystalLushMetalTileLand, "Lush", "lush", 77},
+        {"Crystal", "crystal", 85, "Mars", "mars", 85, triCrystalLushMarsTileLand, "Lush", "lush", 77},
+        {"Crystal", "crystal", 85, "Metal", "metal", 85, triCrystalDesertMetalTileLand, "Desert", "desert", 80},
+        {"Crystal", "crystal", 85, "Mars", "mars", 85, triCrystalDesertMarsTileLand, "Desert", "desert", 80},
+        {"Desert", "desert", 80, "Crystal", "crystal", 85, triCrystalDesertLushTileLand, "Lush", "lush", 77},
+        {"Crystal", "crystal", 85, "Acid", "acid", 85, triAcidCrystalDesertTileLand, "Desert", "desert", 80},
+        {"Desert", "desert", 80, "Acid", "acid", 85, triAcidDesertLushTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Acid", "acid", 85, triAcidDesertMarsTileLand, "Desert", "desert", 80},
+        {"Metal", "metal", 85, "Acid", "acid", 85, triAcidDesertMetalTileLand, "Desert", "desert", 80},
+        {"Crystal", "crystal", 85, "Acid", "acid", 85, triAcidCrystalLushTileLand, "Lush", "lush", 77},
+        {"Mars", "mars", 85, "Acid", "acid", 85, triAcidCrystalMarsTileLand, "Crystal", "crystal", 85},
+        {"Metal", "metal", 85, "Acid", "acid", 85, triAcidCrystalMetalTileLand, "Crystal", "crystal", 85},
+        {"Mars", "mars", 85, "Acid", "acid", 85, triAcidLushMarsTileLand, "Lush", "lush", 77},
+        {"Metal", "metal", 85, "Acid", "acid", 85, triAcidLushMetalTileLand, "Lush", "lush", 77},
+        {"Metal", "metal", 85, "Acid", "acid", 85, triAcidMarsMetalTileLand, "Mars", "mars", 85},
+        {"Mars", "mars", 85, "Metal", "metal", 85, triLushMarsMetalTileLand, "Lush", "lush", 77},
+    };
+    for (const GreenTriSet& set : kGreenTriSets) {
+        const char* thirdWorld = set.secondWorld;
+        const char* thirdWord = set.secondWord;
+        const int thirdHeight = set.secondHeight;
+        const char* lastWorld = set.lastWorld;
+        const char* lastWord = set.lastWord;
+        const int lastHeight = set.lastHeight;
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == set.pivotWorld && height == set.pivotHeight) {
+                lands[0] = paint;
+            } else if (family == thirdWorld && height == thirdHeight) {
+                lands[1] = paint;
+            } else if (family == lastWorld && height == lastHeight) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            if (lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr || !lowered.starts_with("blend-tri-")
+                || lowered.find(set.pivotWord) == std::string::npos || lowered.find(thirdWord) == std::string::npos
+                || lowered.find(lastWord) == std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const BrushPaint* land = lands[set.landOf(pixels)];
+                    brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
             }
         }
     }
@@ -10762,6 +12319,8 @@ void EditorApp::ensureBrushPaints() {
         }
         return nullptr;
     };
+    // Every pair of lands read here with a colour test from core/BlendColours.hpp is listed in its
+    // kBlendColourPairs, which format_test checks against both lands' base tiles.
     const auto rememberTwoWayColour = [&](const char* prefix, const BrushPaint* landA, const BrushPaint* landB,
                                           bool (*isA)(const std::uint8_t*)) {
         if (landA == nullptr || landB == nullptr) {
@@ -10873,7 +12432,10 @@ void EditorApp::ensureBrushPaints() {
             const std::string lowered = lowerText(piece.name);
             if (!lowered.starts_with("blend-tri-") || lowered.starts_with("blend-tri-acid-") || lowered.find("lush") != std::string::npos
                 || lowered.find("crystal") != std::string::npos || lowered.find("acid") != std::string::npos
-                || lowered.find("desert") != std::string::npos) {
+                || lowered.find("desert") != std::string::npos || lowered.find("metal") != std::string::npos
+                || (lowered.find("grass") != std::string::npos && lowered.find("mars") != std::string::npos)
+                || (lowered.find("grass") != std::string::npos && lowered.find("archi") != std::string::npos)
+                || (lowered.find("archi") != std::string::npos && lowered.find("mars") != std::string::npos)) {
                 continue;
             }
             // The third land is in the name: Blend-Tri-Ice-T-Archi-L or Blend-Tri-Mars-T-Ice-L.
@@ -11056,7 +12618,10 @@ void EditorApp::ensureBrushPaints() {
         }
         for (const BrushPiece& piece : brushPieces_) {
             const std::string lowered = lowerText(piece.name);
-            if (!lowered.starts_with("blend-tri-") || lowered.find("lush") == std::string::npos) {
+            if (!lowered.starts_with("blend-tri-") || lowered.find("lush") == std::string::npos
+                || lowered.find("ice") != std::string::npos || lowered.find("desert") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("crystal") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("metal") != std::string::npos) {
                 continue;
             }
             // A Lush three-way name with Mars in it is the Lava, Lush and Mars set.
@@ -11110,7 +12675,10 @@ void EditorApp::ensureBrushPaints() {
             const std::string lowered = lowerText(piece.name);
             const bool twoWay = lowered.starts_with("blend-archicrystal-");
             const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("crystal") != std::string::npos
-                && lowered.find("acid") == std::string::npos && lowered.find("desert") == std::string::npos;
+                && lowered.find("acid") == std::string::npos && lowered.find("desert") == std::string::npos
+                && lowered.find("grass") == std::string::npos && lowered.find("ice") == std::string::npos
+                && lowered.find("lush") == std::string::npos && lowered.find("mars") == std::string::npos
+                && lowered.find("metal") == std::string::npos;
             if ((!twoWay && !threeWay) || lands[1] == nullptr || lands[2] == nullptr || (threeWay && lands[0] == nullptr)) {
                 continue;
             }
@@ -11165,7 +12733,10 @@ void EditorApp::ensureBrushPaints() {
             if ((!twoWay && !threeWay) || lands[1] == nullptr || lands[2] == nullptr || (threeWay && lands[0] == nullptr)) {
                 continue;
             }
-            if (threeWay && (lowered.find("grass") != std::string::npos || lowered.find("desert") != std::string::npos)) {
+            if (threeWay && (lowered.find("grass") != std::string::npos || lowered.find("desert") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("lush") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos)) {
                 continue;
             }
             try {
@@ -11213,7 +12784,9 @@ void EditorApp::ensureBrushPaints() {
                 && (lowered.find("acid") != std::string::npos || lowered.starts_with("blend-tri-lava-"));
             if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
                 || lowered.find("crystal") != std::string::npos || lowered.find("grass") != std::string::npos
-                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos) {
+                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("lush") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
                 continue;
             }
             try {
@@ -11261,7 +12834,8 @@ void EditorApp::ensureBrushPaints() {
                 && lowered.find("crystal") != std::string::npos;
             if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
                 || lowered.find("grass") != std::string::npos || lowered.find("archi") != std::string::npos
-                || lowered.find("ice") != std::string::npos) {
+                || lowered.find("ice") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("mars") != std::string::npos || lowered.find("metal") != std::string::npos) {
                 continue;
             }
             try {
@@ -11308,7 +12882,8 @@ void EditorApp::ensureBrushPaints() {
             const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
                 && lowered.find("grass") != std::string::npos;
             if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
-                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos) {
+                || lowered.find("archi") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("mars") != std::string::npos || lowered.find("metal") != std::string::npos) {
                 continue;
             }
             try {
@@ -11355,7 +12930,8 @@ void EditorApp::ensureBrushPaints() {
             const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
                 && lowered.find("archi") != std::string::npos;
             if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
-                || lowered.find("ice") != std::string::npos) {
+                || lowered.find("ice") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
                 continue;
             }
             try {
@@ -11401,7 +12977,8 @@ void EditorApp::ensureBrushPaints() {
             const std::string lowered = lowerText(piece.name);
             const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
                 && lowered.find("ice") != std::string::npos;
-            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr) {
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("mars") != std::string::npos || lowered.find("metal") != std::string::npos) {
                 continue;
             }
             try {
@@ -11423,6 +13000,1104 @@ void EditorApp::ensureBrushPaints() {
                         continue;
                     }
                     const int which = triIceDesertTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, GreenWorld and Mars three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Green" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Mars" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("grass") != std::string::npos
+                && lowered.find("mars") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("ice") != std::string::npos || lowered.find("acid") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("crystal") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triGreenMarsTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Ice and Lush three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Ice" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Lush" && height == 77) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("ice") != std::string::npos
+                && lowered.find("lush") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("mars") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("acid") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triIceLushTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Ice and Crystal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Ice" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("ice") != std::string::npos
+                && lowered.find("crystal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("grass") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triIceCrystalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Ice and Acid three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Ice" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("ice") != std::string::npos
+                && lowered.find("acid") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triIceAcidTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Desert and Lush three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Lush" && height == 77) {
+                lands[1] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("lush") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("grass") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("mars") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("acid") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triDesertLushTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, GreenWorld and Crystal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Green" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("grass") != std::string::npos
+                && lowered.find("crystal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("ice") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triGreenCrystalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Archipelago and GreenWorld three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Green" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("grass") != std::string::npos
+                && lowered.find("archi") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("mars") != std::string::npos || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triArchiGreenTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Archipelago and Lush three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Lush" && height == 77) {
+                lands[1] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("lush") != std::string::npos
+                && lowered.find("archi") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triArchiLushTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Crystal and Lush three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Lush" && height == 77) {
+                lands[1] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("lush") != std::string::npos
+                && lowered.find("crystal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triLushCrystalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Desert and Mars three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[1] = paint;
+            } else if (family == "Mars" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("mars") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("lush") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("crystal") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triDesertMarsTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Acid and Lush three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Lush" && height == 77) {
+                lands[1] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("lush") != std::string::npos
+                && lowered.find("acid") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triAcidLushTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Acid and Mars three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Mars" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("acid") != std::string::npos
+                && lowered.find("mars") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triAcidMarsTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Archipelago and Mars three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[1] = paint;
+            } else if (family == "Mars" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("archi") != std::string::npos
+                && lowered.find("mars") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triArchiMarsTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Crystal and Mars three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Mars" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("crystal") != std::string::npos
+                && lowered.find("mars") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triCrystalMarsTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, GreenWorld and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Green" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("grass") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("mars") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triGreenMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Desert and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Desert" && height == 80) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("desert") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("ice") != std::string::npos || lowered.find("acid") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("crystal") != std::string::npos
+                || lowered.find("lush") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("grass") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triDesertMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Archipelago and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("archi") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("mars") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triArchiMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Lush and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Lush" && height == 77) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("lush") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("mars") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triLushMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Ice and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Ice" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("ice") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("mars") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triIceMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Acid and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("acid") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("archi") != std::string::npos || lowered.find("crystal") != std::string::npos
+                || lowered.find("lush") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("mars") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triAcidMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Crystal and Metal three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Crystal" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Metal" && height == 85) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("crystal") != std::string::npos
+                && lowered.find("metal") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("acid") != std::string::npos || lowered.find("archi") != std::string::npos
+                || lowered.find("lush") != std::string::npos || lowered.find("grass") != std::string::npos
+                || lowered.find("mars") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triCrystalMetalTileLand(pixels);
+                    brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // Lava, Acid and Archipelago three-way tiles: the colour tells each tile's land.
+    {
+        const BrushPaint* lands[3] = {};
+        for (const BrushPaint* paint : pictured) {
+            const std::string family = blendWorldName(paint->category);
+            const int height = trailingNumber(paint->name);
+            if (family == "Lava" && height == 86) {
+                lands[0] = paint;
+            } else if (family == "Acid" && height == 85) {
+                lands[1] = paint;
+            } else if (family == "Archi" && height == 78) {
+                lands[2] = paint;
+            }
+        }
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            const bool threeWay = lowered.starts_with("blend-tri-") && lowered.find("acid") != std::string::npos
+                && lowered.find("archi") != std::string::npos;
+            if (!threeWay || lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr
+                || lowered.find("desert") != std::string::npos || lowered.find("ice") != std::string::npos
+                || lowered.find("crystal") != std::string::npos || lowered.find("lush") != std::string::npos
+                || lowered.find("grass") != std::string::npos || lowered.find("mars") != std::string::npos
+                || lowered.find("metal") != std::string::npos) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                const int tiles = stamp.tileWidth * stamp.tileHeight;
+                for (int tile = 0; tile < tiles; ++tile) {
+                    const std::uint32_t image = stamp.indices[static_cast<std::size_t>(tile)];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (brushPictures_.find(hash) != brushPictures_.end()) {
+                        continue;
+                    }
+                    const int which = triAcidArchiTileLand(pixels);
                     brushPictures_[hash] = BrushPictureHint{lands[which]->category, lands[which]->name, false, {}, {}};
                 }
             } catch (const std::exception&) {
@@ -11462,13 +14137,13 @@ void EditorApp::ensureBrushPaints() {
                     const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
                     const std::uint64_t hash = hashBrushTile(pixels);
                     const auto existing = brushPictures_.find(hash);
-                    // A picture that is plain ground keeps its reading; a blend reading by height is replaced.
-                    if (existing != brushPictures_.end() && !existing->second.fringe) {
+                    // A picture that is plain ground keeps its reading, and a picture several Desert
+                    // bases share stays shared; only a blend reading by height is replaced.
+                    if ((existing != brushPictures_.end() && !existing->second.fringe) || sharedPictures_.count(hash) != 0) {
                         continue;
                     }
                     const BrushPaint* land = desertLavaTileIsDesert(pixels) ? desertSand : desertLava;
                     brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
-                    sharedPictures_.erase(hash);
                 }
             } catch (const std::exception&) {
             }
@@ -11645,6 +14320,59 @@ void EditorApp::ensureBrushPaints() {
         if (dash != std::string::npos && dash > prefix.size()) {
             brushCoastLiquid_ = piece.name.substr(prefix.size(), dash - prefix.size());
             break;
+        }
+    }
+    // Pictures that several bases of one land share, such as Desert Base-80, Base-155 and Base-230
+    // sand, belong to none of them: the height chooses. The shared-height path above can leave such a
+    // picture claimed by whichever base came last, so every pair of a land's bases is checked here,
+    // whichever path ran. It runs after every blend check, so none of them can claim such a picture.
+    {
+        std::unordered_map<std::uint64_t, std::vector<std::pair<std::string, std::string>>> users;
+        for (const BrushPaint* paint : pictured) {
+            for (const TilesetSection& section : source->sections) {
+                if (lowerText(section.category) != lowerText(paint->category) || !isBaseBrushTile(section.world, section.name)
+                    || lowerText(section.name) != lowerText(paint->name)) {
+                    continue;
+                }
+                try {
+                    const HpiFile* file = source->archive().find(section.archivePath);
+                    if (file == nullptr) {
+                        continue;
+                    }
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    for (int tile = 0; tile < stamp.tileWidth * stamp.tileHeight; ++tile) {
+                        const std::size_t bytes = static_cast<std::size_t>(stamp.indices[static_cast<std::size_t>(tile)]) * 1024;
+                        if (bytes + 1024 > stamp.tileImages.size()) {
+                            continue;
+                        }
+                        auto& list = users[hashBrushTile(stamp.tileImages.data() + bytes)];
+                        bool listed = false;
+                        for (const auto& [category, name] : list) {
+                            listed = listed || (lowerText(category) == lowerText(paint->category) && lowerText(name) == lowerText(paint->name));
+                        }
+                        if (!listed) {
+                            list.emplace_back(paint->category, paint->name);
+                        }
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+        for (const auto& [hash, list] : users) {
+            if (list.size() < 2) {
+                continue;
+            }
+            // Only bases of one land share this way; two lands that happen to share a picture keep
+            // whatever reading they were given.
+            bool oneLand = true;
+            for (const auto& [category, name] : list) {
+                oneLand = oneLand && lowerText(category) == lowerText(list.front().first);
+            }
+            if (!oneLand) {
+                continue;
+            }
+            sharedPictures_[hash] = list;
+            brushPictures_.erase(hash);
         }
     }
     // Rivers and bridges get a button of their own after the base tiles. Their pictures
