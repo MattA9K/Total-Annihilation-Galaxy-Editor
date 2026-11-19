@@ -274,6 +274,7 @@ EditorSettings loadEditorSettings(const std::filesystem::path& path) {
     settings.appearance = jsonOr(text, "appearance", settings.appearance, 0, 2);
     settings.seaOpacity = jsonOr(text, "seaOpacity", settings.seaOpacity, 0, 100);
     settings.seaColor = jsonOr(text, "seaColor", settings.seaColor, 0, 0xFFFFFF);
+    settings.randomMapFontSize = jsonOr(text, "randomMapFontSize", settings.randomMapFontSize, 9, 32);
     settings.gameFolder = pathFromUtf8(jsonString(text, "gameFolder"));
     settings.gameFolderAsked = jsonBoolOr(text, "gameFolderAsked", settings.gameFolderAsked);
     settings.language = jsonString(text, "language");
@@ -298,6 +299,7 @@ void saveEditorSettings(const std::filesystem::path& path, const EditorSettings&
     out << "  \"appearance\": " << settings.appearance << ",\n";
     out << "  \"seaOpacity\": " << settings.seaOpacity << ",\n";
     out << "  \"seaColor\": " << settings.seaColor << ",\n";
+    out << "  \"randomMapFontSize\": " << settings.randomMapFontSize << ",\n";
     out << "  \"gameFolder\": " << jsonQuoted(pathToUtf8(settings.gameFolder)) << ",\n";
     out << "  \"gameFolderAsked\": " << (settings.gameFolderAsked ? "true" : "false") << ",\n";
     out << "  \"language\": " << jsonQuoted(settings.language) << "\n";

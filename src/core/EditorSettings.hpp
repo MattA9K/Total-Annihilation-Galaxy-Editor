@@ -16,6 +16,8 @@ struct EditorSettings {
     // The sea plane in the 3D view: opacity in percent, and color as 0xRRGGBB.
     int seaOpacity = 45;
     int seaColor = 0x2E7FDC;
+    // Point size of the script in the Random Map Generator window. Command + and - change it.
+    int randomMapFontSize = 13;
     // Folder where Total Annihilation is installed. Empty means it is not set.
     std::filesystem::path gameFolder;
     // True once the startup prompt for the folder has been answered, including

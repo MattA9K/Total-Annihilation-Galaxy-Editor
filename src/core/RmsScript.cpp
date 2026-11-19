@@ -802,6 +802,83 @@ std::vector<std::pair<std::string, int>> rmsWords(std::string_view text) {
     return words;
 }
 
+std::vector<RmsWordSpan> rmsWordSpans(std::string_view text) {
+    std::vector<RmsWordSpan> spans;
+    int commentDepth = 0;
+    const auto classify = [&](const std::string& word) {
+        // Comments follow the reader's rule: /* and */ are words of their own.
+        if (word == "/*") {
+            ++commentDepth;
+            return RmsWordKind::Comment;
+        }
+        if (commentDepth > 0) {
+            if (word == "*/") {
+                --commentDepth;
+            }
+            return RmsWordKind::Comment;
+        }
+        if (word == "{" || word == "}") {
+            return RmsWordKind::Brace;
+        }
+        if (isSectionHeader(word)) {
+            return RmsWordKind::Section;
+        }
+        if (word == "if" || word == "elseif" || word == "else" || word == "endif" || word == "start_random"
+            || word == "percent_chance" || word == "end_random") {
+            return RmsWordKind::Keyword;
+        }
+        if (word.front() == '#') {
+            return RmsWordKind::Directive;
+        }
+        if (findCommand(word) != nullptr) {
+            return RmsWordKind::Command;
+        }
+        if (findAttribute(word) != nullptr) {
+            return RmsWordKind::Attribute;
+        }
+        int low = 0;
+        int high = 0;
+        double number = 0.0;
+        std::string bare = word;
+        while (!bare.empty() && bare.front() == '(') {
+            bare.erase(0, 1);
+        }
+        while (!bare.empty() && bare.back() == ')') {
+            bare.pop_back();
+        }
+        if (readRnd(word, low, high) || readNumber(bare, number)) {
+            return RmsWordKind::Number;
+        }
+        std::string upper = word;
+        for (char& character : upper) {
+            character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        }
+        if (upper.find("_BASE-") != std::string::npos) {
+            return RmsWordKind::Terrain;
+        }
+        return RmsWordKind::Plain;
+    };
+    std::size_t i = 0;
+    while (i < text.size()) {
+        if (isSpace(text[i])) {
+            ++i;
+            continue;
+        }
+        std::size_t end = i;
+        if (text[i] == '{' || text[i] == '}') {
+            end = i + 1;
+        } else {
+            while (end < text.size() && !isSpace(text[end]) && text[end] != '{' && text[end] != '}') {
+                ++end;
+            }
+        }
+        const std::string word(text.substr(i, end - i));
+        spans.push_back(RmsWordSpan{i, end - i, classify(word)});
+        i = end;
+    }
+    return spans;
+}
+
 RmsScript readRandomMapScript(std::string_view text, const RmsScriptSettings& settings, std::mt19937& rng) {
     RmsScript script;
     std::vector<Word> words;

@@ -708,6 +708,8 @@ private:
     std::string randomMapScript_;
     int randomMapPlayers_ = 2;
     int randomMapSeed_ = 1;
+    // Point size of the script. Command + and Command - step through the code font sizes.
+    int randomMapFontSize_ = 13;
     // What the last run said: notes about the script, and a line about the result.
     std::vector<RmsMessage> randomMapNotes_;
     std::string randomMapResult_;

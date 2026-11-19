@@ -1751,10 +1751,12 @@ void testSeaSettings() {
     expect(saved.seaOpacity > 0 && saved.seaOpacity < 100, "the sea is translucent by default");
     saved.seaOpacity = 72;
     saved.seaColor = 0x12AB34;
+    saved.randomMapFontSize = 20;
     galaxy::saveEditorSettings(settingsPath, saved);
     const galaxy::EditorSettings loaded = galaxy::loadEditorSettings(settingsPath);
     expect(loaded.seaOpacity == 72, "sea opacity survives a save and load");
     expect(loaded.seaColor == 0x12AB34, "sea color survives a save and load");
+    expect(loaded.randomMapFontSize == 20, "the script font size survives a save and load");
     {
         std::ofstream out(settingsPath, std::ios::trunc);
         out << "{ \"seaOpacity\": 400, \"seaColor\": -5 }";
@@ -5740,6 +5742,31 @@ void testRmsReader() {
         expect(hasMessage(script.messages, 2, "no endif"), "an if without endif is pointed out");
         const RmsScript objects = readScript("<OBJECTS_GENERATION>\ncreate_object TREE { number_of_objects 5 }\n<TERRAIN_GENERATION>\ncreate_terrain ICE_BASE-85 { }\n");
         expect(objects.commands.size() == 1 && objects.commands[0].name == "create_terrain", "objects are skipped without notes, and later sections still read");
+    }
+    {
+        const std::string text = "/* note /* deep */ still */ <LAND_GENERATION>\n#const N (2 * 3)\nif BIG create_land{ terrain_type LAVA_BASE-86 land_percent rnd(2,5) } endif /*no";
+        const std::vector<RmsWordSpan> spans = rmsWordSpans(text);
+        const auto kindOf = [&](const std::string& word) {
+            for (const RmsWordSpan& span : spans) {
+                if (text.compare(span.start, span.length, word) == 0) {
+                    return static_cast<int>(span.kind);
+                }
+            }
+            return -1;
+        };
+        expect(kindOf("deep") == static_cast<int>(RmsWordKind::Comment) && kindOf("still") == static_cast<int>(RmsWordKind::Comment),
+            "words inside nested comments are comments");
+        expect(kindOf("<LAND_GENERATION>") == static_cast<int>(RmsWordKind::Section), "a section header is coloured as one");
+        expect(kindOf("#const") == static_cast<int>(RmsWordKind::Directive), "#const is a directive");
+        expect(kindOf("(2") == static_cast<int>(RmsWordKind::Number) && kindOf("3)") == static_cast<int>(RmsWordKind::Number), "numbers in math are numbers");
+        expect(kindOf("if") == static_cast<int>(RmsWordKind::Keyword) && kindOf("endif") == static_cast<int>(RmsWordKind::Keyword), "if and endif are keywords");
+        expect(kindOf("create_land") == static_cast<int>(RmsWordKind::Command), "a command touching its brace is still a command");
+        expect(kindOf("{") == static_cast<int>(RmsWordKind::Brace), "a brace is its own word");
+        expect(kindOf("terrain_type") == static_cast<int>(RmsWordKind::Attribute), "attributes are attributes");
+        expect(kindOf("LAVA_BASE-86") == static_cast<int>(RmsWordKind::Terrain), "terrain names are terrains");
+        expect(kindOf("rnd(2,5)") == static_cast<int>(RmsWordKind::Number), "rnd is a number");
+        expect(kindOf("/*no") == static_cast<int>(RmsWordKind::Plain), "a comment without its space is not coloured as one");
+        expect(kindOf("BIG") == static_cast<int>(RmsWordKind::Plain), "a condition name stays plain");
     }
     const std::vector<std::string> conditions = rmsConditions(4, 8, 8);
     expect(std::find(conditions.begin(), conditions.end(), "4_PLAYER_GAME") != conditions.end(), "the player count is a condition");

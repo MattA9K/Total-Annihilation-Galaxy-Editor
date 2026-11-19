@@ -3,6 +3,7 @@
 #include <imgui.h>
 
 #include <string>
+#include <vector>
 
 namespace galaxy::theme {
 
@@ -39,6 +40,29 @@ ImFont* boldFont();
 
 // 10 pt for the labels under toolbar icons.
 ImFont* toolbarLabelFont();
+// A monospaced font for code, loaded at each of these sizes in points so every
+// size stays sharp: SF Mono or Menlo on macOS, Consolas on Windows, DejaVu Sans
+// Mono on Linux, or the regular font when none of those is installed.
+const std::vector<int>& codeFontSizes();
+// The loaded size closest to points.
+ImFont* codeFont(int points);
+
+// Colours for code, after Xcode's Default (Light) theme in light mode and its
+// Midnight theme in dark mode.
+struct CodeColors {
+    ImU32 background;
+    ImU32 plain;
+    ImU32 comment;
+    ImU32 keyword;
+    ImU32 preprocessor;
+    ImU32 number;
+    ImU32 function;
+    ImU32 property;
+    ImU32 string;
+    ImU32 selection;
+    ImU32 caret;
+};
+const CodeColors& codeColors();
 // One layout unit: 1.0 at the 13 pt system size.
 float unit();
 float toolbarItemHeight();

@@ -32,6 +32,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <chrono>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -7449,6 +7450,7 @@ void EditorApp::loadEditorOptions() {
     appearanceMode_ = settings.appearance;
     seaOpacity_ = settings.seaOpacity;
     seaColor_ = settings.seaColor;
+    randomMapFontSize_ = settings.randomMapFontSize;
     gameFolder_ = settings.gameFolder;
     gameFolderAsked_ = settings.gameFolderAsked;
     if (isKnownLanguage(settings.language)) {
@@ -7465,6 +7467,7 @@ void EditorApp::saveEditorOptions() const {
     settings.autosaveBackups = autosaveBackups_;
     settings.appearance = appearanceMode_;
     settings.seaOpacity = seaOpacity_;
+    settings.randomMapFontSize = randomMapFontSize_;
     settings.seaColor = seaColor_;
     settings.gameFolder = gameFolder_;
     settings.gameFolderAsked = gameFolderAsked_;
@@ -9065,6 +9068,116 @@ int resizeStringCallback(ImGuiInputTextCallbackData* data) {
     return 0;
 }
 
+ImU32 scriptWordColor(RmsWordKind kind, const theme::CodeColors& colors) {
+    switch (kind) {
+    case RmsWordKind::Comment:
+        return colors.comment;
+    case RmsWordKind::Section:
+    case RmsWordKind::Keyword:
+        return colors.keyword;
+    case RmsWordKind::Directive:
+        return colors.preprocessor;
+    case RmsWordKind::Command:
+        return colors.function;
+    case RmsWordKind::Attribute:
+        return colors.property;
+    case RmsWordKind::Terrain:
+        return colors.string;
+    case RmsWordKind::Number:
+        return colors.number;
+    case RmsWordKind::Plain:
+    case RmsWordKind::Brace:
+        break;
+    }
+    return colors.plain;
+}
+
+// A multiline text box that colours a random map script like Xcode does. ImGui's
+// text box draws one colour, so its own text and caret are made invisible and the
+// words are drawn again over it, at the places ImGui put them, in their colours.
+// Returns true when an edit has just finished.
+bool scriptEditor(const char* id, std::string& text, const ImVec2& size, int points) {
+    const theme::CodeColors& colors = theme::codeColors();
+    const float u = theme::unit();
+    ImGui::PushFont(theme::codeFont(points));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, colors.background);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, colors.background);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, colors.background);
+    ImGui::PushStyleColor(ImGuiCol_TextSelectedBg, colors.selection);
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(std::floor(8.0f * u), std::floor(6.0f * u)));
+    ImGui::InputTextMultiline(id, text.data(), text.capacity() + 1, size,
+                              ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackResize, resizeStringCallback, &text);
+    const ImGuiID inputId = ImGui::GetItemID();
+    const bool finished = ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::PopStyleColor(5);
+
+    // The text box is a child window; its draw list, scroll and padding place the text.
+    ImGuiWindow* box = nullptr;
+    for (ImGuiWindow* child : ImGui::GetCurrentWindow()->DC.ChildWindows) {
+        if (child != nullptr && child->ChildId == inputId) {
+            box = child;
+        }
+    }
+    if (box != nullptr && box->DrawList != nullptr && box->Active) {
+        ImFont* font = ImGui::GetFont();
+        const float fontSize = ImGui::GetFontSize();
+        const ImVec2 padding = ImGui::GetStyle().FramePadding;
+        ImGuiInputTextState* state = ImGui::GetInputTextState(inputId);
+        const bool active = state != nullptr && ImGui::GetActiveID() == inputId;
+        const ImVec2 origin(box->Pos.x + padding.x - (active ? state->Scroll.x : 0.0f), box->Pos.y + padding.y - box->Scroll.y);
+        const ImRect clip = box->InnerClipRect;
+        ImDrawList* draw = box->DrawList;
+        draw->PushClipRect(clip.Min, clip.Max, true);
+        const char* base = text.c_str();
+        std::size_t scanned = 0;
+        std::size_t lineStart = 0;
+        int line = 0;
+        const auto advanceTo = [&](std::size_t position) {
+            for (; scanned < position && scanned < text.size(); ++scanned) {
+                if (text[scanned] == '\n') {
+                    ++line;
+                    lineStart = scanned + 1;
+                }
+            }
+        };
+        for (const RmsWordSpan& span : rmsWordSpans(text)) {
+            advanceTo(span.start);
+            const float y = origin.y + static_cast<float>(line) * fontSize;
+            if (y > clip.Max.y) {
+                break;
+            }
+            if (y + fontSize < clip.Min.y) {
+                continue;
+            }
+            const float x = origin.x + font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, base + lineStart, base + span.start).x;
+            draw->AddText(font, fontSize, ImVec2(x, y), scriptWordColor(span.kind, colors), base + span.start, base + span.start + span.length);
+        }
+        if (active) {
+            const bool blinkOn = !ImGui::GetIO().ConfigInputTextCursorBlink || state->CursorAnim <= 0.0f
+                || std::fmod(state->CursorAnim, 1.20f) <= 0.80f;
+            const std::size_t cursor = static_cast<std::size_t>(std::clamp(state->GetCursorPos(), 0, static_cast<int>(text.size())));
+            std::size_t caretLineStart = 0;
+            int caretLine = 0;
+            for (std::size_t i = 0; i < cursor; ++i) {
+                if (text[i] == '\n') {
+                    ++caretLine;
+                    caretLineStart = i + 1;
+                }
+            }
+            if (blinkOn) {
+                const float x = std::floor(origin.x + font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, base + caretLineStart, base + cursor).x);
+                const float top = origin.y + static_cast<float>(caretLine) * fontSize + 0.5f;
+                draw->AddRectFilled(ImVec2(x, top), ImVec2(x + std::max(1.0f, std::floor(1.5f * u)), top + fontSize - 2.0f), colors.caret);
+            }
+        }
+        draw->PopClipRect();
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopFont();
+    return finished;
+}
+
 }  // namespace
 
 std::filesystem::path EditorApp::randomMapScriptPath() const {
@@ -9249,6 +9362,31 @@ void EditorApp::drawRandomMap() {
     if (wasOpen && !showRandomMap_) {
         saveRandomMapScript();
     }
+    // Command + and Command - make the script larger or smaller, as in Xcode.
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        int step = 0;
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Equal) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Equal)
+            || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_KeypadAdd)) {
+            step = 1;
+        } else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Minus) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_KeypadSubtract)) {
+            step = -1;
+        }
+        if (step != 0) {
+            const std::vector<int>& sizes = theme::codeFontSizes();
+            int index = 0;
+            for (int i = 0; i < static_cast<int>(sizes.size()); ++i) {
+                if (std::abs(sizes[static_cast<std::size_t>(i)] - randomMapFontSize_) < std::abs(sizes[static_cast<std::size_t>(index)] - randomMapFontSize_)) {
+                    index = i;
+                }
+            }
+            index = std::clamp(index + step, 0, static_cast<int>(sizes.size()) - 1);
+            if (sizes[static_cast<std::size_t>(index)] != randomMapFontSize_) {
+                randomMapFontSize_ = sizes[static_cast<std::size_t>(index)];
+                saveEditorOptions();
+            }
+            statusNote_ = "Script text " + std::to_string(randomMapFontSize_) + " pt";
+        }
+    }
     theme::helpText(text(Text::RandomMapHelp));
     ImGui::Spacing();
 
@@ -9260,9 +9398,7 @@ void EditorApp::drawRandomMap() {
     const float editorWidth = std::max(120.0f, ImGui::GetContentRegionAvail().x - listWidth - style.ItemSpacing.x);
     const float bodyHeight = std::max(120.0f, ImGui::GetContentRegionAvail().y - footer);
 
-    ImGui::InputTextMultiline("##random-map-script", randomMapScript_.data(), randomMapScript_.capacity() + 1, ImVec2(editorWidth, bodyHeight),
-                              ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackResize, resizeStringCallback, &randomMapScript_);
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
+    if (scriptEditor("##random-map-script", randomMapScript_, ImVec2(editorWidth, bodyHeight), randomMapFontSize_)) {
         saveRandomMapScript();
     }
     ImGui::SameLine();

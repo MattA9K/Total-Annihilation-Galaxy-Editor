@@ -18,6 +18,7 @@ namespace {
 ImFont* gSmall = nullptr;
 ImFont* gBold = nullptr;
 ImFont* gLabel = nullptr;
+std::vector<ImFont*> gCode;
 bool gEllipsisGlyph = false;
 bool gCommandGlyphs = false;
 
@@ -122,6 +123,27 @@ std::vector<FontFile> regularFonts() {
     fonts.push_back({"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", 0});
     fonts.push_back({"/usr/share/fonts/noto/NotoSans-Regular.ttf", 0});
     fonts.push_back({"/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 0});
+#endif
+    return fonts;
+}
+
+std::vector<FontFile> codeFontFiles() {
+    std::vector<FontFile> fonts;
+#if defined(__APPLE__)
+    fonts.push_back({"/System/Library/Fonts/SFNSMono.ttf", 0});
+    fonts.push_back({"/System/Library/Fonts/Menlo.ttc", 0});
+#elif defined(_WIN32)
+    const char* windir = std::getenv("WINDIR");
+    const std::filesystem::path dir = std::filesystem::path(windir != nullptr ? windir : "C:\\Windows") / "Fonts";
+    fonts.push_back({dir / "consola.ttf", 0});
+    fonts.push_back({dir / "cour.ttf", 0});
+#else
+    fonts.push_back({"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 0});
+    fonts.push_back({"/usr/share/fonts/TTF/DejaVuSansMono.ttf", 0});
+    fonts.push_back({"/usr/share/fonts/dejavu/DejaVuSansMono.ttf", 0});
+    fonts.push_back({"/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf", 0});
+    fonts.push_back({"/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf", 0});
+    fonts.push_back({"/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf", 0});
 #endif
     return fonts;
 }
@@ -410,6 +432,28 @@ void setup(float contentScale) {
             gBold = regular;
         }
     }
+    // Code takes Latin text only, so the many sizes stay small in the atlas.
+    gCode.clear();
+    for (const int points : codeFontSizes()) {
+        ImFont* code = nullptr;
+        for (const FontFile& file : codeFontFiles()) {
+            std::error_code error;
+            if (!std::filesystem::is_regular_file(file.path, error)) {
+                continue;
+            }
+            ImFontConfig config;
+            config.FontNo = file.index;
+            config.OversampleH = 2;
+            config.OversampleV = 1;
+            config.PixelSnapH = true;
+            code = io.Fonts->AddFontFromFileTTF(file.path.string().c_str(), static_cast<float>(points) * raster, &config,
+                                                io.Fonts->GetGlyphRangesDefault());
+            if (code != nullptr) {
+                break;
+            }
+        }
+        gCode.push_back(code != nullptr ? code : regular);
+    }
     io.FontDefault = regular;
     io.FontGlobalScale = uiScale / raster;
     io.Fonts->Build();
@@ -451,6 +495,36 @@ ImFont* boldFont() {
 
 ImFont* toolbarLabelFont() {
     return gLabel != nullptr ? gLabel : ImGui::GetFont();
+}
+
+const std::vector<int>& codeFontSizes() {
+    static const std::vector<int> sizes = {9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32};
+    return sizes;
+}
+
+ImFont* codeFont(int points) {
+    const std::vector<int>& sizes = codeFontSizes();
+    std::size_t best = 0;
+    for (std::size_t i = 0; i < sizes.size(); ++i) {
+        if (std::abs(sizes[i] - points) < std::abs(sizes[best] - points)) {
+            best = i;
+        }
+    }
+    return best < gCode.size() && gCode[best] != nullptr ? gCode[best] : ImGui::GetFont();
+}
+
+const CodeColors& codeColors() {
+    // Xcode's Default (Light): near-black text on white, grey comments, purple
+    // keywords, brown preprocessor, blue numbers, red strings.
+    static const CodeColors light{
+        rgb32(255, 255, 255), rgb32(38, 38, 38), rgb32(93, 108, 121), rgb32(155, 35, 147), rgb32(100, 56, 32),
+        rgb32(28, 0, 207), rgb32(15, 104, 160), rgb32(50, 109, 116), rgb32(196, 26, 22), rgb32(164, 205, 255), rgb32(0, 0, 0)};
+    // Xcode's Midnight: white on black, green comments, magenta keywords, orange
+    // preprocessor, violet numbers, red strings.
+    static const CodeColors midnight{
+        rgb32(0, 0, 0), rgb32(255, 255, 255), rgb32(65, 204, 69), rgb32(211, 24, 149), rgb32(230, 122, 60),
+        rgb32(120, 109, 255), rgb32(0, 160, 255), rgb32(35, 255, 131), rgb32(255, 44, 56), rgb32(60, 74, 107), rgb32(255, 255, 255)};
+    return dark() ? midnight : light;
 }
 
 float unit() {

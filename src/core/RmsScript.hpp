@@ -70,6 +70,29 @@ const std::vector<std::string>& rmsSectionOrder();
 // so the same text and the same generator state always give the same commands.
 RmsScript readRandomMapScript(std::string_view text, const RmsScriptSettings& settings, std::mt19937& rng);
 
+// What a word is, for colouring a script the way a code editor does.
+enum class RmsWordKind {
+    Plain,
+    Comment,    // inside /* */
+    Section,    // <LAND_GENERATION>
+    Keyword,    // if, elseif, else, endif, start_random, percent_chance, end_random
+    Directive,  // #define, #const, #include_drs
+    Command,    // create_land, base_terrain
+    Attribute,  // land_percent, terrain_type
+    Terrain,    // GREENWORLD_BASE-85
+    Number,     // 12, rnd(1,5), and the numbers in (A * 2)
+    Brace,
+};
+
+struct RmsWordSpan {
+    std::size_t start = 0;  // byte offset into the text
+    std::size_t length = 0;
+    RmsWordKind kind = RmsWordKind::Plain;
+};
+
+// Every word of a script with what it is, in order. Whitespace is not included.
+std::vector<RmsWordSpan> rmsWordSpans(std::string_view text);
+
 // Splits text into the words the reader works with, and the line each starts on.
 // Braces are words of their own even when they touch other text.
 std::vector<std::pair<std::string, int>> rmsWords(std::string_view text);
