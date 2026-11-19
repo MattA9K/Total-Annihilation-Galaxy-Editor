@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/OrbitCamera.hpp"
+#include "core/RandomMap.hpp"
 #include "core/RiverBrush.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "format/MapFile.hpp"
@@ -178,7 +179,14 @@ private:
     void chooseGameFolder();
     void setGameFolder(const std::filesystem::path& folder);
     void saveEditorOptions() const;
-    void drawGenerate();
+    // File > Random Map Generator: a floating window with an Age of Empires II
+    // style random map script, run on the active map with the Tile Brush.
+    void drawRandomMap();
+    // Runs the window's script on the active map as one undoable edit. Returns
+    // false, and leaves the map alone, when nothing could be painted.
+    bool generateRandomMap();
+    std::filesystem::path randomMapScriptPath() const;
+    void saveRandomMapScript() const;
     void drawNewMap();
     void drawResizeMap();
     void applyResize();
@@ -695,7 +703,18 @@ private:
     bool showMapSettings_ = false;
     int mapSettingsTab_ = 0;
     bool mapSettingsFresh_ = false;
-    bool showGenerate_ = false;
+    bool showRandomMap_ = false;
+    bool randomMapLoaded_ = false;
+    std::string randomMapScript_;
+    int randomMapPlayers_ = 2;
+    int randomMapSeed_ = 1;
+    // What the last run said: notes about the script, and a line about the result.
+    std::vector<RmsMessage> randomMapNotes_;
+    std::string randomMapResult_;
+    bool randomMapFailed_ = false;
+    // The random map tileset's bases and pieces, read again when that archive changes.
+    RandomMapTiles randomMapTiles_;
+    std::string randomMapTilesKey_;
     bool showNew_ = false;
     bool showResize_ = false;
     int resizeLeft_ = 0;
@@ -709,14 +728,6 @@ private:
     int modifyHeightAmount_ = 85;
     int newWidth_ = 64;
     int newHeight_ = 64;
-    std::string genWorld_;
-    int genRivers_ = 35;
-    int genCanyons_ = 40;
-    int genMountains_ = 20;
-    int genHills_ = 35;
-    int genShore_ = 25;
-    int genPools_ = 15;
-    int genSeed_ = 1;
     TileDeduper deduper_;
     std::vector<EditorCommand> undo_;
     std::vector<EditorCommand> redo_;

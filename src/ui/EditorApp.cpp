@@ -7,7 +7,6 @@
 #include "core/I18n.hpp"
 #include "core/SlopeBrush.hpp"
 #include "core/FavoritesArchive.hpp"
-#include "core/MapGenerator.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
 #include "format/TaPalette.hpp"
@@ -38,7 +37,9 @@
 #include <cstdint>
 #include <ctime>
 #include <exception>
+#include <fstream>
 #include <map>
+#include <sstream>
 #include <random>
 #include <string>
 #include <string_view>
@@ -8998,148 +8999,384 @@ void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
     brushCatalogKey_.clear();
 }
 
-void EditorApp::drawGenerate() {
-    if (!showGenerate_) {
-        return;
-    }
-    ImGui::OpenPopup("Generate Map");
-    ImGui::SetNextWindowSize(ImVec2(460.0f, 0.0f), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Generate Map", &showGenerate_, ImGuiWindowFlags_AlwaysAutoResize)) {
-        return;
-    }
+namespace {
 
-    std::map<std::string, std::string> familyLabels;
+// The script a new Random Map Generator window starts with.
+constexpr const char* kExampleRandomMapScript = R"(/* Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as GREENWORLD_BASE-85.
+   One tile here is one square of the map's game size: 16 x 16 map tiles. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain GREENWORLD_BASE-0
+
+/* An island for each player, kept two tiles from the others. */
+create_player_lands {
+  terrain_type GREENWORLD_BASE-85
+  land_percent 50
+  /* Small maps have room for smaller starting areas only. */
+  if TINY_MAP
+    base_size 1
+  else
+    base_size 2
+  endif
+  other_zone_avoidance_distance 2
+  border_fuzziness 30
+  clumping_factor 15
+}
+
+<TERRAIN_GENERATION>
+/* High ground behind cliffs, kept a tile from the water. */
+create_terrain GREENWORLD_BASE-219 {
+  base_terrain GREENWORLD_BASE-85
+  land_percent 5
+  number_of_clumps 4
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* Lava out at sea. Lava cannot touch water, so the brush rings it with grass. */
+create_terrain LAVA_BASE-86 {
+  base_terrain GREENWORLD_BASE-0
+  land_percent 3
+  number_of_clumps 2
+  spacing_to_other_terrain_types 2
+}
+
+<CONNECTION_GENERATION>
+/* Shallow water between the players' islands. */
+create_connect_all_players_land {
+  replace_terrain GREENWORLD_BASE-0 GREENWORLD_BASE-68
+  terrain_size GREENWORLD_BASE-0 0 0
+}
+)";
+
+// What a map is without base_terrain, and a land without terrain_type. The game uses GRASS.
+constexpr const char* kRandomMapFallbackTerrain = "GREENWORLD_BASE-85";
+
+int resizeStringCallback(ImGuiInputTextCallbackData* data) {
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+        auto* text = static_cast<std::string*>(data->UserData);
+        text->resize(static_cast<std::size_t>(data->BufTextLen));
+        data->Buf = text->data();
+    }
+    return 0;
+}
+
+}  // namespace
+
+std::filesystem::path EditorApp::randomMapScriptPath() const {
+    return editorSettingsPath().parent_path() / "RandomMapScript.rms";
+}
+
+void EditorApp::saveRandomMapScript() const {
+    if (!randomMapLoaded_) {
+        return;
+    }
+    try {
+        const std::filesystem::path path = randomMapScriptPath();
+        std::error_code error;
+        std::filesystem::create_directories(path.parent_path(), error);
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out << randomMapScript_;
+    } catch (const std::exception&) {
+    }
+}
+
+bool EditorApp::generateRandomMap() {
+    randomMapNotes_.clear();
+    randomMapResult_.clear();
+    randomMapFailed_ = true;
+    if (!map_) {
+        randomMapResult_ = text(Text::RandomMapNeedsMap);
+        return false;
+    }
+    const TilesetArchive* source = nullptr;
     for (const TilesetArchive& archive : tilesets_.archives()) {
-        for (const TilesetSection& section : archive.sections) {
-            const std::string key = tilesetFamilyKey(section.world);
-            const auto found = familyLabels.find(key);
-            if (found == familyLabels.end()) {
-                familyLabels.emplace(key, section.world);
+        if (isRandomMapTileset(archive.path)) {
+            source = &archive;
+            break;
+        }
+    }
+    if (source == nullptr) {
+        randomMapResult_ = text(Text::RandomMapNoTileset);
+        return false;
+    }
+    const std::string key = source->path.string() + "\n" + std::to_string(source->sections.size());
+    if (key != randomMapTilesKey_) {
+        randomMapTiles_ = RandomMapTiles(source->sections);
+        randomMapTilesKey_ = key;
+    }
+    const RandomMapTiles& tiles = randomMapTiles_;
+
+    try {
+        const int cell = kBrushCellTiles;
+        const int cellsX = (map_->tileWidth + cell - 1) / cell;
+        const int cellsY = (map_->tileHeight + cell - 1) / cell;
+        const int players = std::clamp(randomMapPlayers_, 1, 10);
+        std::mt19937 rng(static_cast<std::uint32_t>(randomMapSeed_));
+        RmsScriptSettings settings;
+        settings.conditions = rmsConditions(players, cellsX, cellsY);
+        const RmsScript script = readRandomMapScript(randomMapScript_, settings, rng);
+
+        // The brush's levels are every base of each world the script names.
+        std::vector<int> used;
+        for (const std::string& name : rmsTerrainNames(script, kRandomMapFallbackTerrain)) {
+            const int paint = tiles.findPaint(name);
+            if (paint >= 0) {
+                used.push_back(paint);
+            }
+        }
+        if (used.empty() && tiles.findPaint(kRandomMapFallbackTerrain) >= 0) {
+            used.push_back(tiles.findPaint(kRandomMapFallbackTerrain));
+        }
+        const std::vector<int> levels = tiles.levelsFor(used);
+        if (levels.empty()) {
+            randomMapResult_ = text(Text::RandomMapNoTileset);
+            return false;
+        }
+        BrushCanvas canvas(cellsX + 1, cellsY + 1, tiles.graphFor(levels));
+        RmsTerrainNames names;
+        names.find = [&](std::string_view name) {
+            const int paint = tiles.findPaint(name);
+            const auto found = std::find(levels.begin(), levels.end(), paint);
+            return paint < 0 || found == levels.end() ? -1 : static_cast<int>(found - levels.begin());
+        };
+        names.fallback = std::max(0, names.find(kRandomMapFallbackTerrain));
+        RandomMapOptions options;
+        options.players = players;
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+        canvas.repair([&](const std::array<int, 4>& corners) { return !tiles.pieces(canvas.graph(), levels, corners).empty(); });
+        const RandomMapStampPlan plan = planRandomMapStamps(tiles, levels, canvas, rng);
+
+        // Every section is read before the map changes, so a missing file leaves the map alone.
+        std::unordered_map<std::string, SectionStamp> loaded;
+        for (const RandomMapStamp& stamp : plan.stamps) {
+            if (loaded.count(stamp.sectionPath) != 0) {
                 continue;
             }
-            const bool candidateIsBase = lowerText(section.world) == key;
-            const bool currentIsBase = lowerText(found->second) == key;
-            if (candidateIsBase && !currentIsBase) {
-                found->second = section.world;
-            } else if (candidateIsBase == currentIsBase && section.world.size() < found->second.size()) {
-                found->second = section.world;
+            const HpiFile* file = source->archive().find(stamp.sectionPath);
+            if (file == nullptr) {
+                throw std::runtime_error(stamp.sectionPath + " is missing from the random map tileset.");
             }
+            loaded.emplace(stamp.sectionPath, loadSectionStamp(source->archive().extract(*file)));
         }
-    }
-    std::vector<std::string> worlds;
-    worlds.reserve(familyLabels.size());
-    for (const auto& [key, label] : familyLabels) {
-        (void)key;
-        worlds.push_back(label);
-    }
-    std::sort(worlds.begin(), worlds.end());
-    if (genWorld_.empty() || std::find(worlds.begin(), worlds.end(), genWorld_) == worlds.end()) {
-        genWorld_.clear();
-        for (const std::string& world : worlds) {
-            if (world == "GreenWorld") {
-                genWorld_ = world;
-                break;
-            }
-        }
-        if (genWorld_.empty() && !worlds.empty()) {
-            genWorld_ = worlds.front();
-        }
-    }
 
-    theme::helpText(
-        "Rebuilds the open map from section pieces. Rivers stay connected. Cliffs and shores are chosen from the height at each corner, so a plateau or a coastline meets the grass instead of stepping onto it. The map keeps its size, sea level, and start positions. Features are cleared.");
+        const int tileCountBefore = map_->tileCount;
+        std::optional<TilePatch> before = captureTilePatch(*map_, 0, 0, map_->tileWidth, map_->tileHeight);
+        if (!before) {
+            randomMapResult_ = text(Text::RandomMapNeedsMap);
+            return false;
+        }
+        for (const RandomMapStamp& stamp : plan.stamps) {
+            const SectionStamp& section = loaded.at(stamp.sectionPath);
+            if (stamp.fill > 0 && section.tileWidth > 0 && section.tileHeight > 0
+                && (section.tileWidth < stamp.fill || section.tileHeight < stamp.fill)) {
+                // A base smaller than the cell repeats until the cell is covered.
+                for (int y = 0; y < stamp.fill; y += section.tileHeight) {
+                    for (int x = 0; x < stamp.fill; x += section.tileWidth) {
+                        stampSection(*map_, section, stamp.tileX + x, stamp.tileY + y, &deduper_, 100);
+                    }
+                }
+            } else {
+                stampSection(*map_, section, stamp.tileX, stamp.tileY, &deduper_, 100);
+            }
+        }
+        std::optional<TilePatch> after = captureTilePatch(*map_, 0, 0, map_->tileWidth, map_->tileHeight);
+        PlacementChange change;
+        change.before = std::move(*before);
+        change.after = std::move(*after);
+        if (change.after.tileCount > change.before.tileCount) {
+            const std::size_t start = static_cast<std::size_t>(change.before.tileCount) * 1024;
+            change.addedTiles.assign(map_->tileImages.begin() + static_cast<std::ptrdiff_t>(start), map_->tileImages.end());
+        }
+        rememberPlacement(std::move(change));
+        warnIfPastVanillaTiles(tileCountBefore);
+
+        randomMapNotes_ = script.messages;
+        randomMapNotes_.insert(randomMapNotes_.end(), outcome.messages.begin(), outcome.messages.end());
+        std::stable_sort(randomMapNotes_.begin(), randomMapNotes_.end(), [](const RmsMessage& left, const RmsMessage& right) {
+            return left.line < right.line;
+        });
+        if (plan.missingCells > 0) {
+            std::string names;
+            for (std::size_t i = 0; i < plan.missing.size() && i < 3; ++i) {
+                names += (i == 0 ? "" : ", ") + plan.missing[i];
+            }
+            randomMapNotes_.push_back(RmsMessage{0, std::to_string(plan.missingCells) + " cells had no piece in the tileset (" + names
+                                                         + "), so they were filled with their most common base."});
+        }
+        randomMapResult_ = formatText(Text::RandomMapDone, {std::to_string(randomMapSeed_), std::to_string(randomMapNotes_.size())});
+        randomMapFailed_ = false;
+        statusNote_ = "Generated a random map: " + std::to_string(outcome.lands) + (outcome.lands == 1 ? " land, " : " lands, ")
+            + std::to_string(outcome.terrains) + (outcome.terrains == 1 ? " terrain, " : " terrains, ")
+            + std::to_string(outcome.connections) + (outcome.connections == 1 ? " connection" : " connections");
+        error_.clear();
+        return true;
+    } catch (const std::exception& ex) {
+        randomMapResult_ = ex.what();
+        return false;
+    }
+}
+
+void EditorApp::drawRandomMap() {
+    if (!showRandomMap_) {
+        return;
+    }
+    if (!randomMapLoaded_) {
+        randomMapLoaded_ = true;
+        std::ifstream in(randomMapScriptPath(), std::ios::binary);
+        std::ostringstream saved;
+        if (in) {
+            saved << in.rdbuf();
+        }
+        randomMapScript_ = saved.str().empty() ? std::string(kExampleRandomMapScript) : saved.str();
+        std::mt19937 seedRng{std::random_device{}()};
+        randomMapSeed_ = std::uniform_int_distribution<int>(1, 999983)(seedRng);
+    }
+    const float u = theme::unit();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + std::floor(240.0f * u), viewport->WorkPos.y + std::floor(60.0f * u)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(std::floor(900.0f * u), std::floor(660.0f * u)), ImGuiCond_FirstUseEver);
+    const std::string title = withId(Text::RandomMapGenerator, "Random Map Generator");
+    const bool wasOpen = showRandomMap_;
+    if (!ImGui::Begin(title.c_str(), &showRandomMap_)) {
+        ImGui::End();
+        return;
+    }
+    if (wasOpen && !showRandomMap_) {
+        saveRandomMapScript();
+    }
+    theme::helpText(text(Text::RandomMapHelp));
     ImGui::Spacing();
 
-    if (worlds.empty()) {
-        ImGui::TextWrapped("No tileset is loaded. Set the Total Annihilation folder in Options to load the world archives.");
-    } else if (ImGui::BeginCombo("World", genWorld_.c_str())) {
-        for (const std::string& world : worlds) {
-            if (ImGui::Selectable(world.c_str(), world == genWorld_)) {
-                genWorld_ = world;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const bool showNotes = !randomMapResult_.empty() || !randomMapNotes_.empty();
+    const float notesHeight = showNotes ? std::floor(110.0f * u) : 0.0f;
+    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + style.ItemSpacing.y * 2.0f + (showNotes ? notesHeight + style.ItemSpacing.y : 0.0f);
+    const float listWidth = std::floor(250.0f * u);
+    const float editorWidth = std::max(120.0f, ImGui::GetContentRegionAvail().x - listWidth - style.ItemSpacing.x);
+    const float bodyHeight = std::max(120.0f, ImGui::GetContentRegionAvail().y - footer);
+
+    ImGui::InputTextMultiline("##random-map-script", randomMapScript_.data(), randomMapScript_.capacity() + 1, ImVec2(editorWidth, bodyHeight),
+                              ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackResize, resizeStringCallback, &randomMapScript_);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        saveRandomMapScript();
+    }
+    ImGui::SameLine();
+    ImGui::BeginChild("random-map-terrains", ImVec2(listWidth, bodyHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
+    theme::sourceListTitle(text(Text::RandomMapTerrains));
+    ImGui::PushFont(theme::smallFont());
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+    ImGui::TextWrapped("%s", text(Text::RandomMapTerrainsHelp));
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+    ImGui::Spacing();
+    // The terrain list reads the random map tileset; it fills in once that archive is loaded.
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        if (!isRandomMapTileset(archive.path)) {
+            continue;
+        }
+        const std::string key = archive.path.string() + "\n" + std::to_string(archive.sections.size());
+        if (key != randomMapTilesKey_) {
+            randomMapTiles_ = RandomMapTiles(archive.sections);
+            randomMapTilesKey_ = key;
+        }
+        break;
+    }
+    if (randomMapTiles_.paints().empty()) {
+        ImGui::TextWrapped("%s", text(Text::RandomMapNoTileset));
+    }
+    std::string world;
+    for (const RandomMapPaint& paint : randomMapTiles_.paints()) {
+        if (paint.world != world) {
+            world = paint.world;
+            if (ImGui::GetCursorPosY() > ImGui::GetTextLineHeightWithSpacing() * 3.0f) {
+                ImGui::Spacing();
+            }
+            ImGui::PushFont(theme::boldFont());
+            ImGui::TextUnformatted(world.c_str());
+            ImGui::PopFont();
+        }
+        if (ImGui::Selectable(paint.terrain.c_str())) {
+            ImGui::SetClipboardText(paint.terrain.c_str());
+            statusNote_ = "Copied " + paint.terrain;
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(text(Text::RandomMapPlayers));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::floor(110.0f * u));
+    if (ImGui::InputInt("##random-map-players", &randomMapPlayers_)) {
+        randomMapPlayers_ = std::clamp(randomMapPlayers_, 1, 10);
+    }
+    ImGui::SameLine(0.0f, std::floor(18.0f * u));
+    ImGui::TextUnformatted(text(Text::RandomMapSeed));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::floor(140.0f * u));
+    ImGui::InputInt("##random-map-seed", &randomMapSeed_);
+    ImGui::SameLine();
+    if (ImGui::Button(text(Text::RandomMapNewSeed))) {
+        std::mt19937 seedRng{std::random_device{}()};
+        randomMapSeed_ = std::uniform_int_distribution<int>(1, 999983)(seedRng);
+    }
+
+    if (showNotes) {
+        ImGui::Spacing();
+        ImGui::BeginChild("random-map-notes", ImVec2(0.0f, notesHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
+        if (!randomMapResult_.empty()) {
+            if (randomMapFailed_) {
+                const ImVec4 warning = theme::dark() ? ImVec4(0.98f, 0.80f, 0.25f, 1.0f) : ImVec4(0.66f, 0.45f, 0.0f, 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, warning);
+                ImGui::TextWrapped("%s", randomMapResult_.c_str());
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::TextWrapped("%s", randomMapResult_.c_str());
             }
         }
-        ImGui::EndCombo();
-    }
-    if (!worlds.empty() && ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Packs that share a name before _New are one world. Acid includes Acid_New_1, Acid_New_2, and Acid_New_3.");
-    }
-
-    ImGui::SliderInt("Rivers", &genRivers_, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Connected channels. Each piece is a banked river, so the water meets the next channel instead of filling a square.");
-    }
-    ImGui::SliderInt("Canyons", &genCanyons_, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Raised shelves and mesas. Edge, corner, and flat pieces are picked so neighboring height edges agree.");
-    }
-    ImGui::SliderInt("Mountains", &genMountains_, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Large peaks placed on the flat ground.");
-    }
-    ImGui::SliderInt("Hills", &genHills_, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Smaller rises scattered over the grass.");
-    }
-    ImGui::SliderInt("Shoreline", &genShore_, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Water along the map edge. Coast pieces follow the corner heights, so the water meets the grass. Higher values add the opposite shore, then a full ring.");
-    }
-    ImGui::SliderInt("Pools", &genPools_, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Small ponds on the flat ground.");
-    }
-    ImGui::InputInt("Seed", &genSeed_);
-    ImGui::SameLine();
-    if (ImGui::Button("New Seed")) {
-        std::mt19937 seedRng{std::random_device{}()};
-        std::uniform_int_distribution<int> seedPick(1, 999983);
-        genSeed_ = seedPick(seedRng);
-    }
-
-    ImGui::Dummy(ImVec2(0.0f, 8.0f));
-    const float buttonWidth = theme::pushButtonWidth("Generate");
-    theme::alignRight(buttonWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x);
-    if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f))) {
-        showGenerate_ = false;
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(genWorld_.empty() || !map_);
-    if (ImGui::Button("Generate", ImVec2(buttonWidth, 0.0f))) {
-        const int tileCountBefore = map_->tileCount;
-        try {
-            MapGeneratorSettings settings;
-            settings.world = genWorld_;
-            settings.rivers = genRivers_;
-            settings.canyons = genCanyons_;
-            settings.mountains = genMountains_;
-            settings.hills = genHills_;
-            settings.shoreline = genShore_;
-            settings.pools = genPools_;
-            settings.seed = static_cast<unsigned>(std::max(genSeed_, 0));
-            generateTerrain(*map_, tilesets_, settings);
-            deduper_ = {};
-            clearHistory();
-            invalidateView();
-            markMapDirty();
-            statusNote_ = "Generated a new map";
-            error_.clear();
-            warnIfPastVanillaTiles(tileCountBefore);
-            showGenerate_ = false;
-            ImGui::CloseCurrentPopup();
-        } catch (const std::exception& ex) {
-            deduper_ = {};
-            clearHistory();
-            invalidateView();
-            markMapDirty();
-            error_ = ex.what();
-            warnIfPastVanillaTiles(tileCountBefore);
-            showGenerate_ = false;
-            ImGui::CloseCurrentPopup();
+        ImGui::PushFont(theme::smallFont());
+        for (const RmsMessage& note : randomMapNotes_) {
+            const std::string line = note.line > 0 ? formatText(Text::RandomMapLine, {std::to_string(note.line), note.text}) : note.text;
+            ImGui::TextWrapped("%s", line.c_str());
         }
+        ImGui::PopFont();
+        ImGui::EndChild();
+    }
+
+    ImGui::Spacing();
+    const char* exampleLabel = text(Text::RandomMapExample);
+    const char* generateLabel = text(Text::RandomMapGenerate);
+    const float exampleWidth = theme::pushButtonWidth(exampleLabel);
+    const float generateWidth = theme::pushButtonWidth(generateLabel);
+    if (ImGui::Button(exampleLabel, ImVec2(exampleWidth, 0.0f))) {
+        randomMapScript_ = kExampleRandomMapScript;
+        saveRandomMapScript();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", text(Text::RandomMapExampleTip));
+    }
+    if (!map_) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+        ImGui::TextUnformatted(text(Text::RandomMapNeedsMap));
+        ImGui::PopStyleColor();
+    }
+    ImGui::SameLine();
+    theme::alignRight(generateWidth);
+    ImGui::BeginDisabled(!map_ || savingMap());
+    // Return types a new line in the script, so it does not press Generate.
+    if (theme::defaultButton(generateLabel, ImVec2(generateWidth, 0.0f), false)) {
+        saveRandomMapScript();
+        generateRandomMap();
     }
     ImGui::EndDisabled();
-    ImGui::EndPopup();
+    ImGui::End();
 }
 
 std::string backupMapName(std::string name) {
@@ -9487,11 +9724,9 @@ bool EditorApp::draw() {
                 exportMapPng();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem(theme::withEllipsis(text(Text::GenerateMap)).c_str(), nullptr, false, map_.has_value())) {
-                std::mt19937 seedRng{std::random_device{}()};
-                std::uniform_int_distribution<int> seedPick(1, 999983);
-                genSeed_ = seedPick(seedRng);
-                showGenerate_ = true;
+            if (ImGui::MenuItem(theme::withEllipsis(text(Text::RandomMapGenerator)).c_str(), nullptr, showRandomMap_)) {
+                showRandomMap_ = true;
+                ImGui::SetWindowFocus(withId(Text::RandomMapGenerator, "Random Map Generator").c_str());
             }
             ImGui::Separator();
             if (ImGui::MenuItem(text(Text::HpiEditor))) {
@@ -9749,7 +9984,6 @@ bool EditorApp::draw() {
         }
         ImGui::EndPopup();
     }
-    drawGenerate();
     drawNewMap();
     drawResizeMap();
     drawModifyHeight();
@@ -9761,6 +9995,7 @@ bool EditorApp::draw() {
     ImGui::End();
     drawOptions();
     drawMapSettings();
+    drawRandomMap();
     drawMinimap();
     drawTileBrush();
     hpiEditor_.draw();

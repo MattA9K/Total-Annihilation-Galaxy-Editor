@@ -1,0 +1,1466 @@
+#include "core/RandomMap.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <limits>
+#include <map>
+#include <queue>
+#include <set>
+
+namespace galaxy {
+namespace {
+
+std::string lower(std::string_view text) {
+    std::string out(text);
+    for (char& character : out) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    return out;
+}
+
+std::string upper(std::string_view text) {
+    std::string out(text);
+    for (char& character : out) {
+        character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+    }
+    return out;
+}
+
+int trailingHeight(std::string_view name) {
+    const std::size_t dash = name.rfind('-');
+    if (dash == std::string_view::npos || dash + 1 >= name.size()) {
+        return -1;
+    }
+    int value = 0;
+    for (std::size_t i = dash + 1; i < name.size(); ++i) {
+        if (name[i] < '0' || name[i] > '9') {
+            return -1;
+        }
+        value = value * 10 + (name[i] - '0');
+    }
+    return value;
+}
+
+double numberAt(const RmsCommand& command, std::string_view name, double fallback, std::size_t index = 0) {
+    const RmsAttribute* attribute = command.find(name);
+    if (attribute == nullptr || index >= attribute->args.size() || !attribute->args[index].numeric) {
+        return fallback;
+    }
+    return attribute->args[index].number;
+}
+
+bool has(const RmsCommand& command, std::string_view name) {
+    return command.find(name) != nullptr;
+}
+
+// Which of two attributes comes last in a block, for pairs where the later one wins.
+int lastIndexOf(const RmsCommand& command, std::string_view name) {
+    int found = -1;
+    for (std::size_t i = 0; i < command.attributes.size(); ++i) {
+        if (command.attributes[i].name == name) {
+            found = static_cast<int>(i);
+        }
+    }
+    return found;
+}
+
+int chebyshev(int ax, int ay, int bx, int by) {
+    return std::max(std::abs(ax - bx), std::abs(ay - by));
+}
+
+// Scaling in the game compares the map to a 100 x 100 tile map. Script tiles here
+// are game-size squares, so the reference is a 10 x 10 map.
+constexpr double kScaleReference = 100.0;
+
+struct Land {
+    int terrain = 0;
+    int player = 0;
+    int zone = -10;
+    int avoid = 0;
+    int minDistance = 0;
+    int baseSize = 3;
+    bool circular = false;
+    int clumping = 8;
+    int fuzziness = 20;
+    double borders[4] = {0.0, 0.0, 0.0, 0.0};  // left, right, top, bottom, in percent
+    bool positioned = false;
+    double positionX = 0.0;
+    double positionY = 0.0;
+    bool hasTiles = false;
+    int tiles = 0;
+    double percent = 100.0;
+    bool playerShare = false;
+    int generateMode = 0;
+    double circleRadius = -1.0;
+    double circleVariance = 0.0;
+    int line = 0;
+
+    int originX = 0;
+    int originY = 0;
+    int target = 0;
+    std::vector<int> nodes;
+    std::vector<int> frontier;
+    std::vector<signed char> borderVerdict;
+    bool done = false;
+};
+
+class Generator {
+public:
+    Generator(const RmsScript& script, RmsCanvas& canvas, const RmsTerrainNames& names, const RandomMapOptions& options,
+              std::mt19937& rng, RandomMapOutcome& outcome)
+        : script_(script), canvas_(canvas), names_(names), options_(options), rng_(rng), outcome_(outcome) {
+        width_ = std::max(1, canvas.width());
+        height_ = std::max(1, canvas.height());
+        count_ = width_ * height_;
+    }
+
+    void run() {
+        noteUnsupportedSections();
+        for (const RmsCommand& command : script_.commands) {
+            if (command.name == "direct_placement") {
+                directPlacement_ = true;
+            } else if (command.name == "behavior_version") {
+                behaviorVersion_ = command.args.empty() ? 0 : command.args[0].integer();
+            } else if (command.name == "base_layer" || command.name == "enable_waves" || command.name == "color_correction") {
+                note(command.line, command.name + " changes how the game draws terrain, which Total Annihilation maps do not have. It was skipped.");
+            }
+        }
+        landGeneration();
+        terrainGeneration();
+        connectionGeneration();
+    }
+
+private:
+    void note(int line, std::string text) { outcome_.messages.push_back(RmsMessage{line, std::move(text)}); }
+
+    void noteUnsupportedSections() {
+        for (const auto& [section, line] : script_.sections) {
+            if (section == "ELEVATION_GENERATION") {
+                note(line, "Elevation is not generated yet. Paint high ground with a higher base, such as GREENWORLD_BASE-219.");
+            } else if (section == "CLIFF_GENERATION") {
+                note(line, "Cliffs are not generated yet. A higher base, such as GREENWORLD_BASE-219, gets cliff edges.");
+            } else if (section == "OBJECTS_GENERATION") {
+                note(line, "Objects such as trees, rocks and metal are not generated yet, so this section was skipped.");
+            }
+        }
+    }
+
+    int terrainOf(const RmsValue& value, int line) {
+        const int terrain = names_.find ? names_.find(value.text) : -1;
+        if (terrain < 0) {
+            note(line, "\"" + value.text + "\" is not a terrain. Terrain names look like GREENWORLD_BASE-85.");
+        }
+        return terrain;
+    }
+
+    int index(int x, int y) const { return y * width_ + x; }
+    int clampX(int x) const { return std::clamp(x, 0, width_ - 1); }
+    int clampY(int y) const { return std::clamp(y, 0, height_ - 1); }
+
+    // ---------------------------------------------------------------- lands
+
+    void readLand(const RmsCommand& command, Land& land) {
+        land.line = command.line;
+        land.terrain = names_.fallback;
+        if (const RmsAttribute* type = command.find("terrain_type"); type != nullptr && !type->args.empty()) {
+            const int terrain = terrainOf(type->args[0], type->line);
+            if (terrain >= 0) {
+                land.terrain = terrain;
+            }
+        }
+        land.baseSize = static_cast<int>(numberAt(command, "base_size", 3.0));
+        land.circular = has(command, "set_circular_base");
+        land.clumping = static_cast<int>(numberAt(command, "clumping_factor", 8.0));
+        land.fuzziness = static_cast<int>(numberAt(command, "border_fuzziness", 20.0));
+        land.borders[0] = numberAt(command, "left_border", 0.0);
+        land.borders[1] = numberAt(command, "right_border", 0.0);
+        land.borders[2] = numberAt(command, "top_border", 0.0);
+        land.borders[3] = numberAt(command, "bottom_border", 0.0);
+        land.generateMode = static_cast<int>(numberAt(command, "generate_mode", 0.0));
+        if (const RmsAttribute* position = command.find("land_position"); position != nullptr && position->args.size() >= 2) {
+            land.positioned = true;
+            land.positionX = position->args[0].number;
+            land.positionY = position->args[1].number;
+        }
+        const int percentAt = lastIndexOf(command, "land_percent");
+        const int tilesAt = lastIndexOf(command, "number_of_tiles");
+        if (tilesAt > percentAt) {
+            land.hasTiles = true;
+            land.tiles = std::max(0, static_cast<int>(numberAt(command, "number_of_tiles", 0.0)));
+        } else {
+            land.percent = std::clamp(numberAt(command, "land_percent", 100.0), 0.0, 100.0);
+        }
+        land.avoid = std::max(0, static_cast<int>(numberAt(command, "other_zone_avoidance_distance", 0.0)));
+        land.minDistance = std::max(0, static_cast<int>(numberAt(command, "min_placement_distance", static_cast<double>(land.avoid))));
+        if (const RmsAttribute* circle = command.find("circle_radius"); circle != nullptr && !circle->args.empty()) {
+            land.circleRadius = circle->args[0].number;
+            land.circleVariance = circle->args.size() > 1 ? circle->args[1].number : 0.0;
+        }
+        if (has(command, "base_elevation")) {
+            note(command.find("base_elevation")->line, "base_elevation is skipped: elevation is not generated yet.");
+        }
+        if (has(command, "land_conformity")) {
+            note(command.find("land_conformity")->line, "land_conformity is skipped. The game's own guide says it is unreliable.");
+        }
+    }
+
+    // The zone a land gets. Player lands each have their own zone unless a zone is set.
+    void readZone(const RmsCommand& command, Land& land) {
+        if (const RmsAttribute* zone = command.find("zone"); zone != nullptr && !zone->args.empty()) {
+            land.zone = zone->args[0].integer();
+        } else if (has(command, "set_zone_randomly")) {
+            land.zone = std::uniform_int_distribution<int>(-8, std::max(-8, options_.players - 9))(rng_);
+        } else if (land.player > 0) {
+            // set_zone_by_team has no teams to join, so each player keeps a zone of their own.
+            land.zone = land.player - 10;
+        } else {
+            land.zone = -10;
+        }
+    }
+
+    void borderRect(const Land& land, int& left, int& right, int& top, int& bottom) const {
+        left = static_cast<int>(std::lround(land.borders[0] / 100.0 * width_));
+        right = width_ - 1 - static_cast<int>(std::lround(land.borders[1] / 100.0 * width_));
+        top = static_cast<int>(std::lround(land.borders[2] / 100.0 * height_));
+        bottom = height_ - 1 - static_cast<int>(std::lround(land.borders[3] / 100.0 * height_));
+    }
+
+    int clampedBase(const Land& land) const {
+        return std::clamp(land.baseSize, 0, std::max(0, (std::min(width_, height_) - 1) / 2));
+    }
+
+    void computePlayerCircle(const Land& sample, std::vector<std::pair<int, int>>& spots) {
+        int left = 0;
+        int right = 0;
+        int top = 0;
+        int bottom = 0;
+        borderRect(sample, left, right, top, bottom);
+        if (right < left) {
+            std::swap(left, right);
+        }
+        if (bottom < top) {
+            std::swap(top, bottom);
+        }
+        const double centerX = (left + right) * 0.5;
+        const double centerY = (top + bottom) * 0.5;
+        const double span = std::min(right - left, bottom - top) + 1.0;
+        double radius = span * 0.36;
+        double variance = 20.0;
+        if (sample.circleRadius > 0.0) {
+            radius = sample.circleRadius / 100.0 * width_;
+            variance = sample.circleVariance;
+        }
+        const int margin = clampedBase(sample);
+        const int players = std::max(1, options_.players);
+        std::vector<int> order(static_cast<std::size_t>(players));
+        for (int i = 0; i < players; ++i) {
+            order[static_cast<std::size_t>(i)] = i;
+        }
+        // random_placement: players take the seats around the circle in a random order.
+        std::shuffle(order.begin(), order.end(), rng_);
+        const double start = std::uniform_real_distribution<double>(0.0, 6.283185307179586)(rng_);
+        spots.assign(static_cast<std::size_t>(players), {0, 0});
+        for (int seat = 0; seat < players; ++seat) {
+            const double angle = start + 6.283185307179586 * seat / players;
+            const double wobble = std::uniform_real_distribution<double>(-1.0, 1.0)(rng_) * variance / 100.0 * 0.5;
+            const double r = std::max(0.0, radius * (1.0 + wobble));
+            int x = static_cast<int>(std::lround(centerX + std::cos(angle) * r));
+            int y = static_cast<int>(std::lround(centerY + std::sin(angle) * r));
+            x = std::clamp(x, std::min(margin, width_ - 1), std::max(0, width_ - 1 - margin));
+            y = std::clamp(y, std::min(margin, height_ - 1), std::max(0, height_ - 1 - margin));
+            spots[static_cast<std::size_t>(order[static_cast<std::size_t>(seat)])] = {x, y};
+        }
+    }
+
+    bool placeRandomOrigin(Land& land, std::size_t landIndex) {
+        int left = 0;
+        int right = 0;
+        int top = 0;
+        int bottom = 0;
+        borderRect(land, left, right, top, bottom);
+        const int base = clampedBase(land);
+        const double centerX = (width_ - 1) * 0.5;
+        const double centerY = (height_ - 1) * 0.5;
+        std::vector<int> candidates;
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                if (x < base || y < base || x > width_ - 1 - base || y > height_ - 1 - base) {
+                    continue;
+                }
+                if (x < left || x > right || y < top || y > bottom) {
+                    continue;
+                }
+                // The game keeps random lands out of the corners unless generate_mode is 1.
+                if (land.generateMode == 0 && std::fabs(x - centerX) > width_ * 0.3 && std::fabs(y - centerY) > height_ * 0.3) {
+                    continue;
+                }
+                bool clear = true;
+                for (std::size_t other = 0; other < landIndex && clear; ++other) {
+                    const Land& placed = lands_[other];
+                    const int distance = chebyshev(x, y, placed.originX, placed.originY);
+                    if (distance < land.minDistance) {
+                        clear = false;
+                    } else if (placed.player == 0 && land.player == 0 && distance <= base + clampedBase(placed)) {
+                        clear = false;
+                    }
+                }
+                if (clear) {
+                    candidates.push_back(index(x, y));
+                }
+            }
+        }
+        if (candidates.empty()) {
+            land.originX = width_ / 2;
+            land.originY = height_ / 2;
+            return false;
+        }
+        const int chosen = candidates[std::uniform_int_distribution<std::size_t>(0, candidates.size() - 1)(rng_)];
+        land.originX = chosen % width_;
+        land.originY = chosen / width_;
+        return true;
+    }
+
+    void claim(std::size_t landIndex, int node) {
+        Land& land = lands_[landIndex];
+        owner_[static_cast<std::size_t>(node)] = static_cast<int>(landIndex);
+        land.nodes.push_back(node);
+        const int x = node % width_;
+        const int y = node / width_;
+        static constexpr int kSteps[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (const auto& step : kSteps) {
+            const int nx = x + step[0];
+            const int ny = y + step[1];
+            if (nx >= 0 && ny >= 0 && nx < width_ && ny < height_ && owner_[static_cast<std::size_t>(index(nx, ny))] < 0) {
+                land.frontier.push_back(index(nx, ny));
+            }
+        }
+    }
+
+    // How far outside its borders a node is, in nodes. 0 inside.
+    int outside(const Land& land, int x, int y) const {
+        int left = 0;
+        int right = 0;
+        int top = 0;
+        int bottom = 0;
+        borderRect(land, left, right, top, bottom);
+        const int dx = std::max({left - x, x - right, 0});
+        const int dy = std::max({top - y, y - bottom, 0});
+        return std::max(dx, dy);
+    }
+
+    bool landMayTake(std::size_t landIndex, int node) {
+        Land& land = lands_[landIndex];
+        if (owner_[static_cast<std::size_t>(node)] >= 0) {
+            return false;
+        }
+        const int x = node % width_;
+        const int y = node / width_;
+        const int beyond = outside(land, x, y);
+        if (beyond > 0) {
+            signed char& verdict = land.borderVerdict[static_cast<std::size_t>(node)];
+            if (verdict == 0) {
+                // border_fuzziness 0 ignores the borders, 100 keeps them exactly, and
+                // values between let the land spill a little way past them.
+                bool keep = false;
+                if (land.fuzziness == 0) {
+                    keep = true;
+                } else if (land.fuzziness > 0 && land.fuzziness < 100) {
+                    const double chance = std::pow((100.0 - land.fuzziness) / 100.0, 4.0 * beyond);
+                    keep = std::uniform_real_distribution<double>(0.0, 1.0)(rng_) < chance;
+                }
+                verdict = keep ? 1 : -1;
+            }
+            if (verdict < 0) {
+                return false;
+            }
+        }
+        if (land.avoid > 0) {
+            for (int dy = -land.avoid; dy <= land.avoid; ++dy) {
+                for (int dx = -land.avoid; dx <= land.avoid; ++dx) {
+                    const int nx = x + dx;
+                    const int ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width_ || ny >= height_) {
+                        continue;
+                    }
+                    const int other = owner_[static_cast<std::size_t>(index(nx, ny))];
+                    if (other < 0 || other == static_cast<int>(landIndex)) {
+                        continue;
+                    }
+                    const Land& neighbour = lands_[static_cast<std::size_t>(other)];
+                    if (neighbour.zone == land.zone || neighbour.avoid <= 0) {
+                        continue;
+                    }
+                    if (std::max(std::abs(dx), std::abs(dy)) <= std::min(land.avoid, neighbour.avoid)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    int sameNeighbours(const std::vector<int>& owners, int node, int who) const {
+        const int x = node % width_;
+        const int y = node / width_;
+        int count = 0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int nx = x + dx;
+                const int ny = y + dy;
+                if ((dx != 0 || dy != 0) && nx >= 0 && ny >= 0 && nx < width_ && ny < height_
+                    && owners[static_cast<std::size_t>(index(nx, ny))] == who) {
+                    ++count;
+                }
+            }
+        }
+        return count;
+    }
+
+    // Picks the next node to grow into. clumping_factor sets how many frontier
+    // nodes are compared: more samples favour nodes with more of the same land
+    // around them, which grows rounder shapes. A negative factor favours the fewest,
+    // which grows snakes.
+    template <typename Valid>
+    int pickFrontier(std::vector<int>& frontier, int clumping, const std::vector<int>& owners, int who, Valid valid) {
+        const int samples = std::clamp(1 + std::abs(clumping) / 3, 1, 12);
+        int best = -1;
+        int bestScore = 0;
+        int found = 0;
+        int tries = 0;
+        while (!frontier.empty() && found < samples && tries < samples * 6) {
+            ++tries;
+            const std::size_t slot = std::uniform_int_distribution<std::size_t>(0, frontier.size() - 1)(rng_);
+            const int node = frontier[slot];
+            if (!valid(node)) {
+                frontier[slot] = frontier.back();
+                frontier.pop_back();
+                continue;
+            }
+            ++found;
+            const int score = sameNeighbours(owners, node, who) * (clumping >= 0 ? 1 : -1);
+            if (best < 0 || score > bestScore) {
+                best = node;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    void landGeneration() {
+        int base = names_.fallback;
+        std::vector<const RmsCommand*> landCommands;
+        for (const RmsCommand& command : script_.commands) {
+            if (command.section != "LAND_GENERATION") {
+                continue;
+            }
+            if (command.name == "base_terrain" && !command.args.empty()) {
+                const int terrain = terrainOf(command.args[0], command.line);
+                if (terrain >= 0) {
+                    base = terrain;
+                }
+            } else if (command.name == "create_land" || command.name == "create_player_lands") {
+                landCommands.push_back(&command);
+            }
+        }
+        canvas_.fill(base);
+        owner_.assign(static_cast<std::size_t>(count_), -1);
+
+        // Read every land first. create_player_lands makes one land per player.
+        for (const RmsCommand* command : landCommands) {
+            if (command->name == "create_player_lands") {
+                for (int player = 1; player <= std::max(1, options_.players); ++player) {
+                    Land land;
+                    readLand(*command, land);
+                    land.player = player;
+                    land.playerShare = true;
+                    readZone(*command, land);
+                    lands_.push_back(land);
+                }
+                continue;
+            }
+            Land land;
+            readLand(*command, land);
+            if (const RmsAttribute* assign = command->find("assign_to_player"); assign != nullptr && !assign->args.empty()) {
+                const int player = assign->args[0].integer();
+                if (player > options_.players) {
+                    // The game skips lands for players who are not playing.
+                    continue;
+                }
+                land.player = std::max(0, player);
+            } else if (const RmsAttribute* target = command->find("assign_to"); target != nullptr && target->args.size() >= 2) {
+                const int player = target->args[0].integer() == 0 ? target->args[1].integer() : 0;
+                if (player > options_.players) {
+                    continue;
+                }
+                land.player = std::max(0, player);
+                if (target->args[0].integer() != 0) {
+                    note(target->line, "assign_to by colour or team is read as unassigned: Total Annihilation has no teams here.");
+                }
+            }
+            readZone(*command, land);
+            lands_.push_back(land);
+        }
+        if (lands_.empty()) {
+            return;
+        }
+
+        // Origins, in script order.
+        std::vector<std::pair<int, int>> circle;
+        for (std::size_t i = 0; i < lands_.size(); ++i) {
+            Land& land = lands_[i];
+            land.borderVerdict.assign(static_cast<std::size_t>(count_), 0);
+            const bool onCircle = land.player > 0 && !(directPlacement_ && land.positioned);
+            if (onCircle) {
+                if (circle.empty()) {
+                    computePlayerCircle(land, circle);
+                }
+                const std::size_t seat = static_cast<std::size_t>(land.player - 1);
+                land.originX = circle[std::min(seat, circle.size() - 1)].first;
+                land.originY = circle[std::min(seat, circle.size() - 1)].second;
+            } else if (land.positioned) {
+                land.originX = clampX(static_cast<int>(std::floor(land.positionX / 100.0 * width_)));
+                land.originY = clampY(static_cast<int>(std::floor(land.positionY / 100.0 * height_)));
+            } else if (!placeRandomOrigin(land, i)) {
+                note(land.line, "There was no room for this land's origin, so it starts at the middle of the map.");
+            }
+        }
+
+        // Bases first, then every land grows at once, one node per land per round.
+        for (std::size_t i = 0; i < lands_.size(); ++i) {
+            Land& land = lands_[i];
+            const int radius = clampedBase(land);
+            int claimed = 0;
+            for (int dy = -radius; dy <= radius; ++dy) {
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    if (land.circular && radius > 3 && dx * dx + dy * dy > (radius + 0.5) * (radius + 0.5)) {
+                        continue;
+                    }
+                    const int x = land.originX + dx;
+                    const int y = land.originY + dy;
+                    if (x < 0 || y < 0 || x >= width_ || y >= height_ || owner_[static_cast<std::size_t>(index(x, y))] >= 0) {
+                        continue;
+                    }
+                    claim(i, index(x, y));
+                    ++claimed;
+                }
+            }
+            if (land.hasTiles) {
+                land.target = behaviorVersion_ >= 1 ? std::max(claimed, land.tiles) : claimed + land.tiles;
+            } else {
+                double share = land.percent / 100.0 * count_;
+                if (land.playerShare) {
+                    share /= std::max(1, options_.players);
+                }
+                land.target = std::max(claimed, static_cast<int>(std::lround(share)));
+            }
+        }
+        bool growing = true;
+        while (growing) {
+            growing = false;
+            for (std::size_t i = 0; i < lands_.size(); ++i) {
+                Land& land = lands_[i];
+                if (land.done || static_cast<int>(land.nodes.size()) >= land.target) {
+                    continue;
+                }
+                const int next = pickFrontier(land.frontier, land.clumping, owner_, static_cast<int>(i),
+                                              [&](int node) { return landMayTake(i, node); });
+                if (next < 0) {
+                    land.done = true;
+                    continue;
+                }
+                claim(i, next);
+                growing = true;
+            }
+        }
+
+        // Paint in script order, so a later land's brush edges go over an earlier one.
+        outcome_.playerOrigins.assign(static_cast<std::size_t>(std::max(0, options_.players)), {-1, -1});
+        for (const Land& land : lands_) {
+            for (const int node : land.nodes) {
+                canvas_.paint(node % width_, node / width_, land.terrain);
+            }
+            if (land.player > 0 && land.player <= options_.players) {
+                outcome_.playerOrigins[static_cast<std::size_t>(land.player - 1)] = {land.originX, land.originY};
+                playerOrigins_.emplace_back(land.originX, land.originY);
+            }
+            ++outcome_.lands;
+        }
+    }
+
+    // ---------------------------------------------------------------- terrains
+
+    std::vector<int> snapshot() const {
+        std::vector<int> nodes(static_cast<std::size_t>(count_));
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                nodes[static_cast<std::size_t>(index(x, y))] = canvas_.at(x, y);
+            }
+        }
+        return nodes;
+    }
+
+    void terrainGeneration() {
+        for (const RmsCommand& command : script_.commands) {
+            if (command.section != "TERRAIN_GENERATION" || command.name != "create_terrain") {
+                continue;
+            }
+            if (command.args.empty()) {
+                continue;
+            }
+            const int terrain = terrainOf(command.args[0], command.line);
+            if (terrain < 0) {
+                continue;
+            }
+            createTerrain(command, terrain);
+        }
+    }
+
+    void createTerrain(const RmsCommand& command, int terrain) {
+        int base = -1;
+        if (const RmsAttribute* attribute = command.find("base_terrain"); attribute != nullptr && !attribute->args.empty()) {
+            base = terrainOf(attribute->args[0], attribute->line);
+            if (base < 0) {
+                return;
+            }
+        }
+        for (const char* skipped : {"height_limits", "set_flat_terrain_only", "beach_terrain", "terrain_mask", "base_layer"}) {
+            if (const RmsAttribute* attribute = command.find(skipped)) {
+                note(attribute->line, std::string(skipped) + " is skipped: it has no meaning for Total Annihilation terrain yet.");
+            }
+        }
+        const std::vector<int> ground = snapshot();
+
+        double total = 0.0;
+        const int percentAt = lastIndexOf(command, "land_percent");
+        const int tilesAt = lastIndexOf(command, "number_of_tiles");
+        if (percentAt > tilesAt) {
+            total = std::clamp(numberAt(command, "land_percent", 0.0), 0.0, 100.0) / 100.0 * count_;
+        } else if (tilesAt >= 0) {
+            total = std::max(0.0, numberAt(command, "number_of_tiles", 0.0));
+        } else {
+            // The game's default of 122 tiles on a 120 x 120 tiny map, as a share of this map.
+            total = std::max(1.0, count_ * 122.0 / 14400.0);
+        }
+        double clumps = std::max(1.0, numberAt(command, "number_of_clumps", 1.0));
+        const int bySize = lastIndexOf(command, "set_scale_by_size");
+        const int byGroups = lastIndexOf(command, "set_scale_by_groups");
+        const double ratio = count_ / kScaleReference;
+        if (byGroups > bySize) {
+            clumps *= ratio;
+            total *= ratio;
+        } else if (bySize >= 0) {
+            total *= ratio;
+        }
+        const int clumpCount = std::max(1, static_cast<int>(std::lround(clumps)));
+        const int perClump = std::max(1, static_cast<int>(std::lround(total / clumpCount)));
+        if (total < 0.5) {
+            return;
+        }
+
+        const int spacing = std::max(0, static_cast<int>(numberAt(command, "spacing_to_other_terrain_types", 0.0)));
+        std::vector<std::pair<int, int>> specific;
+        for (const RmsAttribute* attribute : command.findAll("spacing_to_specific_terrain")) {
+            const int other = terrainOf(attribute->args[0], attribute->line);
+            if (other >= 0) {
+                specific.emplace_back(other, std::max(0, attribute->args[1].integer()));
+            }
+        }
+        int avoidStarts = -1;
+        if (const RmsAttribute* attribute = command.find("set_avoid_player_start_areas")) {
+            // Without a distance the game keeps 13 tiles away on maps about 120 tiles
+            // across. Here that is about a ninth of the map.
+            avoidStarts = attribute->args.empty() ? std::max(1, static_cast<int>(std::lround(std::max(width_, height_) / 9.0)))
+                                                  : std::max(0, attribute->args[0].integer());
+        }
+        const int clumping = static_cast<int>(numberAt(command, "clumping_factor", 20.0));
+
+        std::vector<int> taken(static_cast<std::size_t>(count_), -1);
+        const auto mayTake = [&](int node) {
+            if (taken[static_cast<std::size_t>(node)] >= 0) {
+                return false;
+            }
+            const int here = ground[static_cast<std::size_t>(node)];
+            if (here == terrain || (base >= 0 && here != base)) {
+                return false;
+            }
+            const int x = node % width_;
+            const int y = node / width_;
+            int widest = spacing;
+            for (const auto& [other, distance] : specific) {
+                widest = std::max(widest, distance);
+            }
+            for (int dy = -widest; dy <= widest; ++dy) {
+                for (int dx = -widest; dx <= widest; ++dx) {
+                    const int nx = x + dx;
+                    const int ny = y + dy;
+                    if ((dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= width_ || ny >= height_) {
+                        continue;
+                    }
+                    const int distance = std::max(std::abs(dx), std::abs(dy));
+                    const int there = ground[static_cast<std::size_t>(index(nx, ny))];
+                    if (distance <= spacing && there != here && there != terrain) {
+                        return false;
+                    }
+                    for (const auto& [other, limit] : specific) {
+                        if (there == other && distance <= limit) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            if (avoidStarts >= 0) {
+                for (const auto& [ox, oy] : playerOrigins_) {
+                    if (chebyshev(x, y, ox, oy) <= avoidStarts) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
+        std::vector<int> candidates;
+        for (int node = 0; node < count_; ++node) {
+            if (mayTake(node)) {
+                candidates.push_back(node);
+            }
+        }
+        if (candidates.empty()) {
+            note(command.line, "create_terrain " + command.args[0].text + " found no room on this map.");
+            return;
+        }
+        std::shuffle(candidates.begin(), candidates.end(), rng_);
+        struct Clump {
+            std::vector<int> nodes;
+            std::vector<int> frontier;
+            bool done = false;
+        };
+        std::vector<Clump> clumpList;
+        std::vector<int> order;
+        for (const int node : candidates) {
+            if (static_cast<int>(clumpList.size()) >= clumpCount) {
+                break;
+            }
+            if (taken[static_cast<std::size_t>(node)] >= 0) {
+                continue;
+            }
+            clumpList.emplace_back();
+            const int who = static_cast<int>(clumpList.size()) - 1;
+            taken[static_cast<std::size_t>(node)] = who;
+            clumpList.back().nodes.push_back(node);
+            order.push_back(node);
+            pushNeighbours(clumpList.back().frontier, node);
+        }
+        bool growing = true;
+        while (growing) {
+            growing = false;
+            for (std::size_t c = 0; c < clumpList.size(); ++c) {
+                Clump& clump = clumpList[c];
+                if (clump.done || static_cast<int>(clump.nodes.size()) >= perClump) {
+                    continue;
+                }
+                const int next = pickFrontier(clump.frontier, clumping, taken, static_cast<int>(c), mayTake);
+                if (next < 0) {
+                    clump.done = true;
+                    continue;
+                }
+                taken[static_cast<std::size_t>(next)] = static_cast<int>(c);
+                clump.nodes.push_back(next);
+                order.push_back(next);
+                pushNeighbours(clump.frontier, next);
+                growing = true;
+            }
+        }
+        for (const int node : order) {
+            canvas_.paint(node % width_, node / width_, terrain);
+        }
+        ++outcome_.terrains;
+    }
+
+    void pushNeighbours(std::vector<int>& frontier, int node) const {
+        const int x = node % width_;
+        const int y = node / width_;
+        static constexpr int kSteps[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (const auto& step : kSteps) {
+            const int nx = x + step[0];
+            const int ny = y + step[1];
+            if (nx >= 0 && ny >= 0 && nx < width_ && ny < height_) {
+                frontier.push_back(index(nx, ny));
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- connections
+
+    std::vector<int> findPath(int from, int to, const std::vector<int>& ground, const std::map<int, double>& costs) const {
+        const auto costOf = [&](int node) {
+            const auto found = costs.find(ground[static_cast<std::size_t>(node)]);
+            return found == costs.end() ? 1.0 : found->second;
+        };
+        if (costOf(from) <= 0.0 || costOf(to) <= 0.0) {
+            return {};
+        }
+        std::vector<double> best(static_cast<std::size_t>(count_), std::numeric_limits<double>::infinity());
+        std::vector<int> previous(static_cast<std::size_t>(count_), -1);
+        using Entry = std::pair<double, int>;
+        std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> open;
+        best[static_cast<std::size_t>(from)] = 0.0;
+        open.emplace(0.0, from);
+        while (!open.empty()) {
+            const auto [distance, node] = open.top();
+            open.pop();
+            if (distance > best[static_cast<std::size_t>(node)]) {
+                continue;
+            }
+            if (node == to) {
+                break;
+            }
+            const int x = node % width_;
+            const int y = node / width_;
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const int nx = x + dx;
+                    const int ny = y + dy;
+                    if ((dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= width_ || ny >= height_) {
+                        continue;
+                    }
+                    const int next = index(nx, ny);
+                    const double step = costOf(next);
+                    if (step <= 0.0) {
+                        continue;
+                    }
+                    const double length = distance + step * (dx != 0 && dy != 0 ? 1.4142 : 1.0);
+                    if (length < best[static_cast<std::size_t>(next)]) {
+                        best[static_cast<std::size_t>(next)] = length;
+                        previous[static_cast<std::size_t>(next)] = node;
+                        open.emplace(length, next);
+                    }
+                }
+            }
+        }
+        if (previous[static_cast<std::size_t>(to)] < 0 && from != to) {
+            return {};
+        }
+        std::vector<int> path;
+        for (int node = to; node >= 0; node = previous[static_cast<std::size_t>(node)]) {
+            path.push_back(node);
+            if (node == from) {
+                break;
+            }
+        }
+        std::reverse(path.begin(), path.end());
+        return path;
+    }
+
+    void connectionGeneration() {
+        bool accumulate = false;
+        std::vector<int> start;
+        bool started = false;
+        for (const RmsCommand& command : script_.commands) {
+            if (command.section != "CONNECTION_GENERATION") {
+                continue;
+            }
+            if (!started) {
+                start = snapshot();
+                started = true;
+            }
+            if (command.name == "accumulate_connections") {
+                accumulate = true;
+                continue;
+            }
+            if (command.name.compare(0, 15, "create_connect_") != 0) {
+                continue;
+            }
+            if (lands_.empty()) {
+                note(command.line, command.name + " has no lands to connect.");
+                continue;
+            }
+            const std::vector<int> ground = accumulate ? snapshot() : start;
+
+            std::map<int, double> costs;
+            std::map<int, std::pair<int, int>> sizes;
+            std::map<int, int> replace;
+            int replaceAll = -1;
+            for (const RmsAttribute& attribute : command.attributes) {
+                if (attribute.name == "terrain_cost") {
+                    const int terrain = terrainOf(attribute.args[0], attribute.line);
+                    if (terrain >= 0) {
+                        costs[terrain] = attribute.args[1].number;
+                    }
+                } else if (attribute.name == "terrain_size") {
+                    const int terrain = terrainOf(attribute.args[0], attribute.line);
+                    if (terrain >= 0) {
+                        sizes[terrain] = {attribute.args[1].integer(), attribute.args[2].integer()};
+                    }
+                } else if (attribute.name == "replace_terrain") {
+                    const int from = terrainOf(attribute.args[0], attribute.line);
+                    const int to = terrainOf(attribute.args[1], attribute.line);
+                    if (from >= 0 && to >= 0) {
+                        replace[from] = to;
+                    }
+                } else if (attribute.name == "default_terrain_replacement") {
+                    const int to = terrainOf(attribute.args[0], attribute.line);
+                    if (to >= 0) {
+                        // It replaces everything, over the replace_terrain lines before it.
+                        replaceAll = to;
+                        replace.clear();
+                    }
+                }
+            }
+
+            std::vector<std::pair<std::size_t, std::size_t>> pairs;
+            const auto connectAll = [&](const std::function<bool(const Land&)>& include) {
+                for (std::size_t a = 0; a < lands_.size(); ++a) {
+                    for (std::size_t b = a + 1; b < lands_.size(); ++b) {
+                        if (include(lands_[a]) && include(lands_[b])) {
+                            pairs.emplace_back(a, b);
+                        }
+                    }
+                }
+            };
+            if (command.name == "create_connect_all_players_land") {
+                connectAll([](const Land& land) { return land.player > 0; });
+            } else if (command.name == "create_connect_all_lands" || command.name == "create_connect_same_land_zones") {
+                connectAll([](const Land&) { return true; });
+            } else if (command.name == "create_connect_land_zones") {
+                const int first = command.args.size() > 0 ? command.args[0].integer() : 0;
+                const int second = command.args.size() > 1 ? command.args[1].integer() : 0;
+                connectAll([&](const Land& land) { return land.zone == first || land.zone == second; });
+            } else if (command.name == "create_connect_to_nonplayer_land") {
+                for (std::size_t a = 0; a < lands_.size(); ++a) {
+                    for (std::size_t b = 0; b < lands_.size(); ++b) {
+                        if (lands_[a].player > 0 && lands_[b].player == 0) {
+                            pairs.emplace_back(a, b);
+                        }
+                    }
+                }
+            } else if (command.name == "create_connect_teams_lands") {
+                note(command.line, "create_connect_teams_lands connects nothing: Total Annihilation maps have no teams here.");
+                continue;
+            }
+
+            std::map<int, int> changes;
+            int made = 0;
+            for (const auto& [a, b] : pairs) {
+                const std::vector<int> path = findPath(index(lands_[a].originX, lands_[a].originY),
+                                                       index(lands_[b].originX, lands_[b].originY), ground, costs);
+                if (path.empty()) {
+                    continue;
+                }
+                ++made;
+                for (const int node : path) {
+                    const int here = ground[static_cast<std::size_t>(node)];
+                    const auto sized = sizes.find(here);
+                    const int radius = sized == sizes.end() ? 1 : sized->second.first;
+                    const int variance = sized == sizes.end() ? 0 : std::abs(sized->second.second);
+                    const int reach = radius + (variance > 0 ? std::uniform_int_distribution<int>(-variance, variance)(rng_) : 0);
+                    if (reach < 0) {
+                        continue;
+                    }
+                    const int x = node % width_;
+                    const int y = node / width_;
+                    for (int dy = -reach; dy <= reach; ++dy) {
+                        for (int dx = -reach; dx <= reach; ++dx) {
+                            const int nx = x + dx;
+                            const int ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= width_ || ny >= height_ || dx * dx + dy * dy > reach * reach + reach) {
+                                continue;
+                            }
+                            const int target = index(nx, ny);
+                            const int old = ground[static_cast<std::size_t>(target)];
+                            const auto found = replace.find(old);
+                            const int to = found != replace.end() ? found->second : replaceAll;
+                            if (to >= 0 && to != old) {
+                                changes[target] = to;
+                            }
+                        }
+                    }
+                }
+            }
+            for (const auto& [node, terrain] : changes) {
+                canvas_.paint(node % width_, node / width_, terrain);
+            }
+            if (made > 0) {
+                ++outcome_.connections;
+            } else if (!pairs.empty()) {
+                note(command.line, command.name + " found no path between the lands.");
+            }
+        }
+    }
+
+    const RmsScript& script_;
+    RmsCanvas& canvas_;
+    const RmsTerrainNames& names_;
+    const RandomMapOptions& options_;
+    std::mt19937& rng_;
+    RandomMapOutcome& outcome_;
+    int width_ = 1;
+    int height_ = 1;
+    int count_ = 1;
+    bool directPlacement_ = false;
+    int behaviorVersion_ = 0;
+    std::vector<Land> lands_;
+    std::vector<int> owner_;
+    std::vector<std::pair<int, int>> playerOrigins_;
+};
+
+bool isTransitionFolder(std::string_view world) {
+    const std::string name = lower(world);
+    return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles"
+        || name == "coastdsl" || name == "coastalcliff" || name == "blendtiles";
+}
+
+bool sharedCategory(std::string_view category) {
+    const std::string name = lower(category);
+    return name == "shared" || name == "3-way";
+}
+
+// GreenWorld's rivers are filed under GreenLand.
+bool categoryIsWorld(std::string_view category, std::string_view world) {
+    const std::string left = lower(category);
+    const std::string right = lower(world);
+    return left == right || (right == "greenworld" && left == "greenland");
+}
+
+}  // namespace
+
+// ------------------------------------------------------------------- canvases
+
+PlainCanvas::PlainCanvas(int width, int height, int terrain)
+    : width_(std::max(1, width)), height_(std::max(1, height)), nodes_(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), terrain) {}
+
+int PlainCanvas::at(int x, int y) const {
+    return nodes_[static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x)];
+}
+
+void PlainCanvas::fill(int terrain) {
+    std::fill(nodes_.begin(), nodes_.end(), terrain);
+}
+
+void PlainCanvas::paint(int x, int y, int terrain) {
+    if (x >= 0 && y >= 0 && x < width_ && y < height_) {
+        nodes_[static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x)] = terrain;
+    }
+}
+
+BrushCanvas::BrushCanvas(int width, int height, BrushGraph graph)
+    : width_(std::max(1, width)), height_(std::max(1, height)), graph_(std::move(graph)),
+      nodes_(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0) {}
+
+int BrushCanvas::at(int x, int y) const {
+    return nodes_[static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x)];
+}
+
+void BrushCanvas::fill(int terrain) {
+    std::fill(nodes_.begin(), nodes_.end(), std::clamp(terrain, 0, std::max(0, graph_.size() - 1)));
+}
+
+void BrushCanvas::paint(int x, int y, int terrain) {
+    if (x < 0 || y < 0 || x >= width_ || y >= height_ || terrain < 0 || terrain >= graph_.size()) {
+        return;
+    }
+    const std::size_t slot = static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x);
+    if (nodes_[slot] == terrain) {
+        return;
+    }
+    const int cellsX = width_ - 1;
+    const int cellsY = height_ - 1;
+    if (cellsX <= 0 || cellsY <= 0) {
+        nodes_[slot] = terrain;
+        return;
+    }
+    const BrushPlan plan = planBrush(cellsX, cellsY, x, y, 0, terrain, graph_, [this](int nodeX, int nodeY) {
+        return nodes_[static_cast<std::size_t>(nodeY) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(nodeX)];
+    });
+    for (const BrushNode& node : plan.nodes) {
+        if (node.x >= 0 && node.y >= 0 && node.x < width_ && node.y < height_) {
+            nodes_[static_cast<std::size_t>(node.y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(node.x)] = node.level;
+        }
+    }
+}
+
+std::array<int, 4> BrushCanvas::cellCorners(int cellX, int cellY) const {
+    return {at(cellX, cellY), at(cellX + 1, cellY), at(cellX, cellY + 1), at(cellX + 1, cellY + 1)};
+}
+
+int BrushCanvas::repair(const std::function<bool(const std::array<int, 4>&)>& hasPicture, int passes) {
+    const int cellsX = width_ - 1;
+    const int cellsY = height_ - 1;
+    int bad = 0;
+    for (int pass = 0; pass <= passes; ++pass) {
+        bad = 0;
+        for (int cy = 0; cy < cellsY; ++cy) {
+            for (int cx = 0; cx < cellsX; ++cx) {
+                const std::array<int, 4> corners = cellCorners(cx, cy);
+                if ((corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3]) || hasPicture(corners)) {
+                    continue;
+                }
+                ++bad;
+                if (pass == passes) {
+                    continue;
+                }
+                // The paint most corners share; on a tie, the top-left corner's if it is one of them.
+                int target = corners[0];
+                int bestCount = 0;
+                for (int k = 0; k < 4; ++k) {
+                    const int count = static_cast<int>(std::count(corners.begin(), corners.end(), corners[static_cast<std::size_t>(k)]));
+                    if (count > bestCount) {
+                        bestCount = count;
+                        target = corners[static_cast<std::size_t>(k)];
+                    }
+                }
+                for (int k = 0; k < 4; ++k) {
+                    if (corners[static_cast<std::size_t>(k)] != target) {
+                        paint(cx + (k & 1), cy + (k >> 1), target);
+                    }
+                }
+            }
+        }
+        if (bad == 0) {
+            return 0;
+        }
+    }
+    return bad;
+}
+
+// ------------------------------------------------------------------- running
+
+RandomMapOutcome runRandomMapScript(const RmsScript& script, RmsCanvas& canvas, const RmsTerrainNames& names,
+                                    const RandomMapOptions& options, std::mt19937& rng) {
+    RandomMapOutcome outcome;
+    Generator generator(script, canvas, names, options, rng, outcome);
+    generator.run();
+    std::stable_sort(outcome.messages.begin(), outcome.messages.end(), [](const RmsMessage& left, const RmsMessage& right) {
+        return left.line < right.line;
+    });
+    return outcome;
+}
+
+std::vector<std::string> rmsTerrainNames(const RmsScript& script, const std::string& fallback) {
+    std::vector<std::string> names;
+    const auto add = [&](const std::string& name) {
+        if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end()) {
+            names.push_back(name);
+        }
+    };
+    bool sawBase = false;
+    bool usesFallback = false;
+    for (const RmsCommand& command : script.commands) {
+        if (command.section == "LAND_GENERATION" && command.name == "base_terrain" && !command.args.empty()) {
+            add(command.args[0].text);
+            sawBase = true;
+        } else if (command.name == "create_land" || command.name == "create_player_lands") {
+            const RmsAttribute* type = command.find("terrain_type");
+            if (type != nullptr && !type->args.empty()) {
+                add(type->args[0].text);
+            } else {
+                usesFallback = true;
+            }
+        } else if (command.name == "create_terrain") {
+            if (!command.args.empty()) {
+                add(command.args[0].text);
+            }
+            for (const char* attribute : {"base_terrain", "spacing_to_specific_terrain"}) {
+                for (const RmsAttribute* found : command.findAll(attribute)) {
+                    if (!found->args.empty()) {
+                        add(found->args[0].text);
+                    }
+                }
+            }
+        } else if (command.name.compare(0, 15, "create_connect_") == 0) {
+            for (const RmsAttribute& attribute : command.attributes) {
+                if (attribute.name == "replace_terrain" && attribute.args.size() >= 2) {
+                    add(attribute.args[0].text);
+                    add(attribute.args[1].text);
+                } else if ((attribute.name == "terrain_cost" || attribute.name == "terrain_size" || attribute.name == "default_terrain_replacement")
+                           && !attribute.args.empty()) {
+                    add(attribute.args[0].text);
+                }
+            }
+        }
+    }
+    if (!sawBase || usesFallback) {
+        add(fallback);
+    }
+    return names;
+}
+
+std::vector<std::string> rmsConditions(int players, int gameWidth, int gameHeight) {
+    std::vector<std::string> conditions = {"RANDOM_MAP", "DE_AVAILABLE", "GALAXY_EDITOR", "0_TEAM_GAME"};
+    conditions.push_back(std::to_string(std::clamp(players, 1, 10)) + "_PLAYER_GAME");
+    // Game sizes stand in for the game's map sizes: 8 x 8 and under is tiny, up to
+    // 10 small, 12 medium, 16 normal (LARGE_MAP), 20 large (HUGE_MAP), 24 huge
+    // (GIGANTIC_MAP), 32 giant, and anything bigger ludicrous.
+    const int size = std::max(gameWidth, gameHeight);
+    if (size <= 8) {
+        conditions.insert(conditions.end(), {"TINY_MAP", "MAPSIZE_TINY"});
+    } else if (size <= 10) {
+        conditions.insert(conditions.end(), {"SMALL_MAP", "MAPSIZE_SMALL"});
+    } else if (size <= 12) {
+        conditions.insert(conditions.end(), {"MEDIUM_MAP", "MAPSIZE_MEDIUM"});
+    } else if (size <= 16) {
+        conditions.insert(conditions.end(), {"LARGE_MAP", "MAPSIZE_NORMAL"});
+    } else if (size <= 20) {
+        conditions.insert(conditions.end(), {"HUGE_MAP", "MAPSIZE_LARGE"});
+    } else if (size <= 24) {
+        conditions.insert(conditions.end(), {"GIGANTIC_MAP", "MAPSIZE_HUGE"});
+    } else if (size <= 32) {
+        conditions.push_back("MAPSIZE_GIANT");
+    } else {
+        conditions.insert(conditions.end(), {"LUDIKRIS_MAP", "MAPSIZE_LUDICROUS"});
+    }
+    return conditions;
+}
+
+// ------------------------------------------------------------------- tileset
+
+RandomMapTiles::RandomMapTiles(const std::vector<TilesetSection>& sections) {
+    for (const TilesetSection& section : sections) {
+        const std::string world = lower(section.world);
+        if (world == "basetiles" && lower(section.name).compare(0, 4, "base") == 0) {
+            const int height = trailingHeight(section.name);
+            if (height < 0) {
+                continue;
+            }
+            RandomMapPaint paint;
+            paint.world = section.category;
+            paint.name = section.name;
+            paint.height = height;
+            paint.terrain = upper(section.category) + "_" + upper(section.name);
+            paint.sectionPath = section.archivePath;
+            paints_.push_back(std::move(paint));
+        } else if (world == "basetilebrushstrokes") {
+            strokes_.push_back(RandomMapSection{section.name, section.category, section.archivePath});
+        } else if (isTransitionFolder(world)) {
+            pieces_.push_back(RandomMapSection{section.name, section.category, section.archivePath});
+            if (world == "coasttiles") {
+                // Coast-Lava-T names the sea Lava. Coast-Land and Coast-Water are the usual names.
+                const std::string name = lower(section.name);
+                if (name.compare(0, 6, "coast-") == 0 && name.compare(0, 11, "coast-land-") != 0 && name.compare(0, 12, "coast-water-") != 0) {
+                    const std::size_t dash = section.name.find('-', 6);
+                    if (dash != std::string::npos && dash > 6) {
+                        bool known = false;
+                        for (const auto& entry : liquids_) {
+                            known = known || lower(entry.first) == lower(section.category);
+                        }
+                        if (!known) {
+                            liquids_.emplace_back(section.category, section.name.substr(6, dash - 6));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    std::stable_sort(paints_.begin(), paints_.end(), [](const RandomMapPaint& left, const RandomMapPaint& right) {
+        const std::string a = lower(left.world);
+        const std::string b = lower(right.world);
+        return a != b ? a < b : left.height < right.height;
+    });
+}
+
+int RandomMapTiles::findPaint(std::string_view terrain) const {
+    const std::string wanted = upper(terrain);
+    for (std::size_t i = 0; i < paints_.size(); ++i) {
+        if (paints_[i].terrain == wanted) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+std::vector<int> RandomMapTiles::levelsFor(const std::vector<int>& paints) const {
+    std::set<std::string> worlds;
+    for (const int paint : paints) {
+        if (paint >= 0 && static_cast<std::size_t>(paint) < paints_.size()) {
+            worlds.insert(lower(paints_[static_cast<std::size_t>(paint)].world));
+        }
+    }
+    std::vector<int> levels;
+    for (std::size_t i = 0; i < paints_.size(); ++i) {
+        if (worlds.count(lower(paints_[i].world)) != 0) {
+            levels.push_back(static_cast<int>(i));
+        }
+    }
+    // Lowest height first, as the brush stores its levels. Lands that share a
+    // height keep the world order.
+    std::stable_sort(levels.begin(), levels.end(), [&](int left, int right) {
+        return paints_[static_cast<std::size_t>(left)].height < paints_[static_cast<std::size_t>(right)].height;
+    });
+    return levels;
+}
+
+BrushGraph RandomMapTiles::graphFor(const std::vector<int>& levels) const {
+    std::vector<int> heights;
+    std::vector<std::string> worlds;
+    for (const int level : levels) {
+        const RandomMapPaint& paint = paints_[static_cast<std::size_t>(level)];
+        heights.push_back(paint.height);
+        worlds.push_back(blendWorldName(paint.world));
+    }
+    return BrushGraph(heights, worlds);
+}
+
+std::string RandomMapTiles::liquidOf(std::string_view world) const {
+    for (const auto& [category, liquid] : liquids_) {
+        if (lower(category) == lower(world)) {
+            return liquid;
+        }
+    }
+    return "Water";
+}
+
+std::vector<const RandomMapSection*> RandomMapTiles::strokes(const RandomMapPaint& paint, int tiles) const {
+    std::vector<const RandomMapSection*> found;
+    for (const RandomMapSection& stroke : strokes_) {
+        if (categoryIsWorld(stroke.category, paint.world) && brushStrokeVariation(stroke.name, paint.name, tiles) >= 0) {
+            found.push_back(&stroke);
+        }
+    }
+    return found;
+}
+
+std::string RandomMapTiles::pieceName(const BrushGraph& graph, const std::vector<int>& levels, const std::array<int, 4>& corners) const {
+    std::string world;
+    bool oneWorld = true;
+    for (const int corner : corners) {
+        const std::string here = lower(paints_[static_cast<std::size_t>(levels[static_cast<std::size_t>(corner)])].world);
+        if (world.empty()) {
+            world = here;
+        } else if (world != here) {
+            oneWorld = false;
+        }
+    }
+    return brushPieceName(graph, corners, oneWorld ? liquidOf(world) : std::string("Water"));
+}
+
+std::vector<const RandomMapSection*> RandomMapTiles::pieces(const BrushGraph& graph, const std::vector<int>& levels,
+                                                            const std::array<int, 4>& corners) const {
+    std::vector<const RandomMapSection*> found;
+    const std::string piece = pieceName(graph, levels, corners);
+    if (piece.empty()) {
+        return found;
+    }
+    // A cell inside one world uses that world's pieces. Blends between worlds
+    // live in BlendTiles/Shared and BlendTiles/3-Way.
+    std::string world;
+    bool oneWorld = true;
+    for (const int corner : corners) {
+        const std::string here = lower(paints_[static_cast<std::size_t>(levels[static_cast<std::size_t>(corner)])].world);
+        if (world.empty()) {
+            world = here;
+        } else if (world != here) {
+            oneWorld = false;
+        }
+    }
+    for (const RandomMapSection& section : pieces_) {
+        const bool usable = sharedCategory(section.category) || (oneWorld && categoryIsWorld(section.category, world));
+        if (usable && transitionVariation(section.name, piece) >= 0) {
+            found.push_back(&section);
+        }
+    }
+    return found;
+}
+
+RandomMapStampPlan planRandomMapStamps(const RandomMapTiles& tiles, const std::vector<int>& levels,
+                                       const BrushCanvas& canvas, std::mt19937& rng) {
+    RandomMapStampPlan plan;
+    const int cellsX = canvas.width() - 1;
+    const int cellsY = canvas.height() - 1;
+    if (cellsX <= 0 || cellsY <= 0 || levels.empty()) {
+        return plan;
+    }
+    const auto pick = [&](const std::vector<const RandomMapSection*>& choices) {
+        return choices[std::uniform_int_distribution<std::size_t>(0, choices.size() - 1)(rng)];
+    };
+    const auto noteMissing = [&](const std::string& what) {
+        if (std::find(plan.missing.begin(), plan.missing.end(), what) == plan.missing.end()) {
+            plan.missing.push_back(what);
+        }
+    };
+    const auto flatLevel = [&](int cx, int cy) {
+        const std::array<int, 4> corners = canvas.cellCorners(cx, cy);
+        return corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3] ? corners[0] : -1;
+    };
+    const auto paintOf = [&](int level) -> const RandomMapPaint& {
+        return tiles.paints()[static_cast<std::size_t>(levels[static_cast<std::size_t>(level)])];
+    };
+
+    std::vector<char> covered(static_cast<std::size_t>(cellsX) * static_cast<std::size_t>(cellsY), 0);
+    const auto cell = [&](int cx, int cy) -> char& {
+        return covered[static_cast<std::size_t>(cy) * static_cast<std::size_t>(cellsX) + static_cast<std::size_t>(cx)];
+    };
+    // Large flat areas take the largest stroke that fits, aligned to its own size,
+    // so the ground repeats less often.
+    for (const int blockCells : {8, 4, 2}) {
+        const int tilesAcross = blockCells * kBrushCellTiles;
+        for (int by = 0; by + blockCells <= cellsY; by += blockCells) {
+            for (int bx = 0; bx + blockCells <= cellsX; bx += blockCells) {
+                const int level = flatLevel(bx, by);
+                if (level < 0) {
+                    continue;
+                }
+                bool uniform = true;
+                for (int cy = by; cy < by + blockCells && uniform; ++cy) {
+                    for (int cx = bx; cx < bx + blockCells && uniform; ++cx) {
+                        uniform = !cell(cx, cy) && flatLevel(cx, cy) == level;
+                    }
+                }
+                if (!uniform) {
+                    continue;
+                }
+                const std::vector<const RandomMapSection*> strokes = tiles.strokes(paintOf(level), tilesAcross);
+                if (strokes.empty()) {
+                    continue;
+                }
+                plan.stamps.push_back(RandomMapStamp{pick(strokes)->sectionPath, bx * kBrushCellTiles, by * kBrushCellTiles, 0});
+                for (int cy = by; cy < by + blockCells; ++cy) {
+                    for (int cx = bx; cx < bx + blockCells; ++cx) {
+                        cell(cx, cy) = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    const BrushGraph& graph = canvas.graph();
+    for (int cy = 0; cy < cellsY; ++cy) {
+        for (int cx = 0; cx < cellsX; ++cx) {
+            if (cell(cx, cy)) {
+                continue;
+            }
+            const std::array<int, 4> corners = canvas.cellCorners(cx, cy);
+            int level = flatLevel(cx, cy);
+            if (level < 0) {
+                const std::vector<const RandomMapSection*> pieces = tiles.pieces(graph, levels, corners);
+                if (!pieces.empty()) {
+                    plan.stamps.push_back(RandomMapStamp{pick(pieces)->sectionPath, cx * kBrushCellTiles, cy * kBrushCellTiles, 0});
+                    continue;
+                }
+                const std::string name = tiles.pieceName(graph, levels, corners);
+                noteMissing(name.empty() ? "a piece joining " + paintOf(*std::min_element(corners.begin(), corners.end())).terrain + " and "
+                                               + paintOf(*std::max_element(corners.begin(), corners.end())).terrain
+                                         : name);
+                ++plan.missingCells;
+                int bestCount = 0;
+                for (const int corner : corners) {
+                    const int count = static_cast<int>(std::count(corners.begin(), corners.end(), corner));
+                    if (count > bestCount) {
+                        bestCount = count;
+                        level = corner;
+                    }
+                }
+            }
+            const RandomMapPaint& paint = paintOf(level);
+            std::vector<const RandomMapSection*> strokes = tiles.strokes(paint, kBrushCellTiles);
+            if (!strokes.empty()) {
+                plan.stamps.push_back(RandomMapStamp{pick(strokes)->sectionPath, cx * kBrushCellTiles, cy * kBrushCellTiles, 0});
+            } else {
+                // Worlds without brush strokes use their base section, repeated to fill the cell.
+                plan.stamps.push_back(RandomMapStamp{paint.sectionPath, cx * kBrushCellTiles, cy * kBrushCellTiles, kBrushCellTiles});
+            }
+        }
+    }
+    return plan;
+}
+
+}  // namespace galaxy

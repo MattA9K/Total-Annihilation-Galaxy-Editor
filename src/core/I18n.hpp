@@ -33,7 +33,6 @@ enum class Text : int {
     Save,
     SaveAs,
     ExportPng,
-    GenerateMap,
     HpiEditor,
     Exit,
     QuitApp,
@@ -182,6 +181,20 @@ enum class Text : int {
     DontSave,
     NotVanillaTa,
     NotVanillaTiles,
+    RandomMapGenerator,
+    RandomMapHelp,
+    RandomMapTerrains,
+    RandomMapTerrainsHelp,
+    RandomMapPlayers,
+    RandomMapSeed,
+    RandomMapNewSeed,
+    RandomMapGenerate,
+    RandomMapExample,
+    RandomMapExampleTip,
+    RandomMapNeedsMap,
+    RandomMapNoTileset,
+    RandomMapDone,
+    RandomMapLine,
     Count
 };
 

@@ -2,10 +2,11 @@
 #include "core/BlendColours.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/DocumentNames.hpp"
+#include "core/RandomMap.hpp"
+#include "core/RmsScript.hpp"
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
 #include "core/FavoritesArchive.hpp"
-#include "core/MapGenerator.hpp"
 #include "core/OrbitCamera.hpp"
 #include "core/RiverBrush.hpp"
 #include "core/SlopeBrush.hpp"
@@ -609,188 +610,6 @@ void testSaveRoundTrip(const galaxy::LoadedMap& map, const std::filesystem::path
     std::filesystem::remove(sidecar, error);
 }
 
-int countBelow(const galaxy::LoadedMap& map, int height) {
-    int count = 0;
-    for (std::uint8_t cell : map.heights) {
-        if (cell < height) {
-            ++count;
-        }
-    }
-    return count;
-}
-
-int countAbove(const galaxy::LoadedMap& map, int height) {
-    int count = 0;
-    for (std::uint8_t cell : map.heights) {
-        if (cell > height) {
-            ++count;
-        }
-    }
-    return count;
-}
-
-int worstBoundaryGap(const galaxy::LoadedMap& map) {
-    const int width = map.tileWidth * 2;
-    const int height = map.tileHeight * 2;
-    if (width <= 0 || height <= 0 || static_cast<int>(map.heights.size()) < width * height) {
-        return 0;
-    }
-    constexpr int step = 32;
-    int worst = 0;
-    auto gap = [](int left, int right) { return left > right ? left - right : right - left; };
-    for (int y = 0; y < height; ++y) {
-        for (int x = step; x < width; x += step) {
-            const int left = map.heights[static_cast<std::size_t>(y * width + (x - 1))];
-            const int right = map.heights[static_cast<std::size_t>(y * width + x)];
-            worst = std::max(worst, gap(left, right));
-        }
-    }
-    for (int x = 0; x < width; ++x) {
-        for (int y = step; y < height; y += step) {
-            const int above = map.heights[static_cast<std::size_t>((y - 1) * width + x)];
-            const int below = map.heights[static_cast<std::size_t>(y * width + x)];
-            worst = std::max(worst, gap(above, below));
-        }
-    }
-    return worst;
-}
-
-void testGenerate(const galaxy::TilesetLibrary& library, const std::filesystem::path& maps) {
-    const auto blank = galaxy::loadMapFile(maps / "64x64_BlankMapNoTiles.ufo");
-    const auto rocks = galaxy::loadMapFile(maps / "64x64_SimpleFlatMapWithGrass_3Rocks_5Trees.ufo");
-    const auto starts = galaxy::loadMapFile(maps / "64x64_SimpleFlatMapWithGrass_With_Player1AndPlayer2StartPositions.ufo");
-
-    galaxy::MapGeneratorSettings flat;
-    flat.world = "GreenWorld";
-    flat.rivers = 0;
-    flat.canyons = 0;
-    flat.mountains = 0;
-    flat.hills = 0;
-    flat.shoreline = 0;
-    flat.pools = 0;
-    flat.seed = 3;
-    auto cleared = rocks;
-    galaxy::generateTerrain(cleared, library, flat);
-    expect(cleared.tileWidth == 64 && cleared.tileHeight == 64, "generate keeps the map size");
-    expect(cleared.seaLevel == rocks.seaLevel, "generate keeps the sea level");
-    expect(cleared.features.empty(), "generate clears features");
-    expect(!cleared.featureIndices.empty() && cleared.featureIndices.front() == 0xFFFF, "generate clears feature cells");
-    bool allGround = true;
-    for (std::uint8_t height : cleared.heights) {
-        if (height != 85) {
-            allGround = false;
-        }
-    }
-    expect(allGround, "zero sliders leave flat ground");
-
-    auto kept = starts;
-    galaxy::generateTerrain(kept, library, flat);
-    expect(kept.starts.size() == starts.starts.size() && kept.starts[0].x == starts.starts[0].x && kept.starts[1].y == starts.starts[1].y,
-        "generate keeps start positions");
-
-    auto canyonMap = blank;
-    galaxy::MapGeneratorSettings canyonSettings = flat;
-    canyonSettings.canyons = 100;
-    canyonSettings.seed = 11;
-    galaxy::generateTerrain(canyonMap, library, canyonSettings);
-    int canyonHigh = 0;
-    int canyonMax = 0;
-    for (std::uint8_t height : canyonMap.heights) {
-        canyonMax = std::max(canyonMax, static_cast<int>(height));
-        if (height > 160) {
-            ++canyonHigh;
-        }
-    }
-    expect(canyonHigh > 20, "canyon high cells " + std::to_string(canyonHigh) + " max " + std::to_string(canyonMax));
-    expect(countBelow(canyonMap, 100) > 100, "canyons keep low ground beside the cliffs");
-    const int canyonGap = worstBoundaryGap(canyonMap);
-    expect(canyonGap < 20, "canyon section edges step by " + std::to_string(canyonGap));
-
-    auto mountainMap = blank;
-    galaxy::MapGeneratorSettings mountainSettings = flat;
-    mountainSettings.mountains = 100;
-    mountainSettings.seed = 11;
-    galaxy::generateTerrain(mountainMap, library, mountainSettings);
-    expect(countAbove(mountainMap, 140) > 10, "mountains raise the ground");
-
-    auto riverMap = blank;
-    galaxy::MapGeneratorSettings riverSettings = flat;
-    riverSettings.rivers = 100;
-    riverSettings.seed = 11;
-    galaxy::generateTerrain(riverMap, library, riverSettings);
-    expect(countBelow(riverMap, 70) > 30, "rivers lower the ground");
-    const int riverGap = worstBoundaryGap(riverMap);
-    expect(riverGap < 24, "river section edges step by " + std::to_string(riverGap));
-
-    auto shoreMap = blank;
-    galaxy::MapGeneratorSettings shoreSettings = flat;
-    shoreSettings.shoreline = 100;
-    shoreSettings.seed = 11;
-    galaxy::generateTerrain(shoreMap, library, shoreSettings);
-    expect(countBelow(shoreMap, 10) > 30, "shoreline adds open water");
-    const int shoreGap = worstBoundaryGap(shoreMap);
-    expect(shoreGap < 34, "shore section edges step by " + std::to_string(shoreGap));
-
-    auto joined = blank;
-    galaxy::MapGeneratorSettings joinedSettings = flat;
-    joinedSettings.canyons = 50;
-    joinedSettings.shoreline = 40;
-    joinedSettings.seed = 11;
-    galaxy::generateTerrain(joined, library, joinedSettings);
-    const int joinedGap = worstBoundaryGap(joined);
-    expect(joinedGap < 20, "cliff and shore edges step by " + std::to_string(joinedGap));
-
-    galaxy::MapGeneratorSettings busy = flat;
-    busy.rivers = 70;
-    busy.canyons = 70;
-    busy.mountains = 40;
-    busy.hills = 40;
-    busy.shoreline = 30;
-    busy.pools = 20;
-    busy.seed = 11;
-    auto first = blank;
-    auto second = blank;
-    galaxy::generateTerrain(first, library, busy);
-    galaxy::generateTerrain(second, library, busy);
-    expect(first.indices == second.indices && first.heights == second.heights, "generate is deterministic for a seed");
-    expect(first.missionName == blank.missionName, "generate keeps the mission name");
-
-    galaxy::MapGeneratorSettings other = busy;
-    other.seed = 12;
-    auto third = blank;
-    galaxy::generateTerrain(third, library, other);
-    expect(third.indices != first.indices || third.heights != first.heights, "a different seed changes the map");
-}
-
-void testAcidFlatGround(const std::filesystem::path& maps) {
-    galaxy::TilesetLibrary library;
-    library.addArchive(std::filesystem::path(GALAXY_SOURCE_DIR) / "TASect_Acid.hpi");
-    auto map = galaxy::loadMapFile(maps / "64x64_BlankMapNoTiles.ufo");
-    galaxy::MapGeneratorSettings settings;
-    settings.world = "Acid";
-    settings.rivers = 0;
-    settings.canyons = 0;
-    settings.mountains = 0;
-    settings.hills = 0;
-    settings.shoreline = 0;
-    settings.pools = 0;
-    settings.seed = 1;
-    std::string error;
-    try {
-        galaxy::generateTerrain(map, library, settings);
-    } catch (const std::exception& ex) {
-        error = ex.what();
-    }
-    expect(error.empty(), "acid generate: " + error);
-    bool acidGround = error.empty() && !map.heights.empty();
-    for (std::uint8_t height : map.heights) {
-        if (height < 80 || height > 90) {
-            acidGround = false;
-        }
-    }
-    expect(acidGround, "acid flat ground uses FlatGr5");
-}
-
 void testStampAboveMap() {
     auto bytes = buildSct(3, 1, 2, 2, 11, 10);
     const std::uint32_t tilesAt = 28u + 128u * 128u;
@@ -1318,60 +1137,6 @@ void testBackupNames() {
     expect(removeDown.size() == 4 && removeDown.front() == "MyMap-12-31-2025-23-59-Backup.ufo" && removeDown.back() == "MyMap-01-03-2026-00-00-Backup.ufo",
         "a smaller backlog removes oldest backups until one slot is free");
     expect(galaxy::backupNamesToDelete(names, "MyMap", 6).empty(), "fewer backups than the limit removes nothing");
-}
-
-void testAcidFamily(const std::filesystem::path& maps) {
-    expect(galaxy::tilesetFamilyKey("Acid") == "acid", "acid family key");
-    expect(galaxy::tilesetFamilyKey("Acid_New_3") == "acid", "acid new family key");
-    expect(galaxy::tilesetFamilyKey("GreenWorld") == "greenworld", "green family key stays whole");
-    expect(galaxy::tilesetFamilyKey("Something_newer") == "something_newer", "newer is not a pack suffix");
-
-    galaxy::TilesetLibrary library;
-    const char* packs[] = {"TASect_Acid.hpi", "TASect_Acid_New_1.hpi", "TASect_Acid_New_2.hpi", "TASect_Acid_New_3.hpi"};
-    for (const char* pack : packs) {
-        const auto path = std::filesystem::path(GALAXY_SOURCE_DIR) / pack;
-        expect(std::filesystem::exists(path), std::string(pack) + " is present");
-        library.addArchive(path);
-    }
-    auto map = galaxy::loadMapFile(maps / "64x64_BlankMapNoTiles.ufo");
-    galaxy::MapGeneratorSettings settings;
-    settings.world = "Acid";
-    settings.rivers = 0;
-    settings.canyons = 0;
-    settings.mountains = 0;
-    settings.hills = 0;
-    settings.shoreline = 100;
-    settings.pools = 0;
-    settings.seed = 11;
-    std::string error;
-    try {
-        galaxy::generateTerrain(map, library, settings);
-    } catch (const std::exception& ex) {
-        error = ex.what();
-    }
-    expect(error.empty(), "acid shoreline generate: " + error);
-    const int water = countBelow(map, 10);
-    expect(water > 30, "acid shoreline adds open water " + std::to_string(water));
-    const int shoreGap = worstBoundaryGap(map);
-    expect(shoreGap < 36, "acid shore edges step by " + std::to_string(shoreGap));
-
-    auto fromPack = galaxy::loadMapFile(maps / "64x64_BlankMapNoTiles.ufo");
-    settings.world = "Acid_New_3";
-    settings.shoreline = 0;
-    error.clear();
-    try {
-        galaxy::generateTerrain(fromPack, library, settings);
-    } catch (const std::exception& ex) {
-        error = ex.what();
-    }
-    expect(error.empty(), "acid pack generate: " + error);
-    bool acidGround = error.empty() && !fromPack.heights.empty();
-    for (std::uint8_t height : fromPack.heights) {
-        if (height < 80 || height > 90) {
-            acidGround = false;
-        }
-    }
-    expect(acidGround, "an acid pack uses the shared flat ground");
 }
 
 void testFeaturePlacement() {
@@ -5868,6 +5633,359 @@ void testBlendColours() {
     }
 }
 
+// Random map scripts: the reader, the generator on a plain grid, the brush canvas,
+// and, when the build folder has the random map tileset, a whole map planned from it.
+galaxy::RmsScript readScript(const std::string& text, std::uint32_t seed = 7, std::vector<std::string> conditions = {}) {
+    std::mt19937 rng(seed);
+    galaxy::RmsScriptSettings settings;
+    settings.conditions = std::move(conditions);
+    return galaxy::readRandomMapScript(text, settings, rng);
+}
+
+bool hasMessage(const std::vector<galaxy::RmsMessage>& messages, int line, const std::string& part) {
+    for (const galaxy::RmsMessage& message : messages) {
+        if ((line == 0 || message.line == line) && message.text.find(part) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void testRmsReader() {
+    using namespace galaxy;
+    {
+        const RmsScript script = readScript(
+            "/* A /* nested */ comment */\n"
+            "<LAND_GENERATION>\n"
+            "base_terrain GREENWORLD_BASE-0\n"
+            "create_land {\n"
+            "  terrain_type LAVA_BASE-86\n"
+            "  land_percent 25\n"
+            "  land_position 50 50\n"
+            "}\n");
+        expect(script.messages.empty(), "a clean script has no notes");
+        expect(script.commands.size() == 2, "base_terrain and create_land are read");
+        expect(script.commands.size() == 2 && script.commands[1].section == "LAND_GENERATION", "commands keep their section");
+        const RmsAttribute* position = script.commands.size() == 2 ? script.commands[1].find("land_position") : nullptr;
+        expect(position != nullptr && position->args.size() == 2 && position->args[0].integer() == 50, "land_position takes two numbers");
+        expect(script.commands.size() == 2 && script.commands[1].line == 4, "a command remembers its line");
+        expect(script.hasSection("LAND_GENERATION") && !script.hasSection("TERRAIN_GENERATION"), "sections the script uses are listed");
+    }
+    {
+        // Braces may touch the command, attributes repeat with the last one winning.
+        const RmsScript script = readScript("<TERRAIN_GENERATION>\ncreate_terrain DESERT_BASE-80{land_percent 5 land_percent 9}\n");
+        expect(script.commands.size() == 1 && script.commands[0].args.size() == 1 && script.commands[0].args[0].text == "DESERT_BASE-80",
+            "a brace touching the command still opens the block");
+        expect(script.commands.size() == 1 && script.commands[0].find("land_percent")->args[0].integer() == 9, "the later attribute wins");
+    }
+    {
+        const std::string text =
+            "#define BIG\n"
+            "#const LAND GREENWORLD_BASE-85\n"
+            "#const HALF (40 / 2)\n"
+            "#const MIXED (2 + 3 * 4)\n"
+            "<LAND_GENERATION>\n"
+            "if TINY_MAP base_terrain LAVA_BASE-86\n"
+            "elseif BIG base_terrain LAND\n"
+            "else base_terrain MARS_BASE-85\n"
+            "endif\n"
+            "create_land { land_percent HALF number_of_tiles MIXED }\n";
+        const RmsScript plain = readScript(text);
+        expect(plain.commands.size() == 2 && plain.commands[0].args[0].text == "GREENWORLD_BASE-85", "elseif takes the first true branch and #const names a terrain");
+        expect(plain.commands.size() == 2 && plain.commands[1].find("land_percent")->args[0].number == 20.0, "math divides");
+        expect(plain.commands.size() == 2 && plain.commands[1].find("number_of_tiles")->args[0].number == 20.0, "math runs left to right: (2 + 3) * 4");
+        const RmsScript tiny = readScript(text, 7, {"TINY_MAP"});
+        expect(tiny.commands.size() == 2 && tiny.commands[0].args[0].text == "LAVA_BASE-86", "a predefined condition picks the if branch");
+    }
+    {
+        // Every seed lands in one of the branches, and the chances add up.
+        int first = 0;
+        int second = 0;
+        for (std::uint32_t seed = 1; seed <= 400; ++seed) {
+            const RmsScript script = readScript(
+                "<LAND_GENERATION>\nstart_random\npercent_chance 30 base_terrain LAVA_BASE-86\npercent_chance 70 base_terrain MARS_BASE-85\nend_random\n", seed);
+            expect(script.commands.size() == 1, "one random branch runs");
+            if (script.commands.size() == 1) {
+                (script.commands[0].args[0].text == "LAVA_BASE-86" ? first : second) += 1;
+            }
+        }
+        expect(first > 70 && first < 170 && first + second == 400, "percent_chance 30 is picked about 30% of the time: " + std::to_string(first));
+        const RmsScript again = readScript("<TERRAIN_GENERATION>\ncreate_terrain ICE_BASE-85 { number_of_clumps rnd(3,5) }\n", 99);
+        const RmsScript same = readScript("<TERRAIN_GENERATION>\ncreate_terrain ICE_BASE-85 { number_of_clumps rnd(3,5) }\n", 99);
+        const int clumps = again.commands.empty() ? -1 : again.commands[0].find("number_of_clumps")->args[0].integer();
+        expect(clumps >= 3 && clumps <= 5, "rnd stays inside its range");
+        expect(!same.commands.empty() && same.commands[0].find("number_of_clumps")->args[0].integer() == clumps, "the same seed gives the same script");
+    }
+    {
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\n"
+            "make_mountains 5\n"
+            "create_land { terrain_type GREENWORLD_BASE-85 wobble 3 land_percent 10 }\n"
+            "create_terrain LAVA_BASE-86 { land_percent 5 }\n"
+            "/*broken comment*/\n"
+            "<TERRAIN_GENERATION>\n"
+            "create_terrain LAVA_BASE-86 { number_of_clumps 2 base_size 4\n");
+        expect(hasMessage(script.messages, 2, "make_mountains"), "an unknown command is named with its line");
+        expect(hasMessage(script.messages, 3, "wobble"), "an unknown attribute is named with its line");
+        expect(hasMessage(script.messages, 4, "belongs under <TERRAIN_GENERATION>"), "a command in the wrong section is pointed out");
+        expect(hasMessage(script.messages, 5, "not a comment"), "a comment without spaces is pointed out");
+        expect(hasMessage(script.messages, 7, "base_size does nothing in create_terrain"), "an attribute from another block is pointed out");
+        expect(hasMessage(script.messages, 7, "never closed"), "an unclosed block is pointed out");
+        expect(script.commands.size() == 2, "the good commands still run");
+        const RmsAttribute* percent = script.commands.empty() ? nullptr : script.commands[0].find("land_percent");
+        expect(percent != nullptr && percent->args[0].integer() == 10, "reading resumes after an unknown attribute");
+    }
+    {
+        const RmsScript script = readScript("<LAND_GENERATION>\nif MISSING\nbase_terrain X\n");
+        expect(hasMessage(script.messages, 2, "no endif"), "an if without endif is pointed out");
+        const RmsScript objects = readScript("<OBJECTS_GENERATION>\ncreate_object TREE { number_of_objects 5 }\n<TERRAIN_GENERATION>\ncreate_terrain ICE_BASE-85 { }\n");
+        expect(objects.commands.size() == 1 && objects.commands[0].name == "create_terrain", "objects are skipped without notes, and later sections still read");
+    }
+    const std::vector<std::string> conditions = rmsConditions(4, 8, 8);
+    expect(std::find(conditions.begin(), conditions.end(), "4_PLAYER_GAME") != conditions.end(), "the player count is a condition");
+    expect(std::find(conditions.begin(), conditions.end(), "TINY_MAP") != conditions.end(), "an 8 x 8 map is tiny");
+    const std::vector<std::string> big = rmsConditions(2, 40, 20);
+    expect(std::find(big.begin(), big.end(), "LUDIKRIS_MAP") != big.end(), "a 40 x 20 map is ludicrous");
+}
+
+// Terrains for the plain-grid tests: 0 water, 1 grass, 2 lava, 3 desert.
+galaxy::RmsTerrainNames plainNames() {
+    galaxy::RmsTerrainNames names;
+    names.find = [](std::string_view name) {
+        if (name == "WATER") {
+            return 0;
+        }
+        if (name == "GRASS") {
+            return 1;
+        }
+        if (name == "LAVA") {
+            return 2;
+        }
+        if (name == "DESERT") {
+            return 3;
+        }
+        return -1;
+    };
+    names.fallback = 1;
+    return names;
+}
+
+int countTerrain(const galaxy::PlainCanvas& canvas, int terrain) {
+    return static_cast<int>(std::count(canvas.nodes().begin(), canvas.nodes().end(), terrain));
+}
+
+void testRandomMapGenerator() {
+    using namespace galaxy;
+    const RmsTerrainNames names = plainNames();
+    RandomMapOptions options;
+    options.players = 2;
+    {
+        PlainCanvas canvas(21, 21, 3);
+        std::mt19937 rng(5);
+        const RmsScript script = readScript("<TERRAIN_GENERATION>\ncreate_terrain LAVA { land_percent 10 }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+        expect(countTerrain(canvas, 2) == 44, "land_percent 10 paints 10% of the map: " + std::to_string(countTerrain(canvas, 2)));
+        expect(countTerrain(canvas, 1) == 397, "without LAND_GENERATION the map is the fallback terrain");
+        expect(outcome.terrains == 1 && outcome.messages.empty(), "one terrain, no notes");
+    }
+    {
+        PlainCanvas canvas(21, 21);
+        std::mt19937 rng(11);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\n"
+            "base_terrain WATER\n"
+            "create_player_lands { terrain_type GRASS land_percent 40 base_size 1 }\n"
+            "<TERRAIN_GENERATION>\n"
+            "create_terrain DESERT { base_terrain GRASS number_of_tiles 30 number_of_clumps 3 }\n"
+            "create_terrain LAVA { base_terrain WATER number_of_tiles 15 spacing_to_other_terrain_types 1 }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+        const int grass = countTerrain(canvas, 1);
+        const int desert = countTerrain(canvas, 3);
+        const int lava = countTerrain(canvas, 2);
+        expect(grass + desert == 176, "two player lands of 20% each cover 40% of the map: " + std::to_string(grass + desert));
+        expect(desert == 30, "desert replaces only grass, 30 tiles");
+        expect(lava == 15, "lava replaces only water");
+        expect(outcome.lands == 2 && outcome.playerOrigins.size() == 2, "a land per player");
+        bool apart = true;
+        for (int y = 0; y < 21; ++y) {
+            for (int x = 0; x < 21; ++x) {
+                if (canvas.at(x, y) != 2) {
+                    continue;
+                }
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int nx = x + dx;
+                        const int ny = y + dy;
+                        if (nx >= 0 && ny >= 0 && nx < 21 && ny < 21 && canvas.at(nx, ny) != 0 && canvas.at(nx, ny) != 2) {
+                            apart = false;
+                        }
+                    }
+                }
+            }
+        }
+        expect(apart, "spacing_to_other_terrain_types keeps lava a tile from the land");
+        const int p1 = outcome.playerOrigins.size() == 2 ? outcome.playerOrigins[0].first : 0;
+        const int p2 = outcome.playerOrigins.size() == 2 ? outcome.playerOrigins[1].first : 0;
+        const int q1 = outcome.playerOrigins.size() == 2 ? outcome.playerOrigins[0].second : 0;
+        const int q2 = outcome.playerOrigins.size() == 2 ? outcome.playerOrigins[1].second : 0;
+        expect(std::max(std::abs(p1 - p2), std::abs(q1 - q2)) >= 8, "player lands start on opposite sides of a circle");
+    }
+    {
+        // A land in the top-left with strict borders stays in its quarter.
+        PlainCanvas canvas(20, 20);
+        std::mt19937 rng(3);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\nbase_terrain WATER\n"
+            "create_land { terrain_type DESERT land_position 10 10 base_size 0 land_percent 100 right_border 50 bottom_border 50 border_fuzziness 100 }\n");
+        runRandomMapScript(script, canvas, names, options, rng);
+        bool inside = true;
+        for (int y = 0; y < 20; ++y) {
+            for (int x = 0; x < 20; ++x) {
+                if (canvas.at(x, y) == 3 && (x >= 10 || y >= 10)) {
+                    inside = false;
+                }
+            }
+        }
+        expect(inside && countTerrain(canvas, 3) == 100, "strict borders keep a land in its quarter: " + std::to_string(countTerrain(canvas, 3)));
+    }
+    {
+        // Two islands joined across the water by a desert path.
+        PlainCanvas canvas(24, 12);
+        std::mt19937 rng(9);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\nbase_terrain WATER\n"
+            "create_land { terrain_type GRASS land_position 10 50 base_size 1 number_of_tiles 0 }\n"
+            "create_land { terrain_type GRASS land_position 90 50 base_size 1 number_of_tiles 0 }\n"
+            "<CONNECTION_GENERATION>\n"
+            "create_connect_all_lands { replace_terrain WATER DESERT terrain_size WATER 0 0 }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+        expect(outcome.connections == 1, "the lands are connected");
+        bool joined = true;
+        for (int x = 3; x <= 20; ++x) {
+            bool column = false;
+            for (int y = 0; y < 12; ++y) {
+                column = column || canvas.at(x, y) == 3 || canvas.at(x, y) == 1;
+            }
+            joined = joined && column;
+        }
+        expect(joined && countTerrain(canvas, 3) > 0, "the path crosses the water");
+    }
+    {
+        PlainCanvas canvas(10, 10);
+        std::mt19937 rng(1);
+        const RmsScript script = readScript("<ELEVATION_GENERATION>\ncreate_elevation 3 { }\n<TERRAIN_GENERATION>\ncreate_terrain MUD { }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+        expect(hasMessage(outcome.messages, 1, "Elevation is not generated yet"), "elevation is pointed out");
+        expect(hasMessage(outcome.messages, 4, "\"MUD\" is not a terrain"), "an unknown terrain is named with its line");
+    }
+    const RmsScript fallback = readScript("<TERRAIN_GENERATION>\ncreate_terrain LAVA { base_terrain WATER }\n");
+    const std::vector<std::string> used = rmsTerrainNames(fallback, "GRASS");
+    expect(used.size() == 3 && used[0] == "LAVA" && used[1] == "WATER" && used[2] == "GRASS", "terrain names in order, with the fallback base");
+}
+
+void testBrushCanvas() {
+    using namespace galaxy;
+    // GreenWorld water and grass, and Lava ground, which blends with the grass but not the water.
+    const BrushGraph graph({0, 85, 86}, {"Green", "Green", "Lava"});
+    BrushCanvas canvas(9, 9, graph);
+    canvas.fill(0);
+    canvas.paint(4, 4, 2);
+    expect(canvas.at(4, 4) == 2, "the painted corner takes the lava");
+    bool ring = true;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx != 0 || dy != 0) {
+                ring = ring && canvas.at(4 + dx, 4 + dy) == 1;
+            }
+        }
+    }
+    expect(ring, "the brush rings lava in water with grass, the way it does by hand");
+    int invalid = 0;
+    for (int cy = 0; cy < 8; ++cy) {
+        for (int cx = 0; cx < 8; ++cx) {
+            invalid += brushCellValid(graph, canvas.cellCorners(cx, cy)) ? 0 : 1;
+        }
+    }
+    expect(invalid == 0, "every cell has a piece after painting");
+    const int left = canvas.repair([](const std::array<int, 4>& corners) { return corners[0] == corners[3]; }, 4);
+    expect(left >= 0, "repair reports what is left");
+}
+
+void testRandomMapTiles() {
+    using namespace galaxy;
+    std::vector<TilesetSection> sections = {
+        {"BaseTiles", "GreenWorld", "Base-85", "sections/BaseTiles/GreenWorld/Base-85.sct"},
+        {"BaseTiles", "GreenWorld", "Base-0", "sections/BaseTiles/GreenWorld/Base-0.sct"},
+        {"BaseTiles", "Lava", "Base-86", "sections/BaseTiles/Lava/Base-86.sct"},
+        {"BaseTiles", "Lava", "Base-41", "sections/BaseTiles/Lava/Base-41.sct"},
+        {"BaseTiles", "Mars", "Base-85", "sections/BaseTiles/Mars/Base-85.sct"},
+        {"BaseTileBrushStrokes", "GreenWorld", "Base-85-16x16-01", "a"},
+        {"BaseTileBrushStrokes", "GreenWorld", "Base-85-32x32-01", "b"},
+        {"CoastTiles", "Lava", "Coast-Lava-T-01", "c"},
+        {"CoastTiles", "GreenWorld", "Coast-Water-T-01", "d"},
+    };
+    const RandomMapTiles tiles(sections);
+    expect(tiles.paints().size() == 5, "every base is a paint");
+    const int grass = tiles.findPaint("greenworld_base-85");
+    expect(grass >= 0 && tiles.paints()[static_cast<std::size_t>(grass)].terrain == "GREENWORLD_BASE-85", "terrain names ignore case");
+    expect(tiles.findPaint("GREENWORLD_BASE-86") < 0, "an unknown base is not a paint");
+    const std::vector<int> levels = tiles.levelsFor({tiles.findPaint("LAVA_BASE-86")});
+    expect(levels.size() == 2 && tiles.paints()[static_cast<std::size_t>(levels[0])].height == 41, "a world brings all its bases, lowest first");
+    expect(tiles.liquidOf("Lava") == "Lava" && tiles.liquidOf("GreenWorld") == "Water", "Lava's coasts name the sea Lava");
+    expect(tiles.strokes(tiles.paints()[static_cast<std::size_t>(grass)], 32).size() == 1, "a 32 x 32 GreenWorld stroke is found");
+    expect(tiles.strokes(tiles.paints()[static_cast<std::size_t>(tiles.findPaint("MARS_BASE-85"))], 16).empty(),
+        "Mars has no strokes, so its base section fills a cell");
+
+    // A whole map from the real tileset, when the build folder has it.
+    const std::filesystem::path path = std::filesystem::path(GALAXY_SOURCE_DIR) / "build" / "GE-Favorites-RandomMapGeneratorTiles.hpi";
+    if (!std::filesystem::exists(path)) {
+        std::cout << "skipped random map tileset checks: " << path.string() << " is missing" << std::endl;
+        return;
+    }
+    const TilesetArchive archive = openTilesetArchive(path);
+    const RandomMapTiles real(archive.sections);
+    expect(real.findPaint("GREENWORLD_BASE-85") >= 0 && real.findPaint("LAVA_BASE-86") >= 0, "the random map tileset has GreenWorld and Lava");
+    const char* scripts[] = {
+        "<LAND_GENERATION>\nbase_terrain GREENWORLD_BASE-0\n"
+        "create_player_lands { terrain_type GREENWORLD_BASE-85 land_percent 50 base_size 2 }\n"
+        "<TERRAIN_GENERATION>\ncreate_terrain GREENWORLD_BASE-219 { base_terrain GREENWORLD_BASE-85 land_percent 8 number_of_clumps 3 }\n"
+        "create_terrain GREENWORLD_BASE-68 { base_terrain GREENWORLD_BASE-0 land_percent 6 number_of_clumps 4 }\n",
+        "<LAND_GENERATION>\nbase_terrain LAVA_BASE-86\n"
+        "create_player_lands { terrain_type GREENWORLD_BASE-85 land_percent 40 base_size 2 }\n"
+        "create_land { terrain_type DESERT_BASE-80 land_percent 15 land_position 50 50 base_size 1 }\n"
+        "<TERRAIN_GENERATION>\ncreate_terrain MARS_BASE-85 { base_terrain LAVA_BASE-86 land_percent 10 number_of_clumps 3 }\n",
+    };
+    for (const char* text : scripts) {
+        std::mt19937 rng(21);
+        const RmsScript script = readScript(text, 21);
+        std::vector<int> used;
+        for (const std::string& name : rmsTerrainNames(script, "GREENWORLD_BASE-85")) {
+            used.push_back(real.findPaint(name));
+        }
+        const std::vector<int> levels = real.levelsFor(used);
+        BrushCanvas canvas(17, 17, real.graphFor(levels));
+        RmsTerrainNames names;
+        names.find = [&](std::string_view name) {
+            const int paint = real.findPaint(name);
+            const auto found = std::find(levels.begin(), levels.end(), paint);
+            return found == levels.end() ? -1 : static_cast<int>(found - levels.begin());
+        };
+        names.fallback = names.find("GREENWORLD_BASE-85");
+        RandomMapOptions options;
+        options.players = 2;
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+        expect(outcome.messages.empty(), "the tileset script runs without notes");
+        const int left = canvas.repair([&](const std::array<int, 4>& corners) { return !real.pieces(canvas.graph(), levels, corners).empty(); });
+        const RandomMapStampPlan plan = planRandomMapStamps(real, levels, canvas, rng);
+        std::string missing;
+        for (const std::string& name : plan.missing) {
+            missing += " " + name;
+        }
+        expect(left == 0 && plan.missingCells == 0, "every cell of a generated map has a piece:" + missing);
+        expect(!plan.stamps.empty(), "the plan stamps the map");
+    }
+}
+
 void testVanillaLimits() {
     using galaxy::supportsVanillaTa;
     expect(supportsVanillaTa(64, 64, 100), "a small map plays in TA 3.1");
@@ -5903,6 +6021,10 @@ void testDocumentNames() {
 
 int main() {
     testDocumentNames();
+    testRmsReader();
+    testRandomMapGenerator();
+    testBrushCanvas();
+    testRandomMapTiles();
     testVanillaLimits();
     testBrushStrokeNames();
     testBrushCells();
@@ -5942,20 +6064,25 @@ int main() {
     testHeightGrid();
 
     const std::filesystem::path maps = GALAXY_EXAMPLE_MAPS;
-    const std::filesystem::path tileset = std::filesystem::path(GALAXY_SOURCE_DIR) / "GreenWorld.hpi";
-
-    expect(std::filesystem::exists(tileset), "GreenWorld.hpi is in the GalaxyEditor directory");
+    // GreenWorld.hpi is the game's own archive, not part of the repository. The checks that read it
+    // look next to the sources and in the build folder, and are skipped when neither has it.
+    std::filesystem::path tileset = std::filesystem::path(GALAXY_SOURCE_DIR) / "GreenWorld.hpi";
+    if (!std::filesystem::exists(tileset)) {
+        tileset = std::filesystem::path(GALAXY_SOURCE_DIR) / "build" / "GreenWorld.hpi";
+    }
+    const bool haveGreenWorld = std::filesystem::exists(tileset);
     galaxy::TilesetLibrary library;
-    library.addArchive(tileset);
-    expect(library.archives().size() == 1, "one tileset archive");
-    expect(library.sectionCount() == 453, "GreenWorld section count");
-    const auto counts = library.archives().front().categoryCounts();
-    expect(counts.count("GreenWorld") == 1, "world name GreenWorld");
-    expect(counts.at("GreenWorld").at("Flat") == 5, "Flat category");
-    expect(counts.at("GreenWorld").at("Hills") == 72, "Hills category");
-    testGenerate(library, maps);
-    testAcidFlatGround(maps);
-    testAcidFamily(maps);
+    if (haveGreenWorld) {
+        library.addArchive(tileset);
+        expect(library.archives().size() == 1, "one tileset archive");
+        expect(library.sectionCount() == 453, "GreenWorld section count");
+        const auto counts = library.archives().front().categoryCounts();
+        expect(counts.count("GreenWorld") == 1, "world name GreenWorld");
+        expect(counts.count("GreenWorld") == 1 && counts.at("GreenWorld").count("Flat") == 1 && counts.at("GreenWorld").at("Flat") == 5, "Flat category");
+        expect(counts.count("GreenWorld") == 1 && counts.at("GreenWorld").count("Hills") == 1 && counts.at("GreenWorld").at("Hills") == 72, "Hills category");
+    } else {
+        std::cout << "skipped GreenWorld.hpi checks: it is not in " << GALAXY_SOURCE_DIR << " or its build folder" << std::endl;
+    }
 
     const auto grass = galaxy::loadMapFile(maps / "64x64_SimpleFlatMapWithGrass.ufo");
     expect(grass.tileWidth == 64 && grass.tileHeight == 64, "grass size");
@@ -5965,7 +6092,9 @@ int main() {
     expect(!grass.heights.empty() && grass.heights.front() == 85, "grass height");
     expect(grass.missionName == "Untitled Map", "grass mission name");
     expectMatchesBmp(grass, maps / "64x64_SimpleFlatMapWithGrass.bmp");
-    testGreenFlat(library, grass, maps);
+    if (haveGreenWorld) {
+        testGreenFlat(library, grass, maps);
+    }
 
     const auto rendered = galaxy::renderMapRgba(grass);
     expect(rendered.size() == static_cast<std::size_t>(grass.pixelWidth() * grass.pixelHeight() * 4), "rgba size");

@@ -98,7 +98,8 @@ add_library(galaxy_format STATIC
     src/core/TilesetLibrary.cpp
     src/core/ArchiveDocument.cpp
     src/core/FavoritesArchive.cpp
-    src/core/MapGenerator.cpp
+    src/core/RmsScript.cpp
+    src/core/RandomMap.cpp
     src/core/EditorSettings.cpp
     src/core/I18n.cpp
     src/core/OrbitCamera.cpp
