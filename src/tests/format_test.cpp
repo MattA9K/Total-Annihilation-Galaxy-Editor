@@ -5741,7 +5741,9 @@ void testRmsReader() {
         const RmsScript script = readScript("<LAND_GENERATION>\nif MISSING\nbase_terrain X\n");
         expect(hasMessage(script.messages, 2, "no endif"), "an if without endif is pointed out");
         const RmsScript objects = readScript("<OBJECTS_GENERATION>\ncreate_object TREE { number_of_objects 5 }\n<TERRAIN_GENERATION>\ncreate_terrain ICE_BASE-85 { }\n");
-        expect(objects.commands.size() == 1 && objects.commands[0].name == "create_terrain", "objects are skipped without notes, and later sections still read");
+        expect(objects.commands.size() == 2 && objects.commands[0].name == "create_object" && objects.commands[1].name == "create_terrain",
+            "objects are read, and later sections still read");
+        expect(objects.commands.size() == 2 && objects.commands[0].find("number_of_objects")->args[0].integer() == 5, "create_object keeps its attributes");
     }
     {
         const std::string text = "/* note /* deep */ still */ <LAND_GENERATION>\n#const N (2 * 3)\nif BIG create_land{ terrain_type LAVA_BASE-86 land_percent rnd(2,5) } endif /*no";
@@ -5910,6 +5912,125 @@ void testRandomMapGenerator() {
     expect(used.size() == 3 && used[0] == "LAVA" && used[1] == "WATER" && used[2] == "GRASS", "terrain names in order, with the fallback base");
 }
 
+void testDoodads() {
+    using namespace galaxy;
+    // Feature batches: clear everything, place many, undo and redo as one edit.
+    {
+        LoadedMap map = createBlankMap(4, 4);
+        expect(placeMapFeature(map, 1, 1, "OldRock") == FeatureEdit::Placed, "an old feature to clear");
+        int skipped = 0;
+        const FeatureBatchChange change = replaceMapFeatures(map, {{2, 3, "Tree1"}, {4, 4, "Tree2"}, {5, 5, "Tree1"}, {99, 0, "Tree1"}}, &skipped);
+        expect(map.features.size() == 3 && skipped == 1, "a batch places what fits and counts the rest");
+        expect(map.featureNames.size() == 2, "the name table holds only the names in use");
+        revertFeatureBatch(map, change);
+        expect(map.features.size() == 1 && map.features[0].name == "OldRock", "undo brings back the old features");
+        reapplyFeatureBatch(map, change);
+        expect(map.features.size() == 3, "redo places the batch again");
+    }
+    {
+        const RmsFeature tree{"Tree1", "greenworld", "trees", 1, 1};
+        const RmsFeature dead{"Tree1Dead", "greenworld", "trees", 1, 1};
+        const RmsFeature palm{"Palm01", "archipelago", "trees", 1, 1};
+        const RmsFeature crisp{"Palm01crisp", "archipelago", "trees", 1, 1};
+        const RmsFeature chunk{"IceChunk03", "Ice", "rocks", 1, 1};
+        const RmsFeature spire{"LavaSpire002", "lava", "spires", 2, 2};
+        const RmsFeature scar{"Scar01", "greenworld", "scars", 2, 2};
+        const RmsFeature vine{"specvine01", "lush", "spec foliage", 1, 1};
+        const RmsFeature crystal{"Crysvar1", "ground zero", "Crystals", 2, 2};
+        expect(featureIsDoodad(tree, DoodadKind::Trees) && featureIsDoodad(palm, DoodadKind::Trees), "trees and palms are TREES");
+        expect(!featureIsDoodad(dead, DoodadKind::Trees) && !featureIsDoodad(crisp, DoodadKind::Trees), "dead and burnt trees are left out");
+        expect(featureIsDoodad(chunk, DoodadKind::IceChunks) && featureIsDoodad(chunk, DoodadKind::Rocks), "ice chunks are ICECHUNKS and the ice's ROCKS");
+        expect(featureIsDoodad(spire, DoodadKind::LavaSpires) && featureIsDoodad(spire, DoodadKind::Spires) && !featureIsDoodad(spire, DoodadKind::Rocks),
+            "a lava spire is LAVA_SPIRES and SPIRES, not ROCKS");
+        expect(!featureIsDoodad(scar, DoodadKind::Rocks) && !featureIsDoodad(scar, DoodadKind::Plants), "scars are never doodads");
+        expect(featureIsDoodad(vine, DoodadKind::Vines) && featureIsDoodad(vine, DoodadKind::Foliage), "vines are VINES and FOLIAGE");
+        expect(featureIsDoodad(crystal, DoodadKind::CrystalSpires) && doodadLand(crystal, DoodadKind::CrystalSpires) == "Crystal",
+            "crystals are CRYSTAL_SPIRES for Crystal ground");
+        const RmsFeature evergreen{"EGSpire1", "Evergreen", "Spires", 3, 3};
+        expect(doodadLand(evergreen, DoodadKind::Spires).empty() && doodadLand(evergreen, DoodadKind::Rocks).empty(),
+            "Evergreen doodads suit no Tile Brush land, so kinds never put them on the ice");
+        expect(doodadLand(tree, DoodadKind::Trees) == "Green" && doodadLand(palm, DoodadKind::Trees) == "Archi" && doodadLand(chunk, DoodadKind::Rocks) == "Ice",
+            "a feature suits its own world's ground");
+    }
+
+    // A map of water with a grass island on the left and a lava island on the right.
+    RmsObjectSettings objects;
+    objects.features = {
+        {"Tree1", "greenworld", "trees", 1, 1},
+        {"Tree2Dead", "greenworld", "trees", 1, 1},
+        {"Rock", "greenworld", "rocks", 1, 1},
+        {"LavaSpire002", "lava", "spires", 2, 2},
+        {"ZhonPlant", "Zhon", "plants", 1, 1},
+    };
+    objects.terrainLands = {"", "Green", "Lava", "Desert"};
+    objects.terrainLiquid = {true, false, false, false};
+    objects.cellsPerNode = 4;
+    objects.cellsWide = 16 * 4;
+    objects.cellsHigh = 8 * 4;
+    RandomMapOptions options;
+    options.players = 2;
+    options.objects = &objects;
+    PlainCanvas canvas(17, 9);
+    std::mt19937 rng(4);
+    const RmsScript script = readScript(
+        "<LAND_GENERATION>\nbase_terrain WATER\n"
+        "create_land { terrain_type GRASS land_position 20 50 base_size 3 number_of_tiles 0 land_id 7 }\n"
+        "create_land { terrain_type LAVA land_position 75 50 base_size 3 number_of_tiles 0 }\n"
+        "<OBJECTS_GENERATION>\n"
+        "create_object TREES { number_of_objects 30 }\n"
+        "create_object LAVA_SPIRES { number_of_objects 6 }\n"
+        "create_object ROCKS { number_of_objects 5 number_of_groups 2 set_tight_grouping place_on_specific_land_id 7 }\n"
+        "create_object Tree1 { number_of_objects 3 terrain_to_place_on LAVA }\n"
+        "create_object ZHON_PLANTS { number_of_objects 2 terrain_to_place_on GRASS }\n"
+        "create_object BANANAS { }\n"
+        "create_object PIPES { }\n");
+    const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
+    expect(outcome.placesObjects, "a script with objects places features");
+    const auto groundAt = [&](int x, int y) {
+        const int lx = x / 4;
+        const int ly = y / 4;
+        const int corner = canvas.at(lx, ly);
+        const bool flat = corner == canvas.at(lx + 1, ly) && corner == canvas.at(lx, ly + 1) && corner == canvas.at(lx + 1, ly + 1);
+        return flat ? corner : -1;
+    };
+    int trees = 0;
+    int spires = 0;
+    int rocks = 0;
+    int lavaTrees = 0;
+    int plants = 0;
+    bool fits = true;
+    for (const RmsPlacedFeature& feature : outcome.features) {
+        const int ground = groundAt(feature.x, feature.y);
+        fits = fits && ground > 0;
+        if (feature.name == "Tree1" && ground == 1) {
+            ++trees;
+        } else if (feature.name == "Tree1" && ground == 2) {
+            ++lavaTrees;
+        } else if (feature.name == "LavaSpire002") {
+            spires += ground == 2 && groundAt(feature.x + 1, feature.y + 1) == 2 ? 1 : 0;
+        } else if (feature.name == "Rock") {
+            rocks += ground == 1 ? 1 : 0;
+        } else if (feature.name == "ZhonPlant") {
+            plants += ground == 1 ? 1 : 0;
+        } else {
+            fits = false;
+        }
+    }
+    expect(fits, "features stay off water and edges, and dead trees are never picked");
+    expect(trees == 30, "TREES puts GreenWorld trees on the grass: " + std::to_string(trees));
+    expect(spires == 6, "LAVA_SPIRES go on the lava, whole footprint: " + std::to_string(spires));
+    expect(rocks == 10, "two groups of five rocks on land 7: " + std::to_string(rocks));
+    expect(lavaTrees == 3, "an exact feature goes where terrain_to_place_on says");
+    expect(plants == 2, "ZHON_PLANTS picks Zhon's plants");
+    expect(hasMessage(outcome.messages, 11, "BANANAS"), "an unknown object is named with its line");
+    expect(hasMessage(outcome.messages, 12, "No loaded feature is a PIPES"), "a kind with no features says so");
+    std::set<std::pair<int, int>> cells;
+    for (const RmsPlacedFeature& feature : outcome.features) {
+        cells.insert({feature.x, feature.y});
+    }
+    expect(cells.size() == outcome.features.size(), "no two features share a cell");
+}
+
 void testBrushCanvas() {
     using namespace galaxy;
     // GreenWorld water and grass, and Lava ground, which blends with the grass but not the water.
@@ -5977,6 +6098,9 @@ void testRandomMapTiles() {
         "create_player_lands { terrain_type GREENWORLD_BASE-85 land_percent 50 base_size 2 }\n"
         "<TERRAIN_GENERATION>\ncreate_terrain GREENWORLD_BASE-219 { base_terrain GREENWORLD_BASE-85 land_percent 8 number_of_clumps 3 }\n"
         "create_terrain GREENWORLD_BASE-68 { base_terrain GREENWORLD_BASE-0 land_percent 6 number_of_clumps 4 }\n",
+        "<LAND_GENERATION>\nbase_terrain GREENWORLD_BASE-0\n"
+        "create_land { terrain_type DESERT_BASE-80 land_position 50 50 base_size 2 number_of_tiles 4 }\n"
+        "create_land { terrain_type ICE_BASE-85 land_position 20 20 base_size 1 number_of_tiles 2 }\n",
         "<LAND_GENERATION>\nbase_terrain LAVA_BASE-86\n"
         "create_player_lands { terrain_type GREENWORLD_BASE-85 land_percent 40 base_size 2 }\n"
         "create_land { terrain_type DESERT_BASE-80 land_percent 15 land_position 50 50 base_size 1 }\n"
@@ -6009,6 +6133,15 @@ void testRandomMapTiles() {
             missing += " " + name;
         }
         expect(left == 0 && plan.missingCells == 0, "every cell of a generated map has a piece:" + missing);
+        // Each land the script paints is still on the map after the brush joins it to the sea.
+        for (const RmsCommand& command : script.commands) {
+            const RmsAttribute* type = command.find("terrain_type");
+            if (type == nullptr) {
+                continue;
+            }
+            const int level = names.find(type->args[0].text);
+            expect(std::count(canvas.nodes().begin(), canvas.nodes().end(), level) > 0, type->args[0].text + " survives on the map");
+        }
         expect(!plan.stamps.empty(), "the plan stamps the map");
     }
 }
@@ -6051,6 +6184,7 @@ int main() {
     testRmsReader();
     testRandomMapGenerator();
     testBrushCanvas();
+    testDoodads();
     testRandomMapTiles();
     testVanillaLimits();
     testBrushStrokeNames();

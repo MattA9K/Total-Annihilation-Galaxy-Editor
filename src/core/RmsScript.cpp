@@ -437,6 +437,7 @@ const CommandSpec kCommands[] = {
     {"create_connect_same_land_zones", "CONNECTION_GENERATION", 0, true},
     {"create_connect_land_zones", "CONNECTION_GENERATION", 2, true},
     {"create_connect_to_nonplayer_land", "CONNECTION_GENERATION", 0, true},
+    {"create_object", "OBJECTS_GENERATION", 1, true},
 };
 
 // Which blocks an attribute belongs in. Lands are create_land and
@@ -446,6 +447,7 @@ enum Use : unsigned {
     kElevation = 2,
     kTerrain = 4,
     kConnection = 8,
+    kObject = 16,
 };
 
 struct AttributeSpec {
@@ -498,6 +500,32 @@ const AttributeSpec kAttributes[] = {
     {"replace_terrain", 2, 2, kConnection},
     {"terrain_cost", 2, 2, kConnection},
     {"terrain_size", 3, 3, kConnection},
+    {"number_of_objects", 1, 1, kObject},
+    {"number_of_groups", 1, 1, kObject},
+    {"group_variance", 1, 1, kObject},
+    {"group_placement_radius", 1, 1, kObject},
+    {"set_tight_grouping", 0, 0, kObject},
+    {"set_loose_grouping", 0, 0, kObject},
+    {"set_scaling_to_map_size", 0, 0, kObject},
+    {"set_scaling_to_player_number", 0, 0, kObject},
+    {"set_place_for_every_player", 0, 0, kObject},
+    {"place_on_specific_land_id", 1, 1, kObject},
+    {"terrain_to_place_on", 1, 1, kObject},
+    {"layer_to_place_on", 1, 1, kObject},
+    {"min_distance_to_players", 1, 1, kObject},
+    {"max_distance_to_players", 1, 1, kObject},
+    {"min_distance_group_placement", 1, 1, kObject},
+    {"temp_min_distance_group_placement", 1, 1, kObject},
+    {"min_distance_to_map_edge", 1, 1, kObject},
+    {"avoid_forest_zone", 0, 1, kObject},
+    {"avoid_cliff_zone", 0, 1, kObject},
+    {"find_closest", 0, 0, kObject},
+    {"set_gaia_object_only", 0, 0, kObject},
+    {"set_gaia_unconvertible", 0, 0, kObject},
+    {"make_indestructible", 0, 0, kObject},
+    {"resource_delta", 1, 1, kObject},
+    {"second_object", 1, 1, kObject},
+    {"generate_for_first_land_only", 0, 0, kObject},
 };
 
 const CommandSpec* findCommand(const std::string& name) {
@@ -531,6 +559,9 @@ unsigned useOf(const std::string& command) {
     if (command.compare(0, 15, "create_connect_") == 0) {
         return kConnection;
     }
+    if (command == "create_object") {
+        return kObject;
+    }
     return 0;
 }
 
@@ -563,8 +594,8 @@ public:
                 ++pos_;
                 continue;
             }
-            if (section_ == "OBJECTS_GENERATION" || (!section_.empty() && !knownSection(section_))) {
-                // Objects come later. Their commands are skipped whole, braces and all.
+            if (!section_.empty() && !knownSection(section_)) {
+                // A section the game does not know is skipped whole, braces and all.
                 if (word.text == "{") {
                     skipBlock();
                 } else {

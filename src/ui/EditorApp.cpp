@@ -4425,6 +4425,11 @@ void EditorApp::undoPlacement() {
                 statusNote_ = "Undid feature edit";
             }
         }
+        if (undo_.back().featureBatch) {
+            revertFeatureBatch(*map_, *undo_.back().featureBatch);
+            selectedFeatures_.clear();
+            markMapDirty();
+        }
         if (undo_.back().selection) {
             selection_ = undo_.back().selectionBefore;
             if (!undo_.back().terrain) {
@@ -4478,6 +4483,11 @@ void EditorApp::redoPlacement() {
             if (!redo_.back().terrain) {
                 statusNote_ = "Redid feature edit";
             }
+        }
+        if (redo_.back().featureBatch) {
+            reapplyFeatureBatch(*map_, *redo_.back().featureBatch);
+            selectedFeatures_.clear();
+            markMapDirty();
         }
         if (redo_.back().selection) {
             selection_ = redo_.back().selectionAfter;
@@ -9054,6 +9064,68 @@ create_connect_all_players_land {
   replace_terrain GREENWORLD_BASE-0 GREENWORLD_BASE-68
   terrain_size GREENWORLD_BASE-0 0 0
 }
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, the footprint of one tree:
+   16 x 16 pixels, so a game-size square is 32 tiles across.
+   A kind such as TREES picks features that suit the ground under each
+   spot: GreenWorld trees on grass, palms on Archipelago sand. A kind for
+   one world, such as ARCHIPELAGO_TREES or ZHON_PLANTS, and any feature
+   name, such as Tree1, work too. Doodads stay off water, lava and edges. */
+
+/* Groves of trees, kept clear of where players start. */
+create_object TREES {
+  number_of_objects 6
+  number_of_groups 2
+  group_variance 2
+  set_tight_grouping
+  set_scaling_to_map_size
+  min_distance_to_players 20
+  avoid_cliff_zone 2
+}
+
+/* Lone trees and shrubs scattered over the grass. */
+create_object TREES {
+  number_of_objects 3
+  set_scaling_to_map_size
+  min_distance_to_players 10
+}
+create_object SHRUBS {
+  number_of_objects 4
+  set_scaling_to_map_size
+}
+
+/* Rocks in small clusters, spread apart. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  set_scaling_to_map_size
+  group_placement_radius 3
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}
+
+/* Spires and nodes on the lava. */
+create_object LAVA_SPIRES {
+  number_of_objects 1
+  set_scaling_to_map_size
+}
+create_object LAVA_NODES {
+  number_of_objects 1
+  set_scaling_to_map_size
+}
+
+/* More kinds for other grounds. Paint those lands above, then take a
+   block out of this comment:
+   create_object PLANTS { number_of_objects 4 set_scaling_to_map_size }
+   create_object FOLIAGE { number_of_objects 4 set_scaling_to_map_size }
+   create_object FRONDS { number_of_objects 4 set_scaling_to_map_size }
+   create_object VINES { number_of_objects 3 set_scaling_to_map_size }
+   create_object ICECHUNKS { number_of_objects 4 set_scaling_to_map_size }
+   create_object METAL_TOWERS { number_of_objects 1 set_scaling_to_map_size }
+   create_object PIPES { number_of_objects 2 set_scaling_to_map_size }
+   create_object CRYSTAL_SPIRES { number_of_objects 1 set_scaling_to_map_size }
+   create_object SPIRES { number_of_objects 1 set_scaling_to_map_size } */
 )";
 
 // What a map is without base_terrain, and a land without terrain_type. The game uses GRASS.
@@ -9258,8 +9330,39 @@ bool EditorApp::generateRandomMap() {
             return paint < 0 || found == levels.end() ? -1 : static_cast<int>(found - levels.begin());
         };
         names.fallback = std::max(0, names.find(kRandomMapFallbackTerrain));
+        // Features come from every loaded archive: the game's own and TA_Features_2013.ccx.
+        // Where two archives define one name, the first one loaded wins, as in the Features tab.
+        RmsObjectSettings objects;
+        {
+            std::unordered_set<std::string> seen;
+            for (const TilesetArchive& archive : tilesets_.archives()) {
+                for (const FeatureInfo& feature : archive.features) {
+                    if (feature.name.empty() || !seen.insert(lowerText(feature.name)).second) {
+                        continue;
+                    }
+                    objects.features.push_back(RmsFeature{feature.name, feature.world, feature.category,
+                                                          std::max(1, feature.footprintX), std::max(1, feature.footprintZ)});
+                }
+            }
+            for (const int level : levels) {
+                const RandomMapPaint& paint = tiles.paints()[static_cast<std::size_t>(level)];
+                objects.terrainLands.push_back(blendWorldName(paint.world));
+                // Water, shallows, lava and the other seas are the low side of a coast.
+                bool liquid = false;
+                for (const BrushTransitionRule& rule : brushTransitionRules()) {
+                    const bool sea = rule.style == TransitionStyle::Coast || rule.style == TransitionStyle::ShallowCoast
+                        || rule.style == TransitionStyle::ShallowDeep;
+                    liquid = liquid || (sea && rule.lowerHeight == paint.height);
+                }
+                objects.terrainLiquid.push_back(liquid);
+            }
+            objects.cellsWide = map_->heightWidth();
+            objects.cellsHigh = map_->heightHeight();
+            objects.cellsPerNode = kBrushCellTiles * 2;
+        }
         RandomMapOptions options;
         options.players = players;
+        options.objects = &objects;
         const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
         canvas.repair([&](const std::array<int, 4>& corners) { return !tiles.pieces(canvas.graph(), levels, corners).empty(); });
         const RandomMapStampPlan plan = planRandomMapStamps(tiles, levels, canvas, rng);
@@ -9305,7 +9408,20 @@ bool EditorApp::generateRandomMap() {
             const std::size_t start = static_cast<std::size_t>(change.before.tileCount) * 1024;
             change.addedTiles.assign(map_->tileImages.begin() + static_cast<std::ptrdiff_t>(start), map_->tileImages.end());
         }
-        rememberPlacement(std::move(change));
+        EditorCommand command;
+        command.terrain = std::move(change);
+        int featuresSkipped = 0;
+        if (outcome.placesObjects) {
+            // A script with <OBJECTS_GENERATION> replaces every feature on the map.
+            std::vector<FeaturePlacement> placements;
+            placements.reserve(outcome.features.size());
+            for (const RmsPlacedFeature& feature : outcome.features) {
+                placements.push_back(FeaturePlacement{feature.x, feature.y, feature.name});
+            }
+            command.featureBatch = replaceMapFeatures(*map_, placements, &featuresSkipped);
+            selectedFeatures_.clear();
+        }
+        pushCommand(std::move(command), true);
         warnIfPastVanillaTiles(tileCountBefore);
 
         randomMapNotes_ = script.messages;
@@ -9321,11 +9437,15 @@ bool EditorApp::generateRandomMap() {
             randomMapNotes_.push_back(RmsMessage{0, std::to_string(plan.missingCells) + " cells had no piece in the tileset (" + names
                                                          + "), so they were filled with their most common base."});
         }
+        if (featuresSkipped > 0) {
+            randomMapNotes_.push_back(RmsMessage{0, std::to_string(featuresSkipped) + " features landed on open space or past the map's limit of feature names, so they were left out."});
+        }
         randomMapResult_ = formatText(Text::RandomMapDone, {std::to_string(randomMapSeed_), std::to_string(randomMapNotes_.size())});
         randomMapFailed_ = false;
         statusNote_ = "Generated a random map: " + std::to_string(outcome.lands) + (outcome.lands == 1 ? " land, " : " lands, ")
             + std::to_string(outcome.terrains) + (outcome.terrains == 1 ? " terrain, " : " terrains, ")
-            + std::to_string(outcome.connections) + (outcome.connections == 1 ? " connection" : " connections");
+            + std::to_string(outcome.connections) + (outcome.connections == 1 ? " connection" : " connections")
+            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped)) + " features" : std::string());
         error_.clear();
         return true;
     } catch (const std::exception& ex) {
@@ -9439,6 +9559,16 @@ void EditorApp::drawRandomMap() {
         if (ImGui::Selectable(paint.terrain.c_str())) {
             ImGui::SetClipboardText(paint.terrain.c_str());
             statusNote_ = "Copied " + paint.terrain;
+        }
+    }
+    // Doodad kinds for create_object. Each follows the ground under each spot.
+    ImGui::Spacing();
+    ImGui::Spacing();
+    theme::sourceListTitle(text(Text::RandomMapDoodads));
+    for (const DoodadKindInfo& kind : doodadKinds()) {
+        if (ImGui::Selectable(kind.name)) {
+            ImGui::SetClipboardText(kind.name);
+            statusNote_ = std::string("Copied ") + kind.name;
         }
     }
     ImGui::EndChild();

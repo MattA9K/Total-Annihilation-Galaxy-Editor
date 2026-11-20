@@ -94,6 +94,8 @@ struct Land {
     int generateMode = 0;
     double circleRadius = -1.0;
     double circleVariance = 0.0;
+    bool hasLandId = false;
+    int landId = 0;
     int line = 0;
 
     int originX = 0;
@@ -129,6 +131,7 @@ public:
         landGeneration();
         terrainGeneration();
         connectionGeneration();
+        objectGeneration();
     }
 
 private:
@@ -140,8 +143,8 @@ private:
                 note(line, "Elevation is not generated yet. Paint high ground with a higher base, such as GREENWORLD_BASE-219.");
             } else if (section == "CLIFF_GENERATION") {
                 note(line, "Cliffs are not generated yet. A higher base, such as GREENWORLD_BASE-219, gets cliff edges.");
-            } else if (section == "OBJECTS_GENERATION") {
-                note(line, "Objects such as trees, rocks and metal are not generated yet, so this section was skipped.");
+            } else if (section == "OBJECTS_GENERATION" && options_.objects == nullptr) {
+                note(line, "Features cannot be placed here, so this section was skipped.");
             }
         }
     }
@@ -196,6 +199,10 @@ private:
         if (const RmsAttribute* circle = command.find("circle_radius"); circle != nullptr && !circle->args.empty()) {
             land.circleRadius = circle->args[0].number;
             land.circleVariance = circle->args.size() > 1 ? circle->args[1].number : 0.0;
+        }
+        if (const RmsAttribute* id = command.find("land_id"); id != nullptr && !id->args.empty()) {
+            land.hasLandId = true;
+            land.landId = id->args[0].integer();
         }
         if (has(command, "base_elevation")) {
             note(command.find("base_elevation")->line, "base_elevation is skipped: elevation is not generated yet.");
@@ -988,6 +995,454 @@ private:
         }
     }
 
+    // ---------------------------------------------------------------- objects
+
+    // What a create_object name stands for: an exact feature, a doodad kind that
+    // follows the land under each spot, or a kind from one world.
+    struct ObjectChoice {
+        std::vector<const RmsFeature*> features;
+        bool followsLand = false;
+        DoodadKind kind = DoodadKind::Trees;
+    };
+
+    static std::string scriptWorld(std::string_view world) {
+        std::string out = upper(world);
+        for (char& character : out) {
+            if (character == ' ' || character == '-') {
+                character = '_';
+            }
+        }
+        return out;
+    }
+
+    static std::string landScriptName(const std::string& land) {
+        if (land == "Green") {
+            return "GREENWORLD";
+        }
+        if (land == "Archi") {
+            return "ARCHIPELAGO";
+        }
+        return upper(land);
+    }
+
+    bool resolveObject(const std::string& name, ObjectChoice& choice) const {
+        const RmsObjectSettings& objects = *options_.objects;
+        const std::string wanted = upper(name);
+        for (const RmsFeature& feature : objects.features) {
+            if (upper(feature.name) == wanted) {
+                choice.features.push_back(&feature);
+                return true;
+            }
+        }
+        std::vector<DoodadKindInfo> kinds = doodadKinds();
+        // LAVA_SPIRES before SPIRES, so the longer name wins.
+        std::stable_sort(kinds.begin(), kinds.end(), [](const DoodadKindInfo& left, const DoodadKindInfo& right) {
+            return std::string_view(left.name).size() > std::string_view(right.name).size();
+        });
+        for (const DoodadKindInfo& info : kinds) {
+            if (wanted == info.name) {
+                choice.followsLand = true;
+                choice.kind = info.kind;
+                for (const RmsFeature& feature : objects.features) {
+                    if (featureIsDoodad(feature, info.kind)) {
+                        choice.features.push_back(&feature);
+                    }
+                }
+                return true;
+            }
+        }
+        for (const DoodadKindInfo& info : kinds) {
+            const std::string suffix = std::string("_") + info.name;
+            if (wanted.size() <= suffix.size() || wanted.compare(wanted.size() - suffix.size(), suffix.size(), suffix) != 0) {
+                continue;
+            }
+            const std::string world = wanted.substr(0, wanted.size() - suffix.size());
+            choice.kind = info.kind;
+            for (const RmsFeature& feature : objects.features) {
+                if (!featureIsDoodad(feature, info.kind)) {
+                    continue;
+                }
+                const std::string land = doodadLand(feature, info.kind);
+                if (scriptWorld(feature.world) == world || (!land.empty() && landScriptName(land) == world)) {
+                    choice.features.push_back(&feature);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    void objectGeneration() {
+        if (options_.objects == nullptr) {
+            return;
+        }
+        const RmsObjectSettings& objects = *options_.objects;
+        bool any = false;
+        for (const RmsCommand& command : script_.commands) {
+            any = any || command.section == "OBJECTS_GENERATION";
+        }
+        if (!any && !script_.hasSection("OBJECTS_GENERATION")) {
+            return;
+        }
+        outcome_.placesObjects = true;
+        cellsWide_ = std::max(1, objects.cellsWide);
+        cellsHigh_ = std::max(1, objects.cellsHigh);
+        perNode_ = std::max(1, objects.cellsPerNode);
+        occupied_.assign(static_cast<std::size_t>(cellsWide_) * static_cast<std::size_t>(cellsHigh_), 0);
+        // The ground under each brush cell: its paint when all four corners agree,
+        // otherwise -1 for a coast, cliff or blend, where features stay off.
+        const int latticeX = std::max(1, width_ - 1);
+        const int latticeY = std::max(1, height_ - 1);
+        flat_.assign(static_cast<std::size_t>(latticeX) * static_cast<std::size_t>(latticeY), -1);
+        for (int y = 0; y < latticeY; ++y) {
+            for (int x = 0; x < latticeX; ++x) {
+                const int corner = canvas_.at(x, y);
+                const bool same = width_ > 1 && height_ > 1
+                    ? corner == canvas_.at(x + 1, y) && corner == canvas_.at(x, y + 1) && corner == canvas_.at(x + 1, y + 1)
+                    : true;
+                flat_[static_cast<std::size_t>(y) * static_cast<std::size_t>(latticeX) + static_cast<std::size_t>(x)] = same ? corner : -1;
+            }
+        }
+        latticeX_ = latticeX;
+        latticeY_ = latticeY;
+        int commandIndex = 0;
+        for (const RmsCommand& command : script_.commands) {
+            if (command.section == "OBJECTS_GENERATION" && command.name == "create_object" && !command.args.empty()) {
+                createObject(command, commandIndex++);
+            }
+        }
+    }
+
+    // The paint under a feature cell, or -1 on a transition or off the map.
+    int groundAt(int x, int y) const {
+        if (x < 0 || y < 0 || x >= cellsWide_ || y >= cellsHigh_) {
+            return -1;
+        }
+        const int lx = std::min(x / perNode_, latticeX_ - 1);
+        const int ly = std::min(y / perNode_, latticeY_ - 1);
+        return flat_[static_cast<std::size_t>(ly) * static_cast<std::size_t>(latticeX_) + static_cast<std::size_t>(lx)];
+    }
+
+    // True when a coast, cliff or blend lies within distance feature cells.
+    bool nearEdge(int x, int y, int distance) const {
+        if (distance <= 0) {
+            return false;
+        }
+        const int x0 = std::max(0, (x - distance) / perNode_);
+        const int x1 = std::min(latticeX_ - 1, (x + distance) / perNode_);
+        const int y0 = std::max(0, (y - distance) / perNode_);
+        const int y1 = std::min(latticeY_ - 1, (y + distance) / perNode_);
+        for (int ly = y0; ly <= y1; ++ly) {
+            for (int lx = x0; lx <= x1; ++lx) {
+                if (flat_[static_cast<std::size_t>(ly) * static_cast<std::size_t>(latticeX_) + static_cast<std::size_t>(lx)] >= 0) {
+                    continue;
+                }
+                const int dx = std::max({lx * perNode_ - x, x - ((lx + 1) * perNode_ - 1), 0});
+                const int dy = std::max({ly * perNode_ - y, y - ((ly + 1) * perNode_ - 1), 0});
+                if (dx * dx + dy * dy <= distance * distance) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    struct Placed {
+        int x = 0;
+        int y = 0;
+        int group = 0;
+        int command = 0;
+    };
+
+    struct ObjectRules {
+        int terrain = -1;
+        bool hasLandId = false;
+        int landId = 0;
+        int minPlayers = -1;
+        int maxPlayers = -1;
+        int player = 0;  // set_place_for_every_player: the player this round is for
+        int minGroup = 0;
+        int tempMinGroup = 0;
+        int edge = 0;
+        int cliff = 0;
+    };
+
+    bool cellAllowed(const ObjectRules& rules, int x, int y, int group, int command) const {
+        if (x < rules.edge || y < rules.edge || x >= cellsWide_ - rules.edge || y >= cellsHigh_ - rules.edge) {
+            return false;
+        }
+        if (rules.cliff > 0 && nearEdge(x, y, rules.cliff)) {
+            return false;
+        }
+        if (rules.hasLandId || (rules.player > 0 && rules.maxPlayers < 0)) {
+            const int nx = std::clamp((x + perNode_ / 2) / perNode_, 0, width_ - 1);
+            const int ny = std::clamp((y + perNode_ / 2) / perNode_, 0, height_ - 1);
+            const int land = owner_.empty() ? -1 : owner_[static_cast<std::size_t>(index(nx, ny))];
+            if (land < 0) {
+                return false;
+            }
+            const Land& owned = lands_[static_cast<std::size_t>(land)];
+            if (rules.hasLandId && (!owned.hasLandId || owned.landId != rules.landId)) {
+                return false;
+            }
+            if (!rules.hasLandId && rules.player > 0 && owned.player != rules.player) {
+                return false;
+            }
+        }
+        if (rules.minPlayers >= 0 || rules.maxPlayers >= 0) {
+            for (std::size_t p = 0; p < outcome_.playerOrigins.size(); ++p) {
+                if (rules.player > 0 && static_cast<int>(p) + 1 != rules.player) {
+                    continue;
+                }
+                const auto& [ox, oy] = outcome_.playerOrigins[p];
+                if (ox < 0) {
+                    continue;
+                }
+                const double dx = x - ox * perNode_;
+                const double dy = y - oy * perNode_;
+                const double distance = std::sqrt(dx * dx + dy * dy);
+                if (rules.minPlayers >= 0 && distance < rules.minPlayers) {
+                    return false;
+                }
+                if (rules.maxPlayers >= 0 && distance > rules.maxPlayers) {
+                    return false;
+                }
+            }
+        }
+        const int spacing = std::max(rules.minGroup, rules.tempMinGroup);
+        if (spacing > 0) {
+            for (const Placed& other : placed_) {
+                if (other.group == group && other.command == command) {
+                    continue;
+                }
+                const int limit = other.command == command ? spacing : rules.minGroup;
+                if (limit > 0 && (other.x - x) * (other.x - x) + (other.y - y) * (other.y - y) < limit * limit) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // True when the feature fits with its top-left cell here.
+    bool featureFits(const RmsFeature& feature, const ObjectChoice& choice, const ObjectRules& rules, int x, int y) const {
+        const RmsObjectSettings& objects = *options_.objects;
+        const int width = std::max(1, feature.footprintX);
+        const int depth = std::max(1, feature.footprintZ);
+        int ground = -2;
+        for (int dy = 0; dy < depth; ++dy) {
+            for (int dx = 0; dx < width; ++dx) {
+                const int cx = x + dx;
+                const int cy = y + dy;
+                if (cx >= cellsWide_ || cy >= cellsHigh_ || occupied_[static_cast<std::size_t>(cy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(cx)]) {
+                    return false;
+                }
+                const int here = groundAt(cx, cy);
+                if (here < 0 || (ground != -2 && here != ground)) {
+                    return false;
+                }
+                ground = here;
+            }
+        }
+        if (ground < 0) {
+            return false;
+        }
+        const std::size_t slot = static_cast<std::size_t>(ground);
+        if (rules.terrain >= 0) {
+            if (ground != rules.terrain) {
+                return false;
+            }
+        } else if (slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot]) {
+            return false;
+        }
+        if (choice.followsLand) {
+            const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
+            if (land.empty() || doodadLand(feature, choice.kind) != land) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Places one feature at this cell if any of the choice fits there.
+    bool placeAt(const ObjectChoice& choice, const ObjectRules& rules, int x, int y, int group, int command) {
+        if (!cellAllowed(rules, x, y, group, command)) {
+            return false;
+        }
+        const std::size_t count = choice.features.size();
+        const std::size_t start = std::uniform_int_distribution<std::size_t>(0, count - 1)(rng_);
+        for (std::size_t i = 0; i < count; ++i) {
+            const RmsFeature& feature = *choice.features[(start + i) % count];
+            if (!featureFits(feature, choice, rules, x, y)) {
+                continue;
+            }
+            for (int dy = 0; dy < std::max(1, feature.footprintZ); ++dy) {
+                for (int dx = 0; dx < std::max(1, feature.footprintX); ++dx) {
+                    occupied_[static_cast<std::size_t>(y + dy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(x + dx)] = 1;
+                }
+            }
+            outcome_.features.push_back(RmsPlacedFeature{x, y, feature.name});
+            placed_.push_back(Placed{x, y, group, command});
+            return true;
+        }
+        return false;
+    }
+
+    // A random cell, near one player's origin when the round is for that player.
+    std::pair<int, int> randomCell(const ObjectRules& rules) {
+        int x0 = 0;
+        int y0 = 0;
+        int x1 = cellsWide_ - 1;
+        int y1 = cellsHigh_ - 1;
+        if (rules.player > 0 && rules.maxPlayers >= 0 && static_cast<std::size_t>(rules.player - 1) < outcome_.playerOrigins.size()) {
+            const auto& [ox, oy] = outcome_.playerOrigins[static_cast<std::size_t>(rules.player - 1)];
+            if (ox >= 0) {
+                x0 = std::max(0, ox * perNode_ - rules.maxPlayers);
+                x1 = std::min(cellsWide_ - 1, ox * perNode_ + rules.maxPlayers);
+                y0 = std::max(0, oy * perNode_ - rules.maxPlayers);
+                y1 = std::min(cellsHigh_ - 1, oy * perNode_ + rules.maxPlayers);
+            }
+        }
+        return {std::uniform_int_distribution<int>(x0, std::max(x0, x1))(rng_), std::uniform_int_distribution<int>(y0, std::max(y0, y1))(rng_)};
+    }
+
+    void createObject(const RmsCommand& command, int commandIndex) {
+        const std::string& name = command.args[0].text;
+        ObjectChoice choice;
+        if (!resolveObject(name, choice)) {
+            note(command.line, "\"" + name + "\" is not a feature or a doodad kind. Kinds are names such as TREES, ROCKS and LAVA_SPIRES.");
+            return;
+        }
+        if (choice.features.empty()) {
+            note(command.line, "No loaded feature is a " + name + ". Check that TA_Features_2013.ccx is next to Galaxy Editor.");
+            return;
+        }
+        ObjectRules rules;
+        if (const RmsAttribute* attribute = command.find("terrain_to_place_on"); attribute != nullptr && !attribute->args.empty()) {
+            rules.terrain = terrainOf(attribute->args[0], attribute->line);
+            if (rules.terrain < 0) {
+                return;
+            }
+        }
+        if (const RmsAttribute* attribute = command.find("place_on_specific_land_id"); attribute != nullptr && !attribute->args.empty()) {
+            rules.hasLandId = true;
+            rules.landId = attribute->args[0].integer();
+        }
+        rules.minPlayers = has(command, "min_distance_to_players") ? std::max(0, static_cast<int>(numberAt(command, "min_distance_to_players", 0.0))) : -1;
+        rules.maxPlayers = has(command, "max_distance_to_players") ? std::max(0, static_cast<int>(numberAt(command, "max_distance_to_players", 0.0))) : -1;
+        rules.minGroup = std::max(0, static_cast<int>(numberAt(command, "min_distance_group_placement", 0.0)));
+        rules.tempMinGroup = std::max(0, static_cast<int>(numberAt(command, "temp_min_distance_group_placement", 0.0)));
+        rules.edge = std::max(0, static_cast<int>(numberAt(command, "min_distance_to_map_edge", 0.0)));
+        if (const RmsAttribute* attribute = command.find("avoid_cliff_zone")) {
+            rules.cliff = attribute->args.empty() ? 4 : std::max(0, attribute->args[0].integer());
+        }
+        for (const char* skipped : {"layer_to_place_on", "avoid_forest_zone", "find_closest", "resource_delta", "second_object", "generate_for_first_land_only"}) {
+            if (const RmsAttribute* attribute = command.find(skipped)) {
+                note(attribute->line, std::string(skipped) + " is skipped: it has no meaning for Total Annihilation features yet.");
+            }
+        }
+
+        const bool grouped = has(command, "number_of_groups");
+        double objectsPerGroup = std::max(0.0, numberAt(command, "number_of_objects", 1.0));
+        double groups = grouped ? std::max(0.0, numberAt(command, "number_of_groups", 1.0)) : 1.0;
+        // Scaling multiplies the groups when there are groups, otherwise the objects.
+        double& scaled = grouped ? groups : objectsPerGroup;
+        if (has(command, "set_scaling_to_map_size")) {
+            scaled *= static_cast<double>(cellsWide_) * static_cast<double>(cellsHigh_) / 10000.0;
+        }
+        if (has(command, "set_scaling_to_player_number")) {
+            scaled *= std::max(1, options_.players);
+        }
+        const int groupCount = std::max(0, static_cast<int>(std::lround(groups)));
+        const int perGroup = std::max(0, static_cast<int>(std::lround(objectsPerGroup)));
+        const int variance = std::abs(static_cast<int>(numberAt(command, "group_variance", 0.0)));
+        const int radius = std::max(0, static_cast<int>(numberAt(command, "group_placement_radius", 3.0)));
+        const bool tight = lastIndexOf(command, "set_tight_grouping") > lastIndexOf(command, "set_loose_grouping");
+
+        std::vector<int> rounds = {0};
+        if (has(command, "set_place_for_every_player")) {
+            rounds.clear();
+            for (int player = 1; player <= options_.players; ++player) {
+                rounds.push_back(player);
+            }
+        }
+        int wanted = 0;
+        int made = 0;
+        int groupId = 0;
+        for (const int player : rounds) {
+            rules.player = player;
+            if (!grouped) {
+                // Separate objects, each anywhere it fits.
+                wanted += perGroup;
+                for (int object = 0; object < perGroup; ++object) {
+                    for (int attempt = 0; attempt < 400; ++attempt) {
+                        const auto [x, y] = randomCell(rules);
+                        if (placeAt(choice, rules, x, y, ++groupId, commandIndex)) {
+                            ++made;
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            for (int group = 0; group < groupCount; ++group) {
+                const int size = std::max(1, perGroup + (variance > 0 ? std::uniform_int_distribution<int>(-variance, variance)(rng_) : 0));
+                wanted += size;
+                ++groupId;
+                int centerX = -1;
+                int centerY = -1;
+                for (int attempt = 0; attempt < 2000 && centerX < 0; ++attempt) {
+                    const auto [x, y] = randomCell(rules);
+                    if (placeAt(choice, rules, x, y, groupId, commandIndex)) {
+                        centerX = x;
+                        centerY = y;
+                    }
+                }
+                if (centerX < 0) {
+                    continue;
+                }
+                int inGroup = 1;
+                std::vector<std::pair<int, int>> members = {{centerX, centerY}};
+                int attempts = 0;
+                while (inGroup < size && attempts < size * 60) {
+                    ++attempts;
+                    int x = 0;
+                    int y = 0;
+                    if (tight) {
+                        // Tight groups grow from a member to the cell beside it.
+                        const auto& from = members[std::uniform_int_distribution<std::size_t>(0, members.size() - 1)(rng_)];
+                        x = from.first + std::uniform_int_distribution<int>(-1, 1)(rng_);
+                        y = from.second + std::uniform_int_distribution<int>(-1, 1)(rng_);
+                    } else {
+                        x = centerX + std::uniform_int_distribution<int>(-radius, radius)(rng_);
+                        y = centerY + std::uniform_int_distribution<int>(-radius, radius)(rng_);
+                        if ((x - centerX) * (x - centerX) + (y - centerY) * (y - centerY) > radius * radius) {
+                            continue;
+                        }
+                    }
+                    if (placeAt(choice, rules, x, y, groupId, commandIndex)) {
+                        members.emplace_back(x, y);
+                        ++inGroup;
+                    }
+                }
+                made += inGroup;
+            }
+        }
+        if (made < wanted) {
+            note(command.line, "create_object " + name + " placed " + std::to_string(made) + " of " + std::to_string(wanted)
+                                   + (made == 0 ? ": nothing it can go on was found." : ": there was no more room."));
+        }
+    }
+
+    int cellsWide_ = 1;
+    int cellsHigh_ = 1;
+    int perNode_ = 32;
+    int latticeX_ = 1;
+    int latticeY_ = 1;
+    std::vector<int> flat_;
+    std::vector<char> occupied_;
+    std::vector<Placed> placed_;
+
     const RmsScript& script_;
     RmsCanvas& canvas_;
     const RmsTerrainNames& names_;
@@ -1023,6 +1478,145 @@ bool categoryIsWorld(std::string_view category, std::string_view world) {
 }
 
 }  // namespace
+
+// ------------------------------------------------------------------- doodads
+
+const std::vector<DoodadKindInfo>& doodadKinds() {
+    static const std::vector<DoodadKindInfo> kinds = {
+        {DoodadKind::Trees, "TREES"},
+        {DoodadKind::Rocks, "ROCKS"},
+        {DoodadKind::Plants, "PLANTS"},
+        {DoodadKind::Shrubs, "SHRUBS"},
+        {DoodadKind::Foliage, "FOLIAGE"},
+        {DoodadKind::Fronds, "FRONDS"},
+        {DoodadKind::Vines, "VINES"},
+        {DoodadKind::IceChunks, "ICECHUNKS"},
+        {DoodadKind::LavaNodes, "LAVA_NODES"},
+        {DoodadKind::LavaSpires, "LAVA_SPIRES"},
+        {DoodadKind::MetalTowers, "METAL_TOWERS"},
+        {DoodadKind::Pipes, "PIPES"},
+        {DoodadKind::CrystalSpires, "CRYSTAL_SPIRES"},
+        {DoodadKind::Spires, "SPIRES"},
+    };
+    return kinds;
+}
+
+namespace {
+
+bool contains(const std::string& text, std::string_view part) {
+    return text.find(part) != std::string::npos;
+}
+
+bool endsWith(const std::string& text, std::string_view part) {
+    return text.size() >= part.size() && text.compare(text.size() - part.size(), part.size(), part) == 0;
+}
+
+// Features that are never part of a kind: marks on the ground, wreckage, markers
+// for map makers, and the burnt and dead copies of living plants.
+bool leftOutOfKinds(const RmsFeature& feature) {
+    const std::string category = lower(feature.category);
+    for (const char* skip : {"scar", "smudge", "corpse", "heap", "do not fix", "discontinued", "unplaceable", "missing",
+                             "invisible", "decal", "duplicate", "wreck"}) {
+        if (contains(category, skip)) {
+            return true;
+        }
+    }
+    const std::string name = lower(feature.name);
+    return endsWith(name, "crisp") || endsWith(name, "dead") || contains(name, "dead0");
+}
+
+}  // namespace
+
+bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
+    if (leftOutOfKinds(feature)) {
+        return false;
+    }
+    const std::string category = lower(feature.category);
+    const std::string name = lower(feature.name);
+    const std::string world = lower(feature.world);
+    switch (kind) {
+    case DoodadKind::Trees:
+        return contains(category, "tree") || name.compare(0, 4, "palm") == 0;
+    case DoodadKind::Rocks:
+        return contains(category, "rock") || (contains(name, "rock") && !contains(name, "spire"));
+    case DoodadKind::Plants:
+        return contains(category, "plant") || contains(name, "plant");
+    case DoodadKind::Shrubs:
+        return contains(category, "shrub") || contains(name, "shrub") || contains(name, "bush");
+    case DoodadKind::Foliage:
+        return contains(category, "foliage");
+    case DoodadKind::Fronds:
+        return contains(name, "frond");
+    case DoodadKind::Vines:
+        return contains(name, "vine");
+    case DoodadKind::IceChunks:
+        return contains(name, "icechunk");
+    case DoodadKind::LavaNodes:
+        return contains(name, "lavanode") || (contains(world, "lava") && category == "nodes");
+    case DoodadKind::LavaSpires:
+        return contains(name, "lavaspire") || (contains(world, "lava") && contains(category, "spire"));
+    case DoodadKind::MetalTowers:
+        return contains(name, "metaltower");
+    case DoodadKind::Pipes:
+        return name.compare(0, 4, "pipe") == 0 || category == "pipes";
+    case DoodadKind::CrystalSpires:
+        return name.compare(0, 4, "crys") == 0 || contains(category, "crystal");
+    case DoodadKind::Spires:
+        return contains(category, "spire") || contains(name, "spire");
+    }
+    return false;
+}
+
+std::string doodadLand(const RmsFeature& feature, DoodadKind kind) {
+    switch (kind) {
+    case DoodadKind::IceChunks:
+        return "Ice";
+    case DoodadKind::LavaNodes:
+    case DoodadKind::LavaSpires:
+        return "Lava";
+    case DoodadKind::MetalTowers:
+    case DoodadKind::Pipes:
+        return "Metal";
+    case DoodadKind::CrystalSpires:
+        return "Crystal";
+    default:
+        break;
+    }
+    const std::string world = lower(feature.world);
+    if (world == "greenworld" || world == "green" || world == "greenland") {
+        return "Green";
+    }
+    if (world == "lava" || world == "lavaworld") {
+        return "Lava";
+    }
+    if (world == "mars") {
+        return "Mars";
+    }
+    // Only the game's own Ice features suit the ice. Evergreen is a third-party set of
+    // its own, so its snow trees and spires are placed by name or as EVERGREEN_ kinds.
+    if (world == "ice") {
+        return "Ice";
+    }
+    if (world == "metal" || world == "metalworld") {
+        return "Metal";
+    }
+    if (world == "desert" || world == "wetdesert" || world == "deathvalley" || world == "claydesert") {
+        return "Desert";
+    }
+    if (world == "archipelago") {
+        return "Archi";
+    }
+    if (world == "lush") {
+        return "Lush";
+    }
+    if (world == "acid") {
+        return "Acid";
+    }
+    if (world == "crystal") {
+        return "Crystal";
+    }
+    return {};
+}
 
 // ------------------------------------------------------------------- canvases
 
@@ -1167,6 +1761,10 @@ std::vector<std::string> rmsTerrainNames(const RmsScript& script, const std::str
                     }
                 }
             }
+        } else if (command.name == "create_object") {
+            if (const RmsAttribute* ground = command.find("terrain_to_place_on"); ground != nullptr && !ground->args.empty()) {
+                add(ground->args[0].text);
+            }
         } else if (command.name.compare(0, 15, "create_connect_") == 0) {
             for (const RmsAttribute& attribute : command.attributes) {
                 if (attribute.name == "replace_terrain" && attribute.args.size() >= 2) {
@@ -1297,7 +1895,7 @@ BrushGraph RandomMapTiles::graphFor(const std::vector<int>& levels) const {
         heights.push_back(paint.height);
         worlds.push_back(blendWorldName(paint.world));
     }
-    return BrushGraph(heights, worlds);
+    return BrushGraph(heights, worlds, true);
 }
 
 std::string RandomMapTiles::liquidOf(std::string_view world) const {

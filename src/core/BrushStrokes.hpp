@@ -421,8 +421,13 @@ public:
     explicit BrushGraph(const std::vector<int>& paintHeights) : BrushGraph(paintHeights, {}) {}
 
     // worlds names each paint's land, such as "Green" or "Mars", so two paints at
-    // the same height can still pick different blend pieces.
-    BrushGraph(const std::vector<int>& paintHeights, const std::vector<std::string>& worlds)
+    // the same height can still pick different blend pieces. blendsOnlyAcrossWorlds
+    // keeps two different lands from joining through anything but a blend. The Tile
+    // Brush leaves it off: it only ever holds one land's bases and the other lands'
+    // ground. The random map generator holds every base of several lands, where
+    // GreenWorld's shallows would otherwise meet Desert's sand through Desert's own
+    // shallow coast, a pair no tileset draws.
+    BrushGraph(const std::vector<int>& paintHeights, const std::vector<std::string>& worlds, bool blendsOnlyAcrossWorlds = false)
         : heights_(paintHeights), worlds_(worlds.size() == paintHeights.size() ? worlds : std::vector<std::string>(paintHeights.size())) {
         const int count = static_cast<int>(heights_.size());
         const std::size_t cells = static_cast<std::size_t>(count) * static_cast<std::size_t>(count);
@@ -453,6 +458,9 @@ public:
                         };
                         const bool named = !wa.empty() && !wb.empty();
                         const bool differentWorld = named && wa != wb;
+                        if (blendsOnlyAcrossWorlds && differentWorld && rule.style != TransitionStyle::WorldBlend) {
+                            continue;
+                        }
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85

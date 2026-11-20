@@ -300,6 +300,8 @@ private:
         std::vector<PlacementChange> terrains;
         std::optional<FeatureChange> feature;
         std::vector<FeatureChange> features;
+        // Every feature on the map replaced at once, as the random map generator does.
+        std::optional<FeatureBatchChange> featureBatch;
         bool selection = false;
         TileSelection selectionBefore;
         TileSelection selectionAfter;

@@ -1084,6 +1084,73 @@ void reapplyFeatureChange(LoadedMap& map, const FeatureChange& change) {
     rebuildFeaturePlacements(map);
 }
 
+FeatureBatchChange replaceMapFeatures(LoadedMap& map, const std::vector<FeaturePlacement>& placements, int* skipped) {
+    FeatureBatchChange change;
+    change.namesBefore = map.featureNames;
+    std::vector<std::uint16_t> next = map.featureIndices;
+    for (std::uint16_t& cell : next) {
+        if (!isSpecialFeature(cell)) {
+            cell = kNoFeature;
+        }
+    }
+    std::vector<std::string> names;
+    int missed = 0;
+    for (const FeaturePlacement& placement : placements) {
+        std::size_t index = 0;
+        const std::string stored = trimmedFeatureName(placement.name);
+        if (stored.empty() || !featureCell(map, placement.x, placement.y, index) || next[index] == kVoidFeature) {
+            ++missed;
+            continue;
+        }
+        std::size_t nameIndex = std::find(names.begin(), names.end(), stored) - names.begin();
+        if (nameIndex == names.size()) {
+            if (names.size() >= kMaxFeatureNames) {
+                ++missed;
+                continue;
+            }
+            names.push_back(stored);
+        }
+        next[index] = static_cast<std::uint16_t>(nameIndex);
+    }
+    for (std::size_t i = 0; i < next.size(); ++i) {
+        if (next[i] != map.featureIndices[i]) {
+            change.cells.push_back(static_cast<std::uint32_t>(i));
+            change.before.push_back(map.featureIndices[i]);
+            change.after.push_back(next[i]);
+        }
+    }
+    change.namesAfter = names;
+    map.featureIndices = std::move(next);
+    map.featureNames = std::move(names);
+    rebuildFeaturePlacements(map);
+    if (skipped != nullptr) {
+        *skipped = missed;
+    }
+    return change;
+}
+
+void revertFeatureBatch(LoadedMap& map, const FeatureBatchChange& change) {
+    for (std::size_t i = 0; i < change.cells.size(); ++i) {
+        if (change.cells[i] >= map.featureIndices.size()) {
+            throw std::runtime_error("Feature edit no longer fits this map");
+        }
+        map.featureIndices[change.cells[i]] = change.before[i];
+    }
+    map.featureNames = change.namesBefore;
+    rebuildFeaturePlacements(map);
+}
+
+void reapplyFeatureBatch(LoadedMap& map, const FeatureBatchChange& change) {
+    for (std::size_t i = 0; i < change.cells.size(); ++i) {
+        if (change.cells[i] >= map.featureIndices.size()) {
+            throw std::runtime_error("Feature edit no longer fits this map");
+        }
+        map.featureIndices[change.cells[i]] = change.after[i];
+    }
+    map.featureNames = change.namesAfter;
+    rebuildFeaturePlacements(map);
+}
+
 LoadedMap createBlankMap(int tileWidth, int tileHeight) {
     require(tileWidth >= kMinMapTiles && tileHeight >= kMinMapTiles && tileWidth <= kMaxMapTiles && tileHeight <= kMaxMapTiles,
         "Map size must be between 1 and 2048 tiles");

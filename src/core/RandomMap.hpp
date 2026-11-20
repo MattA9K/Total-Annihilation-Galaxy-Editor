@@ -84,8 +84,73 @@ struct RmsTerrainNames {
     int fallback = 0;
 };
 
+// A feature the game can place, such as Tree1, from the loaded archives' TDF files.
+struct RmsFeature {
+    std::string name;
+    std::string world;     // the TDF's world, such as greenworld or Zhon
+    std::string category;  // such as trees or rocks
+    int footprintX = 1;
+    int footprintZ = 1;
+};
+
+// Kinds of doodad a script can ask for by name. Each picks the features that
+// suit the land under each spot: TREES are GreenWorld trees on GreenWorld grass
+// and palms on Archipelago sand.
+enum class DoodadKind {
+    Trees,
+    Rocks,
+    Plants,
+    Shrubs,
+    Foliage,
+    Fronds,
+    Vines,
+    IceChunks,
+    LavaNodes,
+    LavaSpires,
+    MetalTowers,
+    Pipes,
+    CrystalSpires,
+    Spires,
+};
+
+struct DoodadKindInfo {
+    DoodadKind kind;
+    const char* name;  // the script name, such as TREES
+};
+const std::vector<DoodadKindInfo>& doodadKinds();
+// True when a feature is a doodad of this kind. Scars, smudges, corpses, wreckage
+// and burnt or dead copies are never part of a kind; they can still be placed by name.
+bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind);
+// The tileset a feature belongs to, as the brush names lands: "Green", "Lava",
+// "Mars", "Ice", "Metal", "Desert", "Archi", "Lush", "Acid" or "Crystal". Empty for
+// worlds the Tile Brush has no ground for, such as Zhon.
+std::string doodadLand(const RmsFeature& feature, DoodadKind kind);
+
+// What the generator needs to place features. Positions are in feature cells,
+// 16 x 16 pixels, the footprint of one tree; a game-size square is 32 of them.
+struct RmsObjectSettings {
+    std::vector<RmsFeature> features;
+    // For each terrain, its land ("Green") and whether it is water, lava or another
+    // liquid that features stay off.
+    std::vector<std::string> terrainLands;
+    std::vector<bool> terrainLiquid;
+    // The map in feature cells.
+    int cellsWide = 0;
+    int cellsHigh = 0;
+    // Feature cells from one canvas node to the next.
+    int cellsPerNode = 32;
+};
+
+struct RmsPlacedFeature {
+    int x = 0;
+    int y = 0;
+    std::string name;
+};
+
 struct RandomMapOptions {
     int players = 2;
+    // Null when features are not placed; a script with <OBJECTS_GENERATION> then gets a note.
+    const RmsObjectSettings* objects = nullptr;
 };
 
 struct RandomMapOutcome {
@@ -95,10 +160,13 @@ struct RandomMapOutcome {
     int lands = 0;
     int terrains = 0;
     int connections = 0;
+    // Features to place, in feature cells, when the script has <OBJECTS_GENERATION>.
+    bool placesObjects = false;
+    std::vector<RmsPlacedFeature> features;
 };
 
-// Runs the land, terrain and connection sections of a script. Elevation, cliffs
-// and objects are not generated yet; a script that has them gets a note.
+// Runs the land, terrain, connection and object sections of a script. Elevation
+// and cliffs are not generated yet; a script that has them gets a note.
 RandomMapOutcome runRandomMapScript(const RmsScript& script, RmsCanvas& canvas, const RmsTerrainNames& names,
                                     const RandomMapOptions& options, std::mt19937& rng);
 

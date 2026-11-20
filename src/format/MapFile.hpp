@@ -177,6 +177,23 @@ FeatureEdit removeMapFeature(LoadedMap& map, int cellX, int cellY, FeatureChange
 void revertFeatureChange(LoadedMap& map, const FeatureChange& change);
 void reapplyFeatureChange(LoadedMap& map, const FeatureChange& change);
 
+// Many feature cells changed at once, undone and redone as one edit. Only the
+// cells that changed are kept, and the feature list is rebuilt once.
+struct FeatureBatchChange {
+    std::vector<std::uint32_t> cells;
+    std::vector<std::uint16_t> before;
+    std::vector<std::uint16_t> after;
+    std::vector<std::string> namesBefore;
+    std::vector<std::string> namesAfter;
+};
+
+// Clears every feature and places these instead, at feature cells. Open space
+// (void cells) stays open, and a placement outside the map or on open space is
+// skipped. skipped, when given, counts those.
+FeatureBatchChange replaceMapFeatures(LoadedMap& map, const std::vector<FeaturePlacement>& placements, int* skipped = nullptr);
+void revertFeatureBatch(LoadedMap& map, const FeatureBatchChange& change);
+void reapplyFeatureBatch(LoadedMap& map, const FeatureBatchChange& change);
+
 // Transparent overlay for the same view as renderMapView. Grid lines and a light
 // fill are colored from the height field. gridSize is in map pixels.
 void renderHeightGrid(

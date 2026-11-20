@@ -195,6 +195,7 @@ enum class Text : int {
     RandomMapNoTileset,
     RandomMapDone,
     RandomMapLine,
+    RandomMapDoodads,
     Count
 };
 
