@@ -5946,6 +5946,17 @@ void testDoodads() {
         expect(featureIsDoodad(vine, DoodadKind::Vines) && featureIsDoodad(vine, DoodadKind::Foliage), "vines are VINES and FOLIAGE");
         expect(featureIsDoodad(crystal, DoodadKind::CrystalSpires) && doodadLand(crystal, DoodadKind::CrystalSpires) == "Crystal",
             "crystals are CRYSTAL_SPIRES for Crystal ground");
+        const RmsFeature rockMetal{"RockMetal1", "greenworld", "rocks", 3, 3};
+        const RmsFeature aquaOre{"GreenAquaOre1", "greenworld", "Metal", 3, 3};
+        const RmsFeature reclaim{"BigRock", "All Worlds", "reclaimable metal", 2, 2};
+        const RmsFeature teeth{"RockTeeth", "greenworld", "rocks", 1, 1};
+        const RmsFeature shore{"ShoreRock2", "greenworld", "rocks", 1, 1};
+        const RmsFeature tower{"MetalTower03", "Metal", "building", 2, 2};
+        expect(!featureIsDoodad(rockMetal, DoodadKind::Rocks) && !featureIsDoodad(aquaOre, DoodadKind::Rocks)
+                   && !featureIsDoodad(reclaim, DoodadKind::Rocks),
+            "metal deposits are not ROCKS, even when an archive files them as rocks");
+        expect(featureIsDoodad(teeth, DoodadKind::Rocks) && featureIsDoodad(shore, DoodadKind::Rocks), "ordinary rocks are still ROCKS");
+        expect(featureIsDoodad(tower, DoodadKind::MetalTowers), "metal towers are still METAL_TOWERS");
         const RmsFeature evergreen{"EGSpire1", "Evergreen", "Spires", 3, 3};
         expect(doodadLand(evergreen, DoodadKind::Spires).empty() && doodadLand(evergreen, DoodadKind::Rocks).empty(),
             "Evergreen doodads suit no Tile Brush land, so kinds never put them on the ice");

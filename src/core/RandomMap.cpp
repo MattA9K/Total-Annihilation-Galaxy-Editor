@@ -1525,10 +1525,35 @@ bool leftOutOfKinds(const RmsFeature& feature) {
     return endsWith(name, "crisp") || endsWith(name, "dead") || contains(name, "dead0");
 }
 
+// Metal deposits: features a player mines, such as RockMetal1 or GreenAquaOre1. Some
+// archives file them under rocks, so the name decides as well as the category.
+bool metalDeposit(const RmsFeature& feature) {
+    if (contains(lower(feature.category), "metal")) {
+        return true;
+    }
+    const std::string name = lower(feature.name);
+    if (contains(name, "metal")) {
+        return true;
+    }
+    // "ore" at the end of the name or before a number: GreenAquaOre1, but not Shoreline.
+    for (std::size_t at = name.find("ore"); at != std::string::npos; at = name.find("ore", at + 1)) {
+        const std::size_t after = at + 3;
+        if (after == name.size() || std::isdigit(static_cast<unsigned char>(name[after]))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
     if (leftOutOfKinds(feature)) {
+        return false;
+    }
+    // Metal towers and pipes are buildings, matched by name. Every other kind leaves
+    // out metal deposits, which are resources rather than doodads.
+    if (kind != DoodadKind::MetalTowers && kind != DoodadKind::Pipes && metalDeposit(feature)) {
         return false;
     }
     const std::string category = lower(feature.category);
