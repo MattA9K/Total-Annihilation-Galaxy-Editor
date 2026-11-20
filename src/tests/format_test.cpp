@@ -6051,8 +6051,9 @@ void testStartsAndResources() {
         {"Scrap1", "All Worlds", "reclaimable metal", 2, 2, 50, false},
         {"GreenVent01", "greenworld", "steamvents", 1, 1, 0, true},
         {"Rock", "greenworld", "rocks", 1, 1, 6, false},
+        {"GreenAquaOre1", "greenworld", "Metal", 3, 3, 116, false},
     };
-    objects.terrainLands = {"", "Green", "Lava", "Desert"};
+    objects.terrainLands = {"Green", "Green", "Lava", "Desert"};
     objects.terrainLiquid = {true, false, false, false};
     objects.cellsPerNode = 4;
     objects.cellsWide = 24 * 4;
@@ -6105,8 +6106,27 @@ void testStartsAndResources() {
             }
         }
         expect(metal == 4 && vents == 2, "two metal nodes and a vent for each player: " + std::to_string(metal) + ", " + std::to_string(vents));
+        bool dry = true;
+        for (const RmsPlacedFeature& feature : outcome.features) {
+            dry = dry && feature.name != "GreenAquaOre1";
+        }
+        expect(dry, "underwater metal never goes on dry land");
         expect(near, "resources stay within max_distance_to_players");
         expect(clear, "no doodad lands on a start");
+    }
+    {
+        // terrain_to_place_on a sea base puts the sea-floor deposits there, and only those.
+        PlainCanvas canvas(25, 13);
+        std::mt19937 rng(3);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\nbase_terrain WATER\n"
+            "<OBJECTS_GENERATION>\ncreate_object METAL_NODES { number_of_objects 6 terrain_to_place_on WATER }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
+        int aqua = 0;
+        for (const RmsPlacedFeature& feature : outcome.features) {
+            aqua += feature.name == "GreenAquaOre1" ? 1 : 0;
+        }
+        expect(aqua == 6 && outcome.features.size() == 6, "metal in the sea is all underwater metal");
     }
     {
         // Ground with no metal of its own falls back to the deposits made for all worlds.
@@ -6149,6 +6169,11 @@ void testStartsAndResources() {
     }
     const RmsFeature vent{"LavaVent001", "lava", "steamvents", 1, 1, 0, true};
     const RmsFeature ore{"GreenAquaOre1", "greenworld", "Metal", 3, 3, 116, false};
+    expect(underwaterFeature(ore) && underwaterFeature({"genericmetal1aqua", "allworld", "All Worlds (Aqua)", 2, 2, 255, false})
+               && underwaterFeature({"Kelp03", "cd_lost_kelp", "kelp", 1, 1, 0, false}),
+        "aqua deposits and kelp are underwater features");
+    expect(!underwaterFeature({"RockMetal1", "greenworld", "rocks", 3, 3, 127, false}) && !underwaterFeature({"Tree1", "greenworld", "trees", 1, 1, 0, false}),
+        "rocks and trees are not");
     const RmsFeature hidden{"InvisMetal", "All Worlds", "Invisible Metal", 1, 1, 50, false};
     expect(featureIsDoodad(vent, DoodadKind::GeoVents) && doodadLand(vent, DoodadKind::GeoVents) == "Lava", "a lava vent is a GEO_VENT for lava");
     expect(featureIsDoodad(ore, DoodadKind::MetalNodes) && !featureIsDoodad(ore, DoodadKind::Rocks), "ore is a METAL_NODE, not a rock");

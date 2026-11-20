@@ -130,6 +130,10 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind);
 // "Mars", "Ice", "Metal", "Desert", "Archi", "Lush", "Acid" or "Crystal". Empty for
 // worlds the Tile Brush has no ground for, such as Zhon.
 std::string doodadLand(const RmsFeature& feature, DoodadKind kind);
+// True for features made for the sea floor, such as GreenAquaOre1, corals and kelp.
+// TDF files do not say so, so the name and category decide. These only go in water,
+// and every other feature only on dry land.
+bool underwaterFeature(const RmsFeature& feature);
 
 // What the generator needs to place features. Positions are in feature cells,
 // 16 x 16 pixels, the footprint of one tree; a game-size square is 32 of them.

@@ -1426,11 +1426,16 @@ private:
             return false;
         }
         const std::size_t slot = static_cast<std::size_t>(ground);
+        const bool liquid = slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot];
         if (rules.terrain >= 0) {
             if (ground != rules.terrain) {
                 return false;
             }
-        } else if (slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot]) {
+        } else if (liquid) {
+            return false;
+        }
+        // Sea-floor features only in water, everything else only on dry land.
+        if (liquid != underwaterFeature(feature)) {
             return false;
         }
         if (choice.followsLand) {
@@ -1776,6 +1781,25 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
         return feature.metal > 0 && metalDeposit(feature);
     case DoodadKind::GeoVents:
         return feature.geothermal;
+    }
+    return false;
+}
+
+bool underwaterFeature(const RmsFeature& feature) {
+    const std::string name = lower(feature.name);
+    const std::string category = lower(feature.category);
+    for (const char* mark : {"aqua", "underwater", "seaweed", "seagrass", "coral", "kelp", "water"}) {
+        if (contains(name, mark)) {
+            return true;
+        }
+    }
+    if (name.compare(0, 2, "uw") == 0) {
+        return true;
+    }
+    for (const char* mark : {"aqua", "water", "coral", "kelp", "seagrass"}) {
+        if (contains(category, mark)) {
+            return true;
+        }
     }
     return false;
 }
