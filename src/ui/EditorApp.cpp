@@ -4430,6 +4430,11 @@ void EditorApp::undoPlacement() {
             selectedFeatures_.clear();
             markMapDirty();
         }
+        if (undo_.back().startsBefore) {
+            map_->starts = *undo_.back().startsBefore;
+            draggingStartPlayer_ = 0;
+            markMapDirty();
+        }
         if (undo_.back().selection) {
             selection_ = undo_.back().selectionBefore;
             if (!undo_.back().terrain) {
@@ -4487,6 +4492,11 @@ void EditorApp::redoPlacement() {
         if (redo_.back().featureBatch) {
             reapplyFeatureBatch(*map_, *redo_.back().featureBatch);
             selectedFeatures_.clear();
+            markMapDirty();
+        }
+        if (redo_.back().startsAfter) {
+            map_->starts = *redo_.back().startsAfter;
+            draggingStartPlayer_ = 0;
             markMapDirty();
         }
         if (redo_.back().selection) {
@@ -9073,6 +9083,44 @@ create_connect_all_players_land {
    one world, such as ARCHIPELAGO_TREES or ZHON_PLANTS, and any feature
    name, such as Tree1, work too. Doodads stay off water, lava and edges. */
 
+/* Player starts, one on each player's island. Without this block the
+   starts still go on the land origins; with it, the rules below decide.
+   TOWN_CENTER is the same as START_POSITION. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Metal: three deposits near each start, and more out in the open.
+   METAL_NODES picks the deposits of the ground under each one. */
+create_object METAL_NODES {
+  number_of_objects 3
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 28
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 2
+  set_scaling_to_map_size
+  min_distance_to_players 40
+  temp_min_distance_group_placement 24
+}
+
+/* Geothermal vents: one near each start, and a few to fight over. */
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_place_for_every_player
+  min_distance_to_players 12
+  max_distance_to_players 32
+}
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_scaling_to_map_size
+  min_distance_to_players 40
+  temp_min_distance_group_placement 40
+}
+
 /* Groves of trees, kept clear of where players start. */
 create_object TREES {
   number_of_objects 6
@@ -9341,7 +9389,8 @@ bool EditorApp::generateRandomMap() {
                         continue;
                     }
                     objects.features.push_back(RmsFeature{feature.name, feature.world, feature.category,
-                                                          std::max(1, feature.footprintX), std::max(1, feature.footprintZ)});
+                                                          std::max(1, feature.footprintX), std::max(1, feature.footprintZ),
+                                                          feature.metal, feature.geothermal});
                 }
             }
             for (const int level : levels) {
@@ -9421,6 +9470,19 @@ bool EditorApp::generateRandomMap() {
             command.featureBatch = replaceMapFeatures(*map_, placements, &featuresSkipped);
             selectedFeatures_.clear();
         }
+        if (outcome.placesStarts) {
+            // Player lands and START_POSITION replace the map's start positions. A start
+            // sits at the middle of its clear square, in map pixels.
+            command.startsBefore = map_->starts;
+            std::vector<StartPosition> starts;
+            for (const RmsStart& start : outcome.starts) {
+                starts.push_back(StartPosition{start.player, std::clamp(start.x * 16, 0, std::max(0, map_->pixelWidth() - 1)),
+                                               std::clamp(start.y * 16, 0, std::max(0, map_->pixelHeight() - 1))});
+            }
+            map_->starts = starts;
+            command.startsAfter = std::move(starts);
+            draggingStartPlayer_ = 0;
+        }
         pushCommand(std::move(command), true);
         warnIfPastVanillaTiles(tileCountBefore);
 
@@ -9445,7 +9507,8 @@ bool EditorApp::generateRandomMap() {
         statusNote_ = "Generated a random map: " + std::to_string(outcome.lands) + (outcome.lands == 1 ? " land, " : " lands, ")
             + std::to_string(outcome.terrains) + (outcome.terrains == 1 ? " terrain, " : " terrains, ")
             + std::to_string(outcome.connections) + (outcome.connections == 1 ? " connection" : " connections")
-            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped)) + " features" : std::string());
+            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped)) + " features" : std::string())
+            + (outcome.placesStarts ? ", " + std::to_string(outcome.starts.size()) + (outcome.starts.size() == 1 ? " start" : " starts") : std::string());
         error_.clear();
         return true;
     } catch (const std::exception& ex) {
@@ -9565,6 +9628,10 @@ void EditorApp::drawRandomMap() {
     ImGui::Spacing();
     ImGui::Spacing();
     theme::sourceListTitle(text(Text::RandomMapDoodads));
+    if (ImGui::Selectable("START_POSITION")) {
+        ImGui::SetClipboardText("START_POSITION");
+        statusNote_ = "Copied START_POSITION";
+    }
     for (const DoodadKindInfo& kind : doodadKinds()) {
         if (ImGui::Selectable(kind.name)) {
             ImGui::SetClipboardText(kind.name);

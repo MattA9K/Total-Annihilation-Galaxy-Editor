@@ -302,6 +302,9 @@ private:
         std::vector<FeatureChange> features;
         // Every feature on the map replaced at once, as the random map generator does.
         std::optional<FeatureBatchChange> featureBatch;
+        // Every start position replaced at once, as the random map generator does.
+        std::optional<std::vector<StartPosition>> startsBefore;
+        std::optional<std::vector<StartPosition>> startsAfter;
         bool selection = false;
         TileSelection selectionBefore;
         TileSelection selectionAfter;

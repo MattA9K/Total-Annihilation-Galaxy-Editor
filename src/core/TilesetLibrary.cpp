@@ -208,6 +208,8 @@ void applyFeatureField(FeatureInfo& feature, std::string key, std::string value)
         feature.metal = numberOrZero(value);
     } else if (key == "energy") {
         feature.energy = numberOrZero(value);
+    } else if (key == "geothermal") {
+        feature.geothermal = numberOrZero(value) != 0;
     }
 }
 

@@ -19,6 +19,8 @@ struct FeatureInfo {
     int footprintZ = 1;
     int metal = 0;
     int energy = 0;
+    // geothermal=1: a vent where a geothermal plant can be built.
+    bool geothermal = false;
     std::string animFile;
     std::string sequence;
     std::string object;

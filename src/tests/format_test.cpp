@@ -6042,6 +6042,119 @@ void testDoodads() {
     expect(cells.size() == outcome.features.size(), "no two features share a cell");
 }
 
+void testStartsAndResources() {
+    using namespace galaxy;
+    RmsObjectSettings objects;
+    objects.features = {
+        {"Tree1", "greenworld", "trees", 1, 1, 0, false},
+        {"RockMetal1", "greenworld", "rocks", 3, 3, 127, false},
+        {"Scrap1", "All Worlds", "reclaimable metal", 2, 2, 50, false},
+        {"GreenVent01", "greenworld", "steamvents", 1, 1, 0, true},
+        {"Rock", "greenworld", "rocks", 1, 1, 6, false},
+    };
+    objects.terrainLands = {"", "Green", "Lava", "Desert"};
+    objects.terrainLiquid = {true, false, false, false};
+    objects.cellsPerNode = 4;
+    objects.cellsWide = 24 * 4;
+    objects.cellsHigh = 12 * 4;
+    RandomMapOptions options;
+    options.players = 2;
+    options.objects = &objects;
+    const auto groundOf = [](const PlainCanvas& canvas, int x, int y) {
+        const int lx = x / 4;
+        const int ly = y / 4;
+        const int corner = canvas.at(lx, ly);
+        return corner == canvas.at(lx + 1, ly) && corner == canvas.at(lx, ly + 1) && corner == canvas.at(lx + 1, ly + 1) ? corner : -1;
+    };
+    {
+        // Player lands bring their starts; metal and vents go near each player.
+        PlainCanvas canvas(25, 13);
+        std::mt19937 rng(8);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\nbase_terrain WATER\n"
+            "create_player_lands { terrain_type GRASS land_percent 60 base_size 2 }\n"
+            "<OBJECTS_GENERATION>\n"
+            "create_object METAL_NODES { number_of_objects 2 set_place_for_every_player min_distance_to_players 8 max_distance_to_players 20 }\n"
+            "create_object GEO_VENTS { number_of_objects 1 set_place_for_every_player max_distance_to_players 24 }\n"
+            "create_object TREES { number_of_objects 60 }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
+        expect(outcome.placesStarts && outcome.starts.size() == 2, "player lands get a start each");
+        bool onLand = true;
+        for (const RmsStart& start : outcome.starts) {
+            onLand = onLand && groundOf(canvas, start.x, start.y) == 1;
+            const auto& origin = outcome.playerOrigins[static_cast<std::size_t>(start.player - 1)];
+            onLand = onLand && std::abs(start.x - origin.first * 4) <= 8 && std::abs(start.y - origin.second * 4) <= 8;
+        }
+        expect(onLand, "each start sits on its land's origin");
+        int metal = 0;
+        int vents = 0;
+        bool clear = true;
+        bool near = true;
+        for (const RmsPlacedFeature& feature : outcome.features) {
+            double closest = 1e9;
+            for (const RmsStart& start : outcome.starts) {
+                closest = std::min(closest, std::hypot(feature.x - start.x, feature.y - start.y));
+            }
+            clear = clear && closest > 6.0;
+            if (feature.name == "RockMetal1") {
+                ++metal;
+                near = near && closest <= 21.0;
+            } else if (feature.name == "GreenVent01") {
+                ++vents;
+                near = near && closest <= 25.0;
+            }
+        }
+        expect(metal == 4 && vents == 2, "two metal nodes and a vent for each player: " + std::to_string(metal) + ", " + std::to_string(vents));
+        expect(near, "resources stay within max_distance_to_players");
+        expect(clear, "no doodad lands on a start");
+    }
+    {
+        // Ground with no metal of its own falls back to the deposits made for all worlds.
+        PlainCanvas canvas(25, 13);
+        std::mt19937 rng(2);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\nbase_terrain DESERT\n"
+            "<OBJECTS_GENERATION>\ncreate_object METAL_NODES { number_of_objects 5 }\ncreate_object GEO_VENTS { number_of_objects 2 }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
+        int scrap = 0;
+        for (const RmsPlacedFeature& feature : outcome.features) {
+            scrap += feature.name == "Scrap1" ? 1 : 0;
+        }
+        expect(scrap == 5, "desert without metal of its own uses the all-worlds deposits");
+        expect(!outcome.placesStarts, "no player lands and no START_POSITION leave the starts alone");
+        expect(hasMessage(outcome.messages, 5, "GEO_VENTS placed 0"), "no vent suits the desert, and no all-worlds vent exists here");
+    }
+    {
+        // START_POSITION without player lands spreads the players out.
+        RandomMapOptions four = options;
+        four.players = 4;
+        PlainCanvas canvas(25, 13);
+        std::mt19937 rng(6);
+        const RmsScript script = readScript(
+            "<LAND_GENERATION>\nbase_terrain GRASS\n<OBJECTS_GENERATION>\ncreate_object START_POSITION { min_distance_to_map_edge 6 }\n");
+        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), four, rng);
+        expect(outcome.starts.size() == 4, "START_POSITION places one start per player");
+        double closest = 1e9;
+        for (std::size_t a = 0; a < outcome.starts.size(); ++a) {
+            for (std::size_t b = a + 1; b < outcome.starts.size(); ++b) {
+                closest = std::min(closest, std::hypot(outcome.starts[a].x - outcome.starts[b].x, outcome.starts[a].y - outcome.starts[b].y));
+            }
+        }
+        expect(closest > 25.0, "starts spread out across the map: " + std::to_string(closest));
+        std::set<int> players;
+        for (const RmsStart& start : outcome.starts) {
+            players.insert(start.player);
+        }
+        expect(players.size() == 4, "each player has their own start");
+    }
+    const RmsFeature vent{"LavaVent001", "lava", "steamvents", 1, 1, 0, true};
+    const RmsFeature ore{"GreenAquaOre1", "greenworld", "Metal", 3, 3, 116, false};
+    const RmsFeature hidden{"InvisMetal", "All Worlds", "Invisible Metal", 1, 1, 50, false};
+    expect(featureIsDoodad(vent, DoodadKind::GeoVents) && doodadLand(vent, DoodadKind::GeoVents) == "Lava", "a lava vent is a GEO_VENT for lava");
+    expect(featureIsDoodad(ore, DoodadKind::MetalNodes) && !featureIsDoodad(ore, DoodadKind::Rocks), "ore is a METAL_NODE, not a rock");
+    expect(!featureIsDoodad(hidden, DoodadKind::MetalNodes), "invisible metal is not a metal node");
+}
+
 void testBrushCanvas() {
     using namespace galaxy;
     // GreenWorld water and grass, and Lava ground, which blends with the grass but not the water.
@@ -6196,6 +6309,7 @@ int main() {
     testRandomMapGenerator();
     testBrushCanvas();
     testDoodads();
+    testStartsAndResources();
     testRandomMapTiles();
     testVanillaLimits();
     testBrushStrokeNames();

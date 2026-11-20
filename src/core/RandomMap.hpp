@@ -91,6 +91,8 @@ struct RmsFeature {
     std::string category;  // such as trees or rocks
     int footprintX = 1;
     int footprintZ = 1;
+    int metal = 0;
+    bool geothermal = false;
 };
 
 // Kinds of doodad a script can ask for by name. Each picks the features that
@@ -111,6 +113,9 @@ enum class DoodadKind {
     Pipes,
     CrystalSpires,
     Spires,
+    // Resources: metal deposits a player mines, and vents a geothermal plant is built on.
+    MetalNodes,
+    GeoVents,
 };
 
 struct DoodadKindInfo {
@@ -147,6 +152,13 @@ struct RmsPlacedFeature {
     std::string name;
 };
 
+// A player's start position, at the middle of a feature cell.
+struct RmsStart {
+    int player = 1;
+    int x = 0;
+    int y = 0;
+};
+
 struct RandomMapOptions {
     int players = 2;
     // Null when features are not placed; a script with <OBJECTS_GENERATION> then gets a note.
@@ -163,6 +175,10 @@ struct RandomMapOutcome {
     // Features to place, in feature cells, when the script has <OBJECTS_GENERATION>.
     bool placesObjects = false;
     std::vector<RmsPlacedFeature> features;
+    // Start positions, when the script makes player lands or asks for START_POSITION.
+    // They replace the map's starts.
+    bool placesStarts = false;
+    std::vector<RmsStart> starts;
 };
 
 // Runs the land, terrain, connection and object sections of a script. Elevation
