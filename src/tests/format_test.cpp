@@ -6180,6 +6180,90 @@ void testStartsAndResources() {
     expect(!featureIsDoodad(hidden, DoodadKind::MetalNodes), "invisible metal is not a metal node");
 }
 
+void testStampBrushes() {
+    using namespace galaxy;
+    expect(stampBrushScriptName("Lava", "Pool-86 16x16") == "LAVA_POOL-86_16X16" && stampBrushScriptName("GreenWorld", "Island 8x8") == "GREENWORLD_ISLAND_8X8",
+        "a stamp button's script name is its world and its name");
+    const std::vector<RandomMapStampBrush> brushes = {
+        {"GREENWORLD_HILL-85_8X8", "GREENWORLD_BASE-85", {{"h8", 8, 8}}},
+        {"GREENWORLD_HILL-85_16X16", "GREENWORLD_BASE-85", {{"h16", 16, 16}}},
+        {"GREENWORLD_ISLAND_8X8", "GREENWORLD_BASE-0", {{"i16", 16, 16}}},
+        {"GREENWORLD_ROUGH-85", "GREENWORLD_BASE-85", {{"r8", 8, 8}}},
+        // Desert's plateaus mix sizes, rectangles among them.
+        {"DESERT_PLATEAUS-80", "GREENWORLD_BASE-85", {{"p32", 32, 32}, {"p56", 56, 32}}},
+    };
+    const auto sizeOf = [&](const std::string& path) {
+        for (const RandomMapStampBrush& brush : brushes) {
+            for (const RandomMapStampSection& section : brush.sections) {
+                if (section.path == path) {
+                    return std::make_pair(section.width, section.height);
+                }
+            }
+        }
+        return std::make_pair(0, 0);
+    };
+    const BrushGraph graph({0, 85}, {"Green", "Green"});
+    BrushCanvas canvas(13, 9, graph);
+    RmsTerrainNames names;
+    names.find = [](std::string_view name) { return name == "GREENWORLD_BASE-0" ? 0 : (name == "GREENWORLD_BASE-85" ? 1 : -1); };
+    names.isStamp = [&](std::string_view name) {
+        for (const RandomMapStampBrush& brush : brushes) {
+            if (brush.name == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::mt19937 rng(5);
+    const RmsScript script = readScript(
+        "<TERRAIN_GENERATION>\n"
+        "create_terrain DESERT_PLATEAUS-80 { number_of_clumps 4 }\n"
+        "create_terrain GREENWORLD_HILL-85_16X16 { number_of_clumps 6 spacing_to_other_terrain_types 1 }\n"
+        "create_terrain GREENWORLD_HILL-85_8X8 { number_of_clumps 30 }\n"
+        "create_terrain GREENWORLD_ISLAND_8X8 { number_of_clumps 2 base_terrain GREENWORLD_BASE-85 }\n"
+        "create_terrain GREENWORLD_ROUGH-85 { land_percent 2 }\n");
+    RandomMapOptions options;
+    RmsCanvas& plain = canvas;
+    RandomMapOutcome outcome = runRandomMapScript(script, plain, names, options, rng);
+    expect(outcome.stampCommands.size() == 5 && outcome.messages.empty(), "stamp brushes are set aside without notes");
+    // Water on the left third, grass on the rest.
+    canvas.fill(1);
+    for (int y = 0; y < 9; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            canvas.paint(x, y, 0);
+        }
+    }
+    std::vector<RmsMessage> notes;
+    const std::vector<RandomMapStamp> stamps = planStampBrushes(script, outcome, brushes, canvas, names, 12 * 16, 8 * 16, rng, notes);
+    std::map<std::string, int> counts;
+    bool placedWell = true;
+    std::set<std::pair<int, int>> tiles;
+    for (const RandomMapStamp& stamp : stamps) {
+        const auto [w, h] = sizeOf(stamp.sectionPath);
+        const int want = stamp.sectionPath == "i16" ? 0 : 1;
+        for (int cy = stamp.tileY / 16; cy <= (stamp.tileY + h - 1) / 16; ++cy) {
+            for (int cx = stamp.tileX / 16; cx <= (stamp.tileX + w - 1) / 16; ++cx) {
+                const std::array<int, 4> corners = canvas.cellCorners(cx, cy);
+                placedWell = placedWell && corners[0] == want && corners[1] == want && corners[2] == want && corners[3] == want;
+            }
+        }
+        // Snapped as the Tile Brush snaps: a cell or smaller on its grid, larger centred on a cell corner.
+        const auto snapped = [](int origin, int size) { return size > 16 ? (origin + size / 2) % 16 == 0 : origin % size == 0; };
+        placedWell = placedWell && snapped(stamp.tileX, w) && snapped(stamp.tileY, h) && stamp.tileX + w <= 192 && stamp.tileY + h <= 128;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                placedWell = placedWell && tiles.insert({stamp.tileX + x, stamp.tileY + y}).second;
+            }
+        }
+        ++counts[stamp.sectionPath];
+    }
+    expect(placedWell, "stamps sit on flat ground of their base, snapped like the brush, and never overlap");
+    expect(counts["p32"] + counts["p56"] == 4 && counts["h16"] == 6 && counts["h8"] == 30 && counts["i16"] == 2,
+        "every stamp as many as asked, plateaus of both sizes included");
+    expect(counts["r8"] == 8, "land_percent 2 of a 192 x 128 map is eight 8 x 8 rough patches: " + std::to_string(counts["r8"]));
+    expect(hasMessage(notes, 5, "only goes on GREENWORLD_BASE-0"), "a base_terrain the stamp cannot use is pointed out");
+}
+
 void testBrushCanvas() {
     using namespace galaxy;
     // GreenWorld water and grass, and Lava ground, which blends with the grass but not the water.
@@ -6335,6 +6419,7 @@ int main() {
     testBrushCanvas();
     testDoodads();
     testStartsAndResources();
+    testStampBrushes();
     testRandomMapTiles();
     testVanillaLimits();
     testBrushStrokeNames();

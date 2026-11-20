@@ -721,6 +721,17 @@ private:
     bool randomMapFailed_ = false;
     // The random map tileset's bases and pieces, read again when that archive changes.
     RandomMapTiles randomMapTiles_;
+    // GreenWorld's hills, rough patches and islands as script stamps, measured once per tileset.
+    std::vector<RandomMapStampBrush> randomMapStampBrushes_;
+    std::string randomMapStampKey_;
+    // Every stamp button of every world's Tile Brush, with its pieces and the ground it
+    // needs, read through the brush's own catalog so the two always agree.
+    std::vector<RandomMapStampBrush> collectStampBrushes();
+    // The world and base a stamp button goes on, as hillCanPlace decides. False for a
+    // button the generator does not stamp, such as a mountain or dunes.
+    bool stampBaseOf(const std::string& button, std::string& world, std::string& base) const;
+    // Rebuilds randomMapStampBrushes_ when the random map tileset changes.
+    void ensureStampBrushes();
     std::string randomMapTilesKey_;
     bool showNew_ = false;
     bool showResize_ = false;

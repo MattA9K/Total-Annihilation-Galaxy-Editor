@@ -608,11 +608,18 @@ private:
     }
 
     void terrainGeneration() {
-        for (const RmsCommand& command : script_.commands) {
+        for (std::size_t index = 0; index < script_.commands.size(); ++index) {
+            const RmsCommand& command = script_.commands[index];
             if (command.section != "TERRAIN_GENERATION" || command.name != "create_terrain") {
                 continue;
             }
             if (command.args.empty()) {
+                continue;
+            }
+            if (names_.isStamp && names_.isStamp(command.args[0].text)) {
+                // Hills and islands are stamped once the map is painted.
+                outcome_.stampCommands.push_back(index);
+                ++outcome_.terrains;
                 continue;
             }
             const int terrain = terrainOf(command.args[0], command.line);
@@ -2296,6 +2303,235 @@ RandomMapStampPlan planRandomMapStamps(const RandomMapTiles& tiles, const std::v
         }
     }
     return plan;
+}
+
+}  // namespace galaxy
+
+namespace galaxy {
+
+std::string stampBrushScriptName(std::string_view world, std::string_view button) {
+    std::string name = upper(world) + "_" + upper(button);
+    for (char& character : name) {
+        if (character == ' ') {
+            character = '_';
+        }
+    }
+    return name;
+}
+
+namespace {
+
+// Where a stamp of this size may start along one axis, the way the Tile Brush snaps
+// it: a stamp wider than a cell is centred on a cell corner, a cell-sized one fills
+// a cell, and a smaller one fills the first or second part of a cell.
+std::vector<int> stampAxisOrigins(int size, int cells, int mapTiles) {
+    std::vector<int> origins;
+    const int cell = kBrushCellTiles;
+    const auto fits = [&](int origin) { return origin >= 0 && origin + size <= mapTiles; };
+    if (size > cell) {
+        for (int node = 1; node < cells; ++node) {
+            if (fits(node * cell - size / 2)) {
+                origins.push_back(node * cell - size / 2);
+            }
+        }
+    } else if (size == cell) {
+        for (int c = 0; c < cells; ++c) {
+            if (fits(c * cell)) {
+                origins.push_back(c * cell);
+            }
+        }
+    } else if (size > 0) {
+        for (int c = 0; c < cells; ++c) {
+            if (fits(c * cell)) {
+                origins.push_back(c * cell);
+            }
+            if (size * 2 <= cell && fits(c * cell + size)) {
+                origins.push_back(c * cell + size);
+            }
+        }
+    }
+    return origins;
+}
+
+}  // namespace
+
+std::vector<RandomMapStamp> planStampBrushes(const RmsScript& script, const RandomMapOutcome& outcome,
+                                             const std::vector<RandomMapStampBrush>& brushes, const BrushCanvas& canvas,
+                                             const RmsTerrainNames& names, int tileWidth, int tileHeight, std::mt19937& rng,
+                                             std::vector<RmsMessage>& messages) {
+    std::vector<RandomMapStamp> stamps;
+    const int cellsX = canvas.width() - 1;
+    const int cellsY = canvas.height() - 1;
+    if (cellsX <= 0 || cellsY <= 0 || tileWidth <= 0 || tileHeight <= 0) {
+        return stamps;
+    }
+    const auto flatAt = [&](int cx, int cy) {
+        if (cx < 0 || cy < 0 || cx >= cellsX || cy >= cellsY) {
+            return -2;
+        }
+        const std::array<int, 4> corners = canvas.cellCorners(cx, cy);
+        return corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3] ? corners[0] : -1;
+    };
+    // Tiles already covered by a stamp, so no two overlap.
+    std::vector<unsigned char> covered(static_cast<std::size_t>(tileWidth) * static_cast<std::size_t>(tileHeight), 0);
+    const auto free = [&](int x, int y, int w, int h) {
+        for (int ty = y; ty < y + h; ++ty) {
+            for (int tx = x; tx < x + w; ++tx) {
+                if (covered[static_cast<std::size_t>(ty) * static_cast<std::size_t>(tileWidth) + static_cast<std::size_t>(tx)]) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    const double ratio = static_cast<double>(canvas.width()) * canvas.height() / kScaleReference;
+    for (const std::size_t index : outcome.stampCommands) {
+        const RmsCommand& command = script.commands[index];
+        const std::string wanted = upper(command.args[0].text);
+        const RandomMapStampBrush* brush = nullptr;
+        for (const RandomMapStampBrush& candidate : brushes) {
+            if (candidate.name == wanted) {
+                brush = &candidate;
+            }
+        }
+        if (brush == nullptr || brush->sections.empty()) {
+            continue;
+        }
+        const int base = names.find ? names.find(brush->base) : -1;
+        if (const RmsAttribute* attribute = command.find("base_terrain"); attribute != nullptr && !attribute->args.empty()
+            && upper(attribute->args[0].text) != brush->base) {
+            messages.push_back(RmsMessage{attribute->line, brush->name + " only goes on " + brush->base + ", so base_terrain was skipped."});
+        }
+        // How many: number_of_clumps, or land_percent and number_of_tiles as an area.
+        double area = 0.0;
+        for (const RandomMapStampSection& section : brush->sections) {
+            area += static_cast<double>(section.width) * section.height;
+        }
+        area = std::max(1.0, area / static_cast<double>(brush->sections.size()));
+        double count = std::max(0.0, numberAt(command, "number_of_clumps", 1.0));
+        const int percentAt = lastIndexOf(command, "land_percent");
+        const int tilesAt = lastIndexOf(command, "number_of_tiles");
+        if (percentAt > tilesAt) {
+            count = std::clamp(numberAt(command, "land_percent", 0.0), 0.0, 100.0) / 100.0 * tileWidth * tileHeight / area;
+        } else if (tilesAt >= 0) {
+            // Script tiles are game-size squares, 16 x 16 map tiles each.
+            count = std::max(0.0, numberAt(command, "number_of_tiles", 0.0)) * 256.0 / area;
+        }
+        if (has(command, "set_scale_by_size") || has(command, "set_scale_by_groups")) {
+            count *= ratio;
+        }
+        const int wantedCount = std::max(0, static_cast<int>(std::lround(count)));
+        const int spacing = std::max(0, static_cast<int>(numberAt(command, "spacing_to_other_terrain_types", 0.0)));
+        int avoidStarts = -1;
+        if (const RmsAttribute* attribute = command.find("set_avoid_player_start_areas")) {
+            avoidStarts = attribute->args.empty() ? std::max(1, static_cast<int>(std::lround(std::max(canvas.width(), canvas.height()) / 9.0)))
+                                                  : std::max(0, attribute->args[0].integer());
+        }
+        for (const char* skipped : {"clumping_factor", "height_limits", "spacing_to_specific_terrain", "set_flat_terrain_only"}) {
+            if (const RmsAttribute* attribute = command.find(skipped)) {
+                messages.push_back(RmsMessage{attribute->line, std::string(skipped) + " does nothing for " + brush->name + "."});
+            }
+        }
+
+        // True when every cell under the stamp, and every cell within spacing of
+        // them, is flat ground of the stamp's base.
+        const auto groundFits = [&](int x, int y, int w, int h) {
+            const int cx0 = x / kBrushCellTiles;
+            const int cy0 = y / kBrushCellTiles;
+            const int cx1 = (x + w - 1) / kBrushCellTiles;
+            const int cy1 = (y + h - 1) / kBrushCellTiles;
+            for (int cy = cy0 - spacing; cy <= cy1 + spacing; ++cy) {
+                for (int cx = cx0 - spacing; cx <= cx1 + spacing; ++cx) {
+                    const int ground = flatAt(cx, cy);
+                    const bool under = cx >= cx0 && cx <= cx1 && cy >= cy0 && cy <= cy1;
+                    if ((under && ground != base) || (!under && ground != base && ground != -2)) {
+                        return false;
+                    }
+                }
+            }
+            if (avoidStarts >= 0) {
+                for (const auto& [ox, oy] : outcome.playerOrigins) {
+                    if (ox < 0) {
+                        continue;
+                    }
+                    for (int cy = cy0; cy <= cy1; ++cy) {
+                        for (int cx = cx0; cx <= cx1; ++cx) {
+                            if (std::max(std::abs(cx - ox), std::abs(cy - oy)) <= avoidStarts) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            return true;
+        };
+        // Places for each stamp size, found the first time that size is drawn.
+        struct Places {
+            std::vector<std::pair<int, int>> origins;
+            std::size_t next = 0;
+        };
+        std::map<std::pair<int, int>, Places> places;
+        const auto placesFor = [&](int w, int h) -> Places& {
+            const auto key = std::make_pair(w, h);
+            auto found = places.find(key);
+            if (found != places.end()) {
+                return found->second;
+            }
+            Places list;
+            if (base >= 0) {
+                for (const int y : stampAxisOrigins(h, cellsY, tileHeight)) {
+                    for (const int x : stampAxisOrigins(w, cellsX, tileWidth)) {
+                        if (groundFits(x, y, w, h)) {
+                            list.origins.emplace_back(x, y);
+                        }
+                    }
+                }
+            }
+            std::shuffle(list.origins.begin(), list.origins.end(), rng);
+            return places.emplace(key, std::move(list)).first->second;
+        };
+        int placed = 0;
+        std::set<std::pair<int, int>> spent;
+        std::set<std::pair<int, int>> sizes;
+        for (const RandomMapStampSection& section : brush->sections) {
+            sizes.insert({section.width, section.height});
+        }
+        while (placed < wantedCount && spent.size() < sizes.size()) {
+            // A random piece first, so every piece of a brush that mixes sizes gets its share.
+            const RandomMapStampSection& section = brush->sections[std::uniform_int_distribution<std::size_t>(0, brush->sections.size() - 1)(rng)];
+            const auto key = std::make_pair(section.width, section.height);
+            if (spent.count(key) != 0 || section.width <= 0 || section.height <= 0) {
+                spent.insert(key);
+                continue;
+            }
+            Places& list = placesFor(section.width, section.height);
+            bool done = false;
+            while (list.next < list.origins.size()) {
+                const auto [x, y] = list.origins[list.next++];
+                if (!free(x, y, section.width, section.height)) {
+                    continue;
+                }
+                for (int ty = y; ty < y + section.height; ++ty) {
+                    for (int tx = x; tx < x + section.width; ++tx) {
+                        covered[static_cast<std::size_t>(ty) * static_cast<std::size_t>(tileWidth) + static_cast<std::size_t>(tx)] = 1;
+                    }
+                }
+                stamps.push_back(RandomMapStamp{section.path, x, y, 0});
+                ++placed;
+                done = true;
+                break;
+            }
+            if (!done) {
+                spent.insert(key);
+            }
+        }
+        if (placed < wantedCount) {
+            messages.push_back(RmsMessage{command.line, "create_terrain " + brush->name + " placed " + std::to_string(placed) + " of "
+                                                            + std::to_string(wantedCount)
+                                                            + (placed == 0 ? ": it needs flat " + brush->base + " and found none." : ": there was no more room.")});
+        }
+    }
+    return stamps;
 }
 
 }  // namespace galaxy

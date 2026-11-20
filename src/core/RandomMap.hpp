@@ -82,6 +82,9 @@ struct RmsTerrainNames {
     // What the map is without base_terrain, and a land without terrain_type.
     // The game uses GRASS; the editor uses GREENWORLD_BASE-85.
     int fallback = 0;
+    // True for a Tile Brush stamp such as GREENWORLD_HILL-85_8X8. create_terrain with
+    // one of these is set aside, and planStampBrushes places it once the map is painted.
+    std::function<bool(std::string_view)> isStamp;
 };
 
 // A feature the game can place, such as Tree1, from the loaded archives' TDF files.
@@ -183,6 +186,8 @@ struct RandomMapOutcome {
     // They replace the map's starts.
     bool placesStarts = false;
     std::vector<RmsStart> starts;
+    // create_terrain commands that name a Tile Brush stamp, as indexes into the script's commands.
+    std::vector<std::size_t> stampCommands;
 };
 
 // Runs the land, terrain, connection and object sections of a script. Elevation
@@ -246,6 +251,25 @@ private:
     std::vector<std::pair<std::string, std::string>> liquids_;
 };
 
+// One piece of a stamp brush, with its size in map tiles.
+struct RandomMapStampSection {
+    std::string path;
+    int width = 0;
+    int height = 0;
+};
+
+// A Tile Brush stamp a script places with create_terrain: a hill, pool, rough patch,
+// island, crater and so on, stamped whole onto flat ground of its own base. Pieces of
+// one brush may differ in size, as Desert's plateaus and Crystal's roughs do.
+struct RandomMapStampBrush {
+    std::string name;  // such as LAVA_POOL-86_16X16
+    std::string base;  // the terrain it sits on, such as LAVA_BASE-86
+    std::vector<RandomMapStampSection> sections;
+};
+
+// The script name of a Tile Brush stamp button: LAVA_POOL-86_16X16 for Lava's "Pool-86 16x16".
+std::string stampBrushScriptName(std::string_view world, std::string_view button);
+
 struct RandomMapStamp {
     std::string sectionPath;
     int tileX = 0;
@@ -265,5 +289,15 @@ struct RandomMapStampPlan {
 // largest brush stroke that fits.
 RandomMapStampPlan planRandomMapStamps(const RandomMapTiles& tiles, const std::vector<int>& levels,
                                        const BrushCanvas& canvas, std::mt19937& rng);
+
+// Where the script's stamp brushes go, on the finished canvas, inside a map tileWidth
+// x tileHeight tiles. Each snaps the way the Tile Brush snaps it: smaller than a cell
+// to the 8 x 8 grid, a cell to the cell grid, larger centred on a cell corner. Every
+// cell under it must be flat ground of its base, and no two overlap. Notes about
+// stamps that found no room are added to messages.
+std::vector<RandomMapStamp> planStampBrushes(const RmsScript& script, const RandomMapOutcome& outcome,
+                                             const std::vector<RandomMapStampBrush>& brushes, const BrushCanvas& canvas,
+                                             const RmsTerrainNames& names, int tileWidth, int tileHeight, std::mt19937& rng,
+                                             std::vector<RmsMessage>& messages);
 
 }  // namespace galaxy

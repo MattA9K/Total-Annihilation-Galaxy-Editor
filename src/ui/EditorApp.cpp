@@ -5879,15 +5879,17 @@ void EditorApp::drawMap() {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         }
     } else if (featuresTab_) {
-        // The footprint of one feature on the ground, in map pixels.
+        // The footprint of one feature on the ground, in map pixels, raised by half
+        // the ground height as the border is drawn, so clicks and boxes find it there.
         auto footprintOf = [&](const FeaturePlacement& feature, float& left, float& top, float& right, float& bottom) {
             const FeatureSprite* picture = featurePicture(feature.name);
             const int footprintX = picture != nullptr ? std::max(1, picture->footprintX) : 1;
             const int footprintZ = picture != nullptr ? std::max(1, picture->footprintZ) : 1;
+            const float lift = static_cast<float>(featureLift(*map_, feature.x, feature.y));
             left = static_cast<float>(feature.x * 16);
-            top = static_cast<float>(feature.y * 16);
+            top = static_cast<float>(feature.y * 16) - lift;
             right = static_cast<float>((feature.x + footprintX) * 16);
-            bottom = static_cast<float>((feature.y + footprintZ) * 16);
+            bottom = static_cast<float>((feature.y + footprintZ) * 16) - lift;
         };
         // The feature under the pointer: its footprint first, so an invisible
         // metal zone can be picked, then its picture. The smallest wins.
@@ -6330,15 +6332,18 @@ void EditorApp::drawMap() {
     if (showFeatureBorders_) {
         // A feature covers footprintX x footprintZ cells of 16 pixels from its
         // cell, whether or not it has a picture, so an invisible feature such
-        // as a metal zone still shows how much ground it takes.
+        // as a metal zone still shows how much ground it takes. The game draws
+        // everything half its ground height higher on screen, and that is where
+        // a metal extractor has to go, so the border rises with the picture.
         const ImU32 borderColor = IM_COL32(60, 255, 90, 255);
         const float thickness = zoom_ >= 0.5f ? 1.5f : 1.0f;
         auto drawBorder = [&](const std::string& featureName, int cellX, int cellY, ImU32 color) {
             const FeatureSprite* picture = featurePicture(featureName);
             const int footprintX = picture != nullptr ? std::max(1, picture->footprintX) : 1;
             const int footprintZ = picture != nullptr ? std::max(1, picture->footprintZ) : 1;
-            const ImVec2 minCorner = toScreen(static_cast<float>(cellX * 16), static_cast<float>(cellY * 16));
-            const ImVec2 maxCorner = toScreen(static_cast<float>((cellX + footprintX) * 16), static_cast<float>((cellY + footprintZ) * 16));
+            const float lift = static_cast<float>(featureLift(*map_, cellX, cellY));
+            const ImVec2 minCorner = toScreen(static_cast<float>(cellX * 16), static_cast<float>(cellY * 16) - lift);
+            const ImVec2 maxCorner = toScreen(static_cast<float>((cellX + footprintX) * 16), static_cast<float>((cellY + footprintZ) * 16) - lift);
             if (maxCorner.x < clipMin.x || minCorner.x > clipMax.x || maxCorner.y < clipMin.y || minCorner.y > clipMax.y) {
                 return;
             }
@@ -6355,8 +6360,10 @@ void EditorApp::drawMap() {
         const FeatureSprite* picture = featurePicture(featureName);
         const int footprintX = picture != nullptr ? std::max(1, picture->footprintX) : 1;
         const int footprintZ = picture != nullptr ? std::max(1, picture->footprintZ) : 1;
-        minCorner = toScreen(static_cast<float>(cellX * 16), static_cast<float>(cellY * 16));
-        maxCorner = toScreen(static_cast<float>((cellX + footprintX) * 16), static_cast<float>((cellY + footprintZ) * 16));
+        // Raised like the border and the picture, half the ground height.
+        const float lift = static_cast<float>(featureLift(*map_, cellX, cellY));
+        minCorner = toScreen(static_cast<float>(cellX * 16), static_cast<float>(cellY * 16) - lift);
+        maxCorner = toScreen(static_cast<float>((cellX + footprintX) * 16), static_cast<float>((cellY + footprintZ) * 16) - lift);
     };
     if (!selectedFeatures_.empty()) {
         for (const FeaturePlacement& feature : selectedFeaturePlacements()) {
@@ -9068,6 +9075,38 @@ create_terrain LAVA_BASE-86 {
   spacing_to_other_terrain_types 2
 }
 
+/* Hills and rough ground on the islands, and small islands out at sea.
+   These are the Tile Brush's stamps: hills, pools, islands, craters and the
+   rest, for every tileset. Each is listed under its world's bases in the
+   Terrains list, and fills a block of flat ground of the base it needs, so
+   they go in after the land is painted. number_of_clumps is how many. */
+create_terrain GREENWORLD_HILL-85_8X8 {
+  number_of_clumps 4
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+create_terrain GREENWORLD_HILL-85_16X16 {
+  number_of_clumps 1
+  set_scale_by_groups
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+create_terrain GREENWORLD_ROUGH-85 {
+  number_of_clumps 3
+  set_scale_by_groups
+}
+create_terrain GREENWORLD_ISLAND_8X8 {
+  number_of_clumps 1
+  set_scale_by_groups
+  spacing_to_other_terrain_types 1
+}
+
+/* Small lava pools on the lava fields. */
+create_terrain LAVA_POOL-86_8X8 {
+  number_of_clumps 1
+  set_scale_by_groups
+}
+
 <CONNECTION_GENERATION>
 /* Shallow water between the players' islands. */
 create_connect_all_players_land {
@@ -9318,6 +9357,135 @@ void EditorApp::saveRandomMapScript() const {
     }
 }
 
+bool EditorApp::stampBaseOf(const std::string& button, std::string& world, std::string& base) const {
+    // The same order hillCanPlace checks in.
+    if (const HillSection* group = groupHill()) {
+        world = brushWorld_;
+        base = group->baseName;
+        return !base.empty();
+    }
+    world = brushWorld_;
+    if (button == "Island 8x8") {
+        world = "GreenWorld";
+        base = "Base-0";
+    } else if (button == "Feature-85" || button == "Rough-85 16x16" || pool85Brush(button) || button.rfind("Hills-85", 0) == 0) {
+        base = "Base-85";
+    } else if (button.rfind("Pool-86", 0) == 0 || button.rfind("Hill-86", 0) == 0) {
+        world = "Lava";
+        base = "Base-86";
+    } else if (seaIslandKind(button) != 0) {
+        base = "Base-0";
+    } else if (button.rfind("Hills-78", 0) == 0) {
+        world = "Archipelago";
+        base = "Base-78";
+    } else if (button.rfind("Hill-194", 0) == 0) {
+        world = "Archipelago";
+        base = "Base-194";
+    } else if (button == "Pools 8x8") {
+        world = "Lush";
+        base = "Base-77";
+    } else {
+        world = "GreenWorld";
+        base = "Base-85";
+    }
+    return true;
+}
+
+std::vector<RandomMapStampBrush> EditorApp::collectStampBrushes() {
+    std::vector<RandomMapStampBrush> brushes;
+    std::vector<std::string> worlds;
+    for (const RandomMapPaint& paint : randomMapTiles_.paints()) {
+        if (std::find(worlds.begin(), worlds.end(), paint.world) == worlds.end()) {
+            worlds.push_back(paint.world);
+        }
+    }
+    const std::string savedWorld = brushWorld_;
+    const std::string savedName = brushName_;
+    const int savedNext = nextSeaIsland_;
+    for (const std::string& world : worlds) {
+        // Arm each world in turn: its catalog lists the stamp buttons and measures their pieces.
+        brushWorld_ = world;
+        ensureBrushPaints();
+        std::vector<std::string> buttons;
+        for (const BrushPaint& paint : brushPaints_) {
+            if (paint.kind == BrushKind::Hill) {
+                buttons.push_back(paint.name);
+            }
+        }
+        for (const std::string& button : buttons) {
+            brushName_ = button;
+            nextSeaIsland_ = -1;
+            // Mountains grow along a drag and dunes join their neighbours, so they are not single stamps.
+            if (mountainArmed() || duneArmed()) {
+                continue;
+            }
+            std::string baseWorld;
+            std::string baseName;
+            if (!stampBaseOf(button, baseWorld, baseName)) {
+                continue;
+            }
+            RandomMapStampBrush brush;
+            brush.name = stampBrushScriptName(world, button);
+            brush.base = stampBrushScriptName(baseWorld, baseName);
+            const auto add = [&](const HillSection& hill, int width, int height) {
+                if (width > 0 && height > 0) {
+                    brush.sections.push_back(RandomMapStampSection{hill.sectionPath, width, height});
+                }
+            };
+            if (brushVaries()) {
+                // Island-0 Medium and Large, and Crystal's Rough-85, mix sizes.
+                for (const HillSection& hill : hillSections_) {
+                    if (nextMatches(hill)) {
+                        add(hill, hill.tiles, hill.high());
+                    }
+                }
+            } else if (groupHill() != nullptr) {
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.group == button && hill.tiles > 0) {
+                        add(hill, hill.tiles, hill.high());
+                    }
+                }
+            } else {
+                // The pieces paintHill chooses from for this button.
+                const int span = hillSpan();
+                const bool island = button == "Island 8x8";
+                const bool rough = button.rfind("Rough", 0) == 0;
+                const bool pool = button == "Pools 8x8";
+                const bool base78 = button.rfind("Hills-78", 0) == 0;
+                const int seaIsland = seaIslandKind(button);
+                const bool lavaPool = button.rfind("Pool-86", 0) == 0;
+                const bool hill85 = button.rfind("Hills-85", 0) == 0;
+                const bool pool85 = pool85Brush(button);
+                const bool marsRough = button == "Rough-85 16x16";
+                const bool marsFeature = button == "Feature-85";
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.tiles == span && hill.crystalFolder.empty() && hill.group.empty() && hill.island == island && hill.rough == rough
+                        && hill.pool == pool && hill.base78 == base78 && hill.seaIsland == seaIsland && hill.lavaPool == lavaPool
+                        && hill.hill85 == hill85 && hill.pool85 == pool85 && hill.marsRough == marsRough && hill.marsFeature == marsFeature) {
+                        add(hill, span, span);
+                    }
+                }
+            }
+            if (!brush.sections.empty()) {
+                brushes.push_back(std::move(brush));
+            }
+        }
+    }
+    brushWorld_ = savedWorld;
+    brushName_ = savedName;
+    nextSeaIsland_ = savedNext;
+    ensureBrushPaints();
+    return brushes;
+}
+
+void EditorApp::ensureStampBrushes() {
+    if (randomMapTilesKey_.empty() || randomMapTilesKey_ == randomMapStampKey_ || randomMapTiles_.paints().empty()) {
+        return;
+    }
+    randomMapStampBrushes_ = collectStampBrushes();
+    randomMapStampKey_ = randomMapTilesKey_;
+}
+
 bool EditorApp::generateRandomMap() {
     randomMapNotes_.clear();
     randomMapResult_.clear();
@@ -9345,6 +9513,20 @@ bool EditorApp::generateRandomMap() {
     const RandomMapTiles& tiles = randomMapTiles_;
 
     try {
+        ensureStampBrushes();
+        const std::vector<RandomMapStampBrush>& stampBrushes = randomMapStampBrushes_;
+        const auto stampNamed = [&](std::string_view name) -> const RandomMapStampBrush* {
+            std::string wanted(name);
+            for (char& character : wanted) {
+                character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+            }
+            for (const RandomMapStampBrush& brush : stampBrushes) {
+                if (brush.name == wanted) {
+                    return &brush;
+                }
+            }
+            return nullptr;
+        };
         const int cell = kBrushCellTiles;
         const int cellsX = (map_->tileWidth + cell - 1) / cell;
         const int cellsY = (map_->tileHeight + cell - 1) / cell;
@@ -9360,6 +9542,16 @@ bool EditorApp::generateRandomMap() {
             const int paint = tiles.findPaint(name);
             if (paint >= 0) {
                 used.push_back(paint);
+            }
+        }
+        // A hill or island needs its own ground in the brush, such as GreenWorld Base-85.
+        for (const RmsCommand& command : script.commands) {
+            if (command.name == "create_terrain" && !command.args.empty()) {
+                if (const RandomMapStampBrush* brush = stampNamed(command.args[0].text)) {
+                    if (const int paint = tiles.findPaint(brush->base); paint >= 0) {
+                        used.push_back(paint);
+                    }
+                }
             }
         }
         if (used.empty() && tiles.findPaint(kRandomMapFallbackTerrain) >= 0) {
@@ -9378,6 +9570,7 @@ bool EditorApp::generateRandomMap() {
             return paint < 0 || found == levels.end() ? -1 : static_cast<int>(found - levels.begin());
         };
         names.fallback = std::max(0, names.find(kRandomMapFallbackTerrain));
+        names.isStamp = [&](std::string_view name) { return stampNamed(name) != nullptr; };
         // Features come from every loaded archive: the game's own and TA_Features_2013.ccx.
         // Where two archives define one name, the first one loaded wins, as in the Features tab.
         RmsObjectSettings objects;
@@ -9414,7 +9607,12 @@ bool EditorApp::generateRandomMap() {
         options.objects = &objects;
         const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
         canvas.repair([&](const std::array<int, 4>& corners) { return !tiles.pieces(canvas.graph(), levels, corners).empty(); });
-        const RandomMapStampPlan plan = planRandomMapStamps(tiles, levels, canvas, rng);
+        RandomMapStampPlan plan = planRandomMapStamps(tiles, levels, canvas, rng);
+        // Hills, rough patches and islands go over the painted ground.
+        std::vector<RmsMessage> stampNotes;
+        for (RandomMapStamp& stamp : planStampBrushes(script, outcome, stampBrushes, canvas, names, map_->tileWidth, map_->tileHeight, rng, stampNotes)) {
+            plan.stamps.push_back(std::move(stamp));
+        }
 
         // Every section is read before the map changes, so a missing file leaves the map alone.
         std::unordered_map<std::string, SectionStamp> loaded;
@@ -9487,6 +9685,7 @@ bool EditorApp::generateRandomMap() {
         warnIfPastVanillaTiles(tileCountBefore);
 
         randomMapNotes_ = script.messages;
+        randomMapNotes_.insert(randomMapNotes_.end(), stampNotes.begin(), stampNotes.end());
         randomMapNotes_.insert(randomMapNotes_.end(), outcome.messages.begin(), outcome.messages.end());
         std::stable_sort(randomMapNotes_.begin(), randomMapNotes_.end(), [](const RmsMessage& left, const RmsMessage& right) {
             return left.line < right.line;
@@ -9609,8 +9808,27 @@ void EditorApp::drawRandomMap() {
         ImGui::TextWrapped("%s", text(Text::RandomMapNoTileset));
     }
     std::string world;
+    // GreenWorld's hills, rough patches and islands follow its bases.
+    // Each world's hills, pools, islands and other stamps follow its bases.
+    ensureStampBrushes();
+    const auto listStamps = [&](const std::string& finished) {
+        if (finished.empty()) {
+            return;
+        }
+        std::string prefix = finished + "_";
+        for (char& character : prefix) {
+            character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        }
+        for (const RandomMapStampBrush& stamp : randomMapStampBrushes_) {
+            if (stamp.name.compare(0, prefix.size(), prefix) == 0 && ImGui::Selectable(stamp.name.c_str())) {
+                ImGui::SetClipboardText(stamp.name.c_str());
+                statusNote_ = "Copied " + stamp.name;
+            }
+        }
+    };
     for (const RandomMapPaint& paint : randomMapTiles_.paints()) {
         if (paint.world != world) {
+            listStamps(world);
             world = paint.world;
             if (ImGui::GetCursorPosY() > ImGui::GetTextLineHeightWithSpacing() * 3.0f) {
                 ImGui::Spacing();
@@ -9624,6 +9842,7 @@ void EditorApp::drawRandomMap() {
             statusNote_ = "Copied " + paint.terrain;
         }
     }
+    listStamps(world);
     // Doodad kinds for create_object. Each follows the ground under each spot.
     ImGui::Spacing();
     ImGui::Spacing();
