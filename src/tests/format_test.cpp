@@ -6222,6 +6222,28 @@ void testStartsAndResources() {
             }
             expect(!any, "Ground Zero crystals are in no doodad kind");
         }
+        // A 6 x 4 height grid: flat at 40 with a 3 x 2 hill rising to 90 at the right.
+        std::vector<std::uint8_t> heights(24, 40);
+        for (int y = 1; y <= 2; ++y) {
+            for (int x = 3; x <= 5; ++x) {
+                heights[static_cast<std::size_t>(y * 6 + x)] = 90;
+            }
+        }
+        expect(footprintRise(heights, 6, 4, 0, 0, 2, 2) == 0, "flat ground does not rise");
+        expect(footprintRise(heights, 6, 4, 2, 0, 1, 1) == 50 && footprintRise(heights, 6, 4, 2, 0, 1, 1) > kMetalNodeMaxRise,
+            "a footprint whose far edge touches the hill rises with it");
+        expect(footprintRise(heights, 6, 4, 4, 2, 5, 5) == 50, "a footprint past the map's edge is measured inside it");
+        {
+            // A node on the hill at (4, 1) moves to the nearest flat, free spot at level 40.
+            std::vector<std::uint8_t> occupied(24, 0);
+            occupied[static_cast<std::size_t>(0 * 6 + 2)] = 1;
+            int x = -1;
+            int y = -1;
+            expect(findFlatSpot(heights, occupied, 6, 4, 1, 1, 4, 1, 40, kMetalNodeMaxRise, 8, x, y) && x == 4 && y == 3,
+                "a node on a hill moves to the nearest free flat cell");
+            expect(!findFlatSpot(heights, occupied, 6, 4, 1, 1, 4, 1, 40, kMetalNodeMaxRise, 1, x, y), "and stays put when none is in reach");
+            expect(!findFlatSpot(heights, occupied, 6, 4, 1, 1, 4, 1, 120, kMetalNodeMaxRise, 8, x, y), "and never moves to another level");
+        }
         expect(!featureSuitsLand(lushRock, DoodadKind::Rocks, "Green") && !featureSuitsLand({"LushTree1", "lush", "trees", 1, 1, 0, false}, DoodadKind::Trees, "Acid"),
             "only rocks are lent, and only to Acid");
     }

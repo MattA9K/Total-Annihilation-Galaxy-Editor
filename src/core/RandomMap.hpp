@@ -146,6 +146,22 @@ bool featureSuitsLand(const RmsFeature& feature, DoodadKind kind, const std::str
 // TDF files do not say so, so the name and category decide. These only go in water,
 // and every other feature only on dry land.
 bool underwaterFeature(const RmsFeature& feature);
+// How far the ground rises and falls under a feature: the highest minus the lowest
+// height in the footprint, w x h feature cells at (x, y), far edge included. heights is
+// the map's height grid, width x height, one value per feature cell.
+int footprintRise(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y, int w, int h);
+// Metal nodes on ground that rises more than this, such as a hill, are removed: a metal
+// extractor cannot be built there.
+inline constexpr int kMetalNodeMaxRise = 16;
+// How far, in feature cells, a metal node on a hill may move to reach flat ground.
+inline constexpr int kMetalNodeMoveRadius = 48;
+// The nearest place, out to radius feature cells from (x, y), for a w x h footprint
+// whose cells are all free in occupied (one byte per feature cell, nonzero when taken),
+// whose ground rises no more than maxRise, and whose every height is within maxRise
+// of level, so the node stays on the ground it was placed for. Nearer rings are tried
+// first. False when there is none.
+bool findFlatSpot(const std::vector<std::uint8_t>& heights, const std::vector<std::uint8_t>& occupied, int width, int height, int w, int h,
+                  int x, int y, int level, int maxRise, int radius, int& outX, int& outY);
 
 // What the generator needs to place features. Positions are in feature cells,
 // 16 x 16 pixels, the footprint of one tree; a game-size square is 32 of them.

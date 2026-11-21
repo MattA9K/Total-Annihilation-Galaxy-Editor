@@ -2031,6 +2031,78 @@ bool featureSuitsLand(const RmsFeature& feature, DoodadKind kind, const std::str
     return std::find(lands.begin(), lands.end(), land) != lands.end();
 }
 
+int footprintRise(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y, int w, int h) {
+    int low = 255;
+    int high = 0;
+    for (int cy = std::max(0, y); cy <= std::min(height - 1, y + h); ++cy) {
+        for (int cx = std::max(0, x); cx <= std::min(width - 1, x + w); ++cx) {
+            const std::size_t index = static_cast<std::size_t>(cy) * static_cast<std::size_t>(width) + static_cast<std::size_t>(cx);
+            if (index < heights.size()) {
+                low = std::min<int>(low, heights[index]);
+                high = std::max<int>(high, heights[index]);
+            }
+        }
+    }
+    return high >= low ? high - low : 0;
+}
+
+bool findFlatSpot(const std::vector<std::uint8_t>& heights, const std::vector<std::uint8_t>& occupied, int width, int height, int w, int h,
+                  int x, int y, int level, int maxRise, int radius, int& outX, int& outY) {
+    w = std::max(1, w);
+    h = std::max(1, h);
+    const auto fits = [&](int px, int py) {
+        if (px < 0 || py < 0 || px + w > width || py + h > height) {
+            return false;
+        }
+        for (int cy = py; cy < py + h; ++cy) {
+            for (int cx = px; cx < px + w; ++cx) {
+                const std::size_t index = static_cast<std::size_t>(cy) * static_cast<std::size_t>(width) + static_cast<std::size_t>(cx);
+                if (index < occupied.size() && occupied[index] != 0) {
+                    return false;
+                }
+            }
+        }
+        int low = 255;
+        int high = 0;
+        for (int cy = py; cy <= std::min(height - 1, py + h); ++cy) {
+            for (int cx = px; cx <= std::min(width - 1, px + w); ++cx) {
+                const std::size_t index = static_cast<std::size_t>(cy) * static_cast<std::size_t>(width) + static_cast<std::size_t>(cx);
+                if (index >= heights.size()) {
+                    return false;
+                }
+                low = std::min<int>(low, heights[index]);
+                high = std::max<int>(high, heights[index]);
+            }
+        }
+        return high - low <= maxRise && std::abs(low - level) <= maxRise && std::abs(high - level) <= maxRise;
+    };
+    for (int ring = 1; ring <= radius; ++ring) {
+        // The ring's cells, nearest to the middle of each side first.
+        int bestX = 0;
+        int bestY = 0;
+        long bestDistance = -1;
+        for (int dy = -ring; dy <= ring; ++dy) {
+            for (int dx = -ring; dx <= ring; ++dx) {
+                if (std::max(std::abs(dx), std::abs(dy)) != ring) {
+                    continue;
+                }
+                const long distance = static_cast<long>(dx) * dx + static_cast<long>(dy) * dy;
+                if ((bestDistance < 0 || distance < bestDistance) && fits(x + dx, y + dy)) {
+                    bestDistance = distance;
+                    bestX = x + dx;
+                    bestY = y + dy;
+                }
+            }
+        }
+        if (bestDistance >= 0) {
+            outX = bestX;
+            outY = bestY;
+            return true;
+        }
+    }
+    return false;
+}
+
 // ------------------------------------------------------------------- canvases
 
 PlainCanvas::PlainCanvas(int width, int height, int terrain)
