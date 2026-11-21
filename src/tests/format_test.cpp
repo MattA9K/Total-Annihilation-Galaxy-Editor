@@ -6127,6 +6127,11 @@ void testDoodads() {
         const RmsFeature evergreen{"EGSpire1", "Evergreen", "Spires", 3, 3};
         expect(doodadLand(evergreen, DoodadKind::Spires).empty() && doodadLand(evergreen, DoodadKind::Rocks).empty(),
             "Evergreen doodads suit no Tile Brush land, so kinds never put them on the ice");
+        const RmsFeature snowTree{"SnowTree04", "Evergreen", "Snowtrees", 1, 1};
+        const RmsFeature smudge{"smudge02_01", "Evergreen", "Snowtrees", 1, 1};
+        expect(featureIsDoodad(snowTree, DoodadKind::Trees) && doodadLand(snowTree, DoodadKind::Trees) == "Ice",
+            "Evergreen's snow trees are the trees on Ice ground");
+        expect(!featureIsDoodad(smudge, DoodadKind::Trees), "smudges filed with the snow trees are never trees");
         expect(doodadLand(tree, DoodadKind::Trees) == "Green" && doodadLand(palm, DoodadKind::Trees) == "Archi" && doodadLand(chunk, DoodadKind::Rocks) == "Ice",
             "a feature suits its own world's ground");
     }
@@ -6309,6 +6314,42 @@ void testDesertTrees() {
         apart = apart && cells.count({x + 1, y}) == 0 && cells.count({x, y + 1}) == 0;
     }
     expect(apart, "no two trees stand side by side");
+    // Tight groves grow as clumps. Trees one step apart could only grow diagonally, into
+    // lines where no tree has more than four others within two cells.
+    int crowded = 0;
+    for (const auto& [x, y] : cells) {
+        int near = 0;
+        for (int dy = -2; dy <= 2; ++dy) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                near += (dx != 0 || dy != 0) && cells.count({x + dx, y + dy}) != 0 ? 1 : 0;
+            }
+        }
+        crowded = std::max(crowded, near);
+    }
+    // A tight grove grows as a clump with room for every tree. Trees one cell apart
+    // could only step diagonally, into thin lines that soon run out of room.
+    {
+        PlainCanvas open(17, 17);
+        RmsObjectSettings wide = objects;
+        wide.cellsPerNode = 32;
+        wide.cellsWide = 16 * 32;
+        wide.cellsHigh = 16 * 32;
+        RandomMapOptions groveOptions;
+        groveOptions.objects = &wide;
+        std::mt19937 groveRng(8);
+        const RandomMapOutcome grove = runRandomMapScript(readScript(
+            "<LAND_GENERATION>\nbase_terrain GRASS\n<OBJECTS_GENERATION>\n"
+            "create_object TREES { number_of_objects 90 number_of_groups 1 set_tight_grouping }\n"), open, plainNames(), groveOptions, groveRng);
+        int left = 1 << 20, right = -1, top = 1 << 20, bottom = -1;
+        for (const RmsPlacedFeature& feature : grove.features) {
+            left = std::min(left, feature.x);
+            right = std::max(right, feature.x);
+            top = std::min(top, feature.y);
+            bottom = std::max(bottom, feature.y);
+        }
+        expect(grove.features.size() == 90, "a tight grove has room for all its trees: " + std::to_string(grove.features.size()));
+        expect((right - left + 1) * (bottom - top + 1) <= 90 * 12, "a tight grove of trees stays a clump");
+    }
 }
 
 void testRandomMapProgress() {

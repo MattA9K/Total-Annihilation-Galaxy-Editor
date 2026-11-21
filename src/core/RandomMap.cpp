@@ -2046,6 +2046,9 @@ private:
         const int variance = std::abs(static_cast<int>(numberAt(command, "group_variance", 0.0)));
         const int radius = std::max(0, static_cast<int>(numberAt(command, "group_placement_radius", 3.0)));
         const bool tight = lastIndexOf(command, "set_tight_grouping") > lastIndexOf(command, "set_loose_grouping");
+        // Trees keep a cell apart, so a tight grove of them steps two cells at a time.
+        const bool trees = std::any_of(choice.features.begin(), choice.features.end(), [&](const RmsFeature* feature) { return isTree(*feature); });
+        const int reach = tight && trees ? 2 : 1;
 
         std::vector<int> rounds = {0};
         if (has(command, "set_place_for_every_player")) {
@@ -2110,10 +2113,12 @@ private:
                     int x = 0;
                     int y = 0;
                     if (tight) {
-                        // Tight groups grow from a member to the cell beside it.
+                        // Tight groups grow from a member to the cell beside it. Trees reach two
+                        // cells: one cell leaves only the diagonals free, and the grove would grow
+                        // as a thin diagonal line.
                         const auto& from = members[std::uniform_int_distribution<std::size_t>(0, members.size() - 1)(rng_)];
-                        x = from.first + std::uniform_int_distribution<int>(-1, 1)(rng_);
-                        y = from.second + std::uniform_int_distribution<int>(-1, 1)(rng_);
+                        x = from.first + std::uniform_int_distribution<int>(-reach, reach)(rng_);
+                        y = from.second + std::uniform_int_distribution<int>(-reach, reach)(rng_);
                     } else {
                         x = centerX + std::uniform_int_distribution<int>(-radius, radius)(rng_);
                         y = centerY + std::uniform_int_distribution<int>(-radius, radius)(rng_);
@@ -2240,6 +2245,10 @@ bool leftOutOfKinds(const RmsFeature& feature) {
         }
     }
     const std::string name = lower(feature.name);
+    // Evergreen files its smudges, such as smudge02_01, with its snow trees.
+    if (name.compare(0, 6, "smudge") == 0) {
+        return true;
+    }
     // Ground Zero's CrysBIGvar and Crysvar crystals are never used.
     if (name.compare(0, 10, "crysbigvar") == 0 || name.compare(0, 7, "crysvar") == 0) {
         return true;
@@ -2420,6 +2429,7 @@ std::string doodadLand(const RmsFeature& feature, DoodadKind kind) {
         break;
     }
     const std::string world = lower(feature.world);
+    const std::string name = lower(feature.name);
     if (world == "greenworld" || world == "green" || world == "greenland") {
         return "Green";
     }
@@ -2429,9 +2439,10 @@ std::string doodadLand(const RmsFeature& feature, DoodadKind kind) {
     if (world == "mars") {
         return "Mars";
     }
-    // Only the game's own Ice features suit the ice. Evergreen is a third-party set of
-    // its own, so its snow trees and spires are placed by name or as EVERGREEN_ kinds.
-    if (world == "ice") {
+    // Ice has no trees of its own, so its trees are Evergreen's snow trees. Evergreen's
+    // other features are a third-party set of their own, placed by name or as
+    // EVERGREEN_ kinds.
+    if (world == "ice" || (world == "evergreen" && kind == DoodadKind::Trees && name.compare(0, 8, "snowtree") == 0)) {
         return "Ice";
     }
     if (world == "metal" || world == "metalworld") {
