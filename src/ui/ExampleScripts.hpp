@@ -809,109 +809,370 @@ create_object ROCKS {
   min_distance_to_players 12
 }
 )"},
-    {"Crystal", "Prism Reach", R"(/* CRYSTAL: Prism Reach
-   Purple Crystal islands, with frosted Ice slopes and pools of green
-   Acid ground.
+    {"Crystal", "MegaRandom", R"(/* CRYSTAL: MegaRandom
+   After Age of Empires II's MegaRandom: every map rolls a different kind of
+   map first, then which other tilesets get the bigger share. Purple Crystal
+   ground, with Mars, Acid, Lava and Metal mixed in: a Crystal continent, a
+   sea of Crystal islands, open highlands, a Lava rift with its lava lake, a
+   Metal foundry with canals, or an Acid lake.
+   Each liquid sits inside its own tileset's ground: Acid Base-0 in Acid
+   Base-85, Lava Base-41 in Lava Base-86 and Metal Base-0 in Metal Base-85.
    Galaxy Editor random map script, in the syntax Age of Empires II uses.
    Terrain names are the Tile Brush bases, such as CRYSTAL_BASE-85, and one tile
-   is one square of the map's game size: 16 x 16 map tiles. */
+   is one square of the map's game size: 16 x 16 map tiles. Sizes from the
+   original are scaled down to match, since its tiles are far smaller. */
 
 <PLAYER_SETUP>
 random_placement
 
-<LAND_GENERATION>
-base_terrain CRYSTAL_BASE-0
+/* The kind of map. */
+start_random
+  percent_chance 18 #define CONTINENT
+  percent_chance 16 #define ISLANDS
+  percent_chance 16 #define HIGHLANDS
+  percent_chance 17 #define LAVA_RIFT
+  percent_chance 17 #define FOUNDRY
+  percent_chance 16 #define ACID_LAKE
+end_random
 
-/* An island for each player, kept two tiles from the others. */
-create_player_lands {
-  terrain_type CRYSTAL_BASE-85
-  land_percent 50
-  /* Small maps have room for smaller starting areas only. */
-  if TINY_MAP
-    base_size 1
-  else
+/* Which of the other tilesets gets the bigger patches. */
+start_random
+  percent_chance 25 #define MORE_MARS
+  percent_chance 25 #define MORE_ACID
+  percent_chance 25 #define MORE_LAVA
+  percent_chance 25 #define MORE_METAL
+end_random
+
+<LAND_GENERATION>
+
+if CONTINENT
+  /* One Crystal continent in the Crystal sea, every player on it. */
+  base_terrain CRYSTAL_BASE-0
+  create_player_lands {
+    terrain_type CRYSTAL_BASE-85
+    land_percent 62
+    if TINY_MAP
+      base_size 1
+    else
+      base_size 2
+    endif
+    left_border 9
+    right_border 9
+    top_border 9
+    bottom_border 9
+    border_fuzziness 30
+    zone 1
+    other_zone_avoidance_distance 2
+    clumping_factor 15
+  }
+elseif ISLANDS
+  /* An island for each player, with open sea between them. */
+  base_terrain CRYSTAL_BASE-0
+  create_player_lands {
+    terrain_type CRYSTAL_BASE-85
+    land_percent 45
+    if TINY_MAP
+      base_size 1
+    else
+      base_size 2
+    endif
+    left_border 7
+    right_border 7
+    top_border 7
+    bottom_border 7
+    border_fuzziness 40
+    other_zone_avoidance_distance 2
+  }
+elseif HIGHLANDS
+  /* Open Crystal land from edge to edge. */
+  base_terrain CRYSTAL_BASE-85
+  create_player_lands {
+    terrain_type CRYSTAL_BASE-85
+    land_percent 40
+    if TINY_MAP
+      base_size 1
+    else
+      base_size 2
+    endif
+    border_fuzziness 20
+  }
+elseif LAVA_RIFT
+  /* A Lava heart in the Crystal land, the players around it. */
+  base_terrain CRYSTAL_BASE-85
+  create_land {
+    terrain_type LAVA_BASE-86
+    land_percent 22
+    land_position 50 50
+    set_circular_base
+    if TINY_MAP
+      base_size 2
+    else
+      base_size 3
+    endif
+    border_fuzziness 10
+    clumping_factor 15
+    zone 20
+  }
+  create_player_lands {
+    terrain_type CRYSTAL_BASE-85
+    land_percent 35
     base_size 2
+    circle_radius 40 5
+    other_zone_avoidance_distance 2
+    border_fuzziness 20
+  }
+elseif FOUNDRY
+  /* A Metal foundry in the middle of the Crystal land. */
+  base_terrain CRYSTAL_BASE-85
+  create_land {
+    terrain_type METAL_BASE-85
+    land_percent 24
+    land_position 50 50
+    if TINY_MAP
+      base_size 2
+    else
+      base_size 3
+    endif
+    border_fuzziness 5
+    clumping_factor 20
+    zone 20
+  }
+  create_player_lands {
+    terrain_type CRYSTAL_BASE-85
+    land_percent 35
+    base_size 2
+    circle_radius 40 5
+    other_zone_avoidance_distance 2
+    border_fuzziness 20
+  }
+else
+  /* ACID_LAKE: Acid shores around the middle of the map, the lake cut in below. */
+  base_terrain CRYSTAL_BASE-85
+  create_land {
+    terrain_type ACID_BASE-85
+    land_percent 26
+    land_position 50 50
+    set_circular_base
+    if TINY_MAP
+      base_size 2
+    else
+      base_size 3
+    endif
+    border_fuzziness 10
+    clumping_factor 15
+    zone 20
+  }
+  create_player_lands {
+    terrain_type CRYSTAL_BASE-85
+    land_percent 35
+    base_size 2
+    circle_radius 40 5
+    other_zone_avoidance_distance 2
+    border_fuzziness 20
+  }
+endif
+
+<ELEVATION_GENERATION>
+/* Crystal's own hill stamps, more of them in the highlands. */
+create_elevation 5 {
+  base_terrain CRYSTAL_BASE-85
+  if HIGHLANDS
+    number_of_clumps 8
+  else
+    number_of_clumps 4
   endif
-  other_zone_avoidance_distance 2
-  border_fuzziness 30
-  clumping_factor 15
+  set_scale_by_groups
 }
 
 <TERRAIN_GENERATION>
-/* Frosted Ice slopes. */
-create_terrain ICE_BASE-85 {
+
+/* The layout's own liquids and high ground, inside its heart. */
+if LAVA_RIFT
+  create_terrain LAVA_BASE-41 {
+    base_terrain LAVA_BASE-86
+    land_percent 5
+    number_of_clumps 1
+    spacing_to_other_terrain_types 1
+  }
+  create_terrain LAVA_BASE-190 {
+    base_terrain LAVA_BASE-86
+    land_percent 1
+    number_of_clumps 2
+    spacing_to_other_terrain_types 1
+  }
+elseif FOUNDRY
+  /* Canals of Metal Base-0, and plateaus of Metal Base-139. */
+  create_terrain METAL_BASE-0 {
+    base_terrain METAL_BASE-85
+    land_percent 4
+    number_of_clumps 5
+    spacing_to_other_terrain_types 1
+  }
+  create_terrain METAL_BASE-139 {
+    base_terrain METAL_BASE-85
+    land_percent 2
+    number_of_clumps 2
+    spacing_to_other_terrain_types 1
+  }
+elseif ACID_LAKE
+  create_terrain ACID_BASE-0 {
+    base_terrain ACID_BASE-85
+    land_percent 10
+    number_of_clumps 1
+    spacing_to_other_terrain_types 1
+  }
+endif
+
+/* Patches of the other tilesets across the Crystal land. The one rolled for
+   the bigger share gets broad patches, the others small ones. */
+create_terrain MARS_BASE-85 {
   base_terrain CRYSTAL_BASE-85
-  land_percent 5
-  number_of_clumps 3
+  if MORE_MARS
+    land_percent 9
+    number_of_clumps 3
+  else
+    land_percent 4
+    number_of_clumps 2
+  endif
   spacing_to_other_terrain_types 1
   set_avoid_player_start_areas 1
 }
-
-/* Acid ground. */
 create_terrain ACID_BASE-85 {
   base_terrain CRYSTAL_BASE-85
-  land_percent 4
-  number_of_clumps 3
+  if MORE_ACID
+    land_percent 9
+    number_of_clumps 2
+  else
+    land_percent 5
+    number_of_clumps 1
+  endif
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+create_terrain LAVA_BASE-86 {
+  base_terrain CRYSTAL_BASE-85
+  if MORE_LAVA
+    land_percent 9
+    number_of_clumps 2
+  else
+    land_percent 5
+    number_of_clumps 1
+  endif
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+create_terrain METAL_BASE-85 {
+  base_terrain CRYSTAL_BASE-85
+  if MORE_METAL
+    land_percent 9
+    number_of_clumps 2
+  else
+    land_percent 5
+    number_of_clumps 1
+  endif
   spacing_to_other_terrain_types 1
   set_avoid_player_start_areas 1
 }
 
-/* The Tile Brush's own stamps for Crystal: hills, pools, islands and more.
-   Each fills a block of flat ground of the base it needs. */
+/* Their pools and rises, each inside its own ground. */
+create_terrain ACID_BASE-0 {
+  base_terrain ACID_BASE-85
+  land_percent 1
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+}
+create_terrain LAVA_BASE-41 {
+  base_terrain LAVA_BASE-86
+  land_percent 1
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+}
+create_terrain LAVA_BASE-190 {
+  base_terrain LAVA_BASE-86
+  land_percent 1
+  number_of_clumps 1
+  spacing_to_other_terrain_types 1
+}
+create_terrain METAL_BASE-0 {
+  base_terrain METAL_BASE-85
+  land_percent 1
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+}
+create_terrain METAL_BASE-139 {
+  base_terrain METAL_BASE-85
+  land_percent 1
+  number_of_clumps 1
+  spacing_to_other_terrain_types 1
+}
+
+/* Crystal's own stamps: craters, ponds, and reefs and islands out at sea. */
 create_terrain CRYSTAL_CRATER-85_8X8 {
   number_of_clumps 3
   set_scale_by_groups
   set_avoid_player_start_areas 1
 }
-
-create_terrain CRYSTAL_HILLS-85_16X16 {
-  number_of_clumps 2
-  set_scale_by_groups
-  set_avoid_player_start_areas 1
-}
-
 create_terrain CRYSTAL_POND-85 {
   number_of_clumps 2
   set_scale_by_groups
   set_avoid_player_start_areas 1
 }
+if CONTINENT
+  create_terrain CRYSTAL_REEF-85_16X16 {
+    number_of_clumps 3
+    set_scale_by_groups
+  }
+elseif ISLANDS
+  create_terrain CRYSTAL_ISLAND-85_16X16 {
+    number_of_clumps 3
+    set_scale_by_groups
+  }
+  create_terrain CRYSTAL_REEF-85_16X16 {
+    number_of_clumps 2
+    set_scale_by_groups
+  }
+endif
 
-create_terrain CRYSTAL_REEF-85_16X16 {
-  number_of_clumps 2
+/* Mars rough ground and hills on the Mars patches. */
+create_terrain MARS_ROUGH-85_16X16 {
+  number_of_clumps 1
   set_scale_by_groups
   set_avoid_player_start_areas 1
 }
 
 <CONNECTION_GENERATION>
-/* Land bridges between the players' islands. */
-create_connect_all_players_land {
-  replace_terrain CRYSTAL_BASE-0 CRYSTAL_BASE-85
-  terrain_size CRYSTAL_BASE-0 0 0
-}
+/* On the continent, a land bridge wherever the sea cuts players apart. The
+   island map is a naval one, so its islands stay apart. */
+if CONTINENT
+  create_connect_all_players_land {
+    replace_terrain CRYSTAL_BASE-0 CRYSTAL_BASE-85
+    terrain_size CRYSTAL_BASE-0 0 0
+  }
+endif
 
 <OBJECTS_GENERATION>
 /* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
-   square is 32 of them. Kinds such as TREES pick what suits the ground. */
+   square is 32 of them. Kinds such as ROCKS pick what suits the ground. */
 
-/* A start on each player's island. */
+/* A start for each player. */
 create_object START_POSITION {
   set_place_for_every_player
   max_distance_to_players 0
 }
 
-/* Metal near each start, and more out in the open. */
+/* Metal near each start, and more out on the land. */
 create_object METAL_NODES {
   number_of_objects 3
   set_place_for_every_player
   min_distance_to_players 10
-  max_distance_to_players 28
+  max_distance_to_players 26
   temp_min_distance_group_placement 6
 }
 create_object METAL_NODES {
   number_of_objects 2
   set_scaling_to_map_size
-  min_distance_to_players 40
-  temp_min_distance_group_placement 24
+  min_distance_to_players 36
+  temp_min_distance_group_placement 20
 }
 
 /* A geothermal vent near each start. */
@@ -922,20 +1183,44 @@ create_object GEO_VENTS {
   max_distance_to_players 32
 }
 
-/* Crystal spires. */
+/* Crystal groves, where the original has its forests. */
 create_object CRYSTAL_SPIRES {
+  number_of_objects 30
+  number_of_groups 0.3
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on CRYSTAL_BASE-85
+  min_distance_to_players 14
+  min_distance_group_placement 8
+}
+
+/* Lava spires and nodes on the Lava ground. */
+create_object LAVA_SPIRES {
+  number_of_objects 1
+  set_scaling_to_map_size
+  terrain_to_place_on LAVA_BASE-86
+}
+create_object LAVA_NODES {
+  number_of_objects 1
+  set_scaling_to_map_size
+  terrain_to_place_on LAVA_BASE-86
+}
+
+/* Plants on the Acid ground. */
+create_object PLANTS {
+  number_of_objects 2
+  set_scaling_to_map_size
+  terrain_to_place_on ACID_BASE-85
+}
+
+/* Rocks, which suit whatever ground they land on. */
+create_object ROCKS {
   number_of_objects 3
   number_of_groups 1
   group_placement_radius 3
   set_scaling_to_map_size
   min_distance_group_placement 12
   min_distance_to_players 12
-}
-
-/* Ice chunks on the slopes. */
-create_object ICECHUNKS {
-  number_of_objects 1
-  set_scaling_to_map_size
 }
 )"},
     {"Acid", "Toxic Delta", R"(/* ACID: Toxic Delta

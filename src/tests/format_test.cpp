@@ -6538,6 +6538,15 @@ void testStartsAndResources() {
         "rocks and trees are not");
     const RmsFeature hidden{"InvisMetal", "All Worlds", "Invisible Metal", 1, 1, 50, false};
     expect(featureIsDoodad(vent, DoodadKind::GeoVents) && doodadLand(vent, DoodadKind::GeoVents) == "Lava", "a lava vent is a GEO_VENT for lava");
+    {
+        RmsFeature desertVent{"DesertVent03", "Desert", "steamvents", 1, 1};
+        desertVent.geothermal = true;
+        RmsFeature deathValleyVent{"DVVent01", "deathvalley", "DeathValley", 1, 1};
+        deathValleyVent.geothermal = true;
+        expect(featureIsDoodad(desertVent, DoodadKind::GeoVents) && doodadLand(desertVent, DoodadKind::GeoVents) == "Desert",
+            "Desert's steamvents are its GEO_VENTS");
+        expect(!featureIsDoodad(deathValleyVent, DoodadKind::GeoVents), "the Death Valley vents are never put on Desert ground");
+    }
     expect(featureIsDoodad(ore, DoodadKind::MetalNodes) && !featureIsDoodad(ore, DoodadKind::Rocks), "ore is a METAL_NODE, not a rock");
     expect(!featureIsDoodad(hidden, DoodadKind::MetalNodes), "invisible metal is not a metal node");
     expect(featureIsDoodad({"RockMetal1", "greenworld", "rocks", 3, 3, 127, false}, DoodadKind::MetalNodes)

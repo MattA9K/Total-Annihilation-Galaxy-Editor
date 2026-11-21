@@ -2345,7 +2345,15 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
         return true;
     }
     case DoodadKind::GeoVents:
-        return feature.geothermal;
+        if (!feature.geothermal) {
+            return false;
+        }
+        // Desert ground takes only Desert's own steamvents. The Death Valley vents, DVVent01
+        // to 03, are bright orange-red for that third-party tileset and look wrong on Desert.
+        if (doodadLand(feature, kind) == "Desert") {
+            return world == "desert" && category == "steamvents";
+        }
+        return true;
     }
     return false;
 }
