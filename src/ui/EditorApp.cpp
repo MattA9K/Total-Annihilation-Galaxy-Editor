@@ -42,6 +42,7 @@
 #include <exception>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <random>
 #include <string>
@@ -9322,26 +9323,56 @@ void EditorApp::autoMetal() {
         autoMetalAlert_ = text(Text::AutoMetalNone);
         return;
     }
-    std::vector<FeaturePlacement> placements;
-    placements.reserve(cells.size());
-    for (const auto& [x, y] : cells) {
-        placements.push_back(FeaturePlacement{x, y, kAutoMetalFeature});
+    // Each zone moves down by its lift, so that raised as the game draws it, it covers
+    // its block's tiles. Zones an earlier Auto Metal left on the block's corner cell
+    // move with it.
+    const int cellsHigh = map.tileHeight * 2;
+    std::set<std::pair<int, int>> corners(cells.begin(), cells.end());
+    std::vector<FeaturePlacement> next;
+    next.reserve(map.features.size() + cells.size());
+    std::map<std::pair<int, int>, std::string> taken;
+    for (const FeaturePlacement& feature : map.features) {
+        if (lowerText(feature.name) == lowerText(kAutoMetalFeature) && corners.count({feature.x, feature.y}) != 0) {
+            continue;
+        }
+        next.push_back(feature);
+        taken[{feature.x, feature.y}] = feature.name;
     }
     int placed = 0;
     int blocked = 0;
-    FeatureBatchChange change = addMapFeatures(*map_, placements, &placed, &blocked);
+    int moved = 0;
+    for (const auto& [x, y] : cells) {
+        const int drop = autoMetalDrop(x, y, cellsHigh, [&](int cellX, int cellY) { return featureLift(map, cellX, cellY); });
+        const std::pair<int, int> spot{x, y + drop};
+        if (const auto found = taken.find(spot); found != taken.end()) {
+            blocked += lowerText(found->second) == lowerText(kAutoMetalFeature) ? 0 : 1;
+            continue;
+        }
+        next.push_back(FeaturePlacement{spot.first, spot.second, kAutoMetalFeature});
+        taken[spot] = kAutoMetalFeature;
+        const bool wasHere = std::any_of(map.features.begin(), map.features.end(), [&](const FeaturePlacement& feature) {
+            return feature.x == x && feature.y == y && lowerText(feature.name) == lowerText(kAutoMetalFeature);
+        });
+        if (!wasHere) {
+            ++placed;
+        } else if (drop > 0) {
+            ++moved;
+        }
+    }
     const std::string inTheWay = blocked > 0
         ? ", " + std::to_string(blocked) + (blocked == 1 ? " block has" : " blocks have") + " another feature in its corner cell"
         : std::string();
-    if (placed == 0) {
+    if (placed == 0 && moved == 0) {
         statusNote_ = "Every Metal block already has " + std::string(kAutoMetalFeature) + inTheWay;
         return;
     }
+    FeatureBatchChange change = replaceMapFeatures(*map_, next);
     EditorCommand command;
     command.featureBatch = std::move(change);
     pushCommand(std::move(command), true);
     selectedFeatures_.clear();
-    statusNote_ = "Auto Metal placed " + std::to_string(placed) + " " + kAutoMetalFeature + inTheWay;
+    statusNote_ = "Auto Metal placed " + std::to_string(placed) + " " + kAutoMetalFeature
+        + (moved > 0 ? " and moved " + std::to_string(moved) + " onto the tile grid" : std::string()) + inTheWay;
 }
 
 bool EditorApp::stampBaseOf(const std::string& button, std::string& world, std::string& base) const {

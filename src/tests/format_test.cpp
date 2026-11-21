@@ -6798,6 +6798,16 @@ void testAutoMetal() {
     int again = 0;
     addMapFeatures(map, {{0, 0, kAutoMetalFeature}}, &again, &blocked);
     expect(again == 0 && blocked == 0, "running it twice adds nothing and is not blocked by its own metal");
+    // On raised ground a zone moves down by half the height, in whole cells, so that drawn
+    // raised as the game draws it, it sits on its block's tiles.
+    const auto flat = [](int, int) { return 0; };
+    const auto raised = [](int, int) { return 42; };  // ground at 85: lifted 42 pixels
+    expect(autoMetalDrop(0, 16, 64, flat) == 0, "on flat ground a zone stays on its block");
+    expect(autoMetalDrop(0, 16, 64, raised) == 3, "ground at 85 moves a zone down three cells: " + std::to_string(autoMetalDrop(0, 16, 64, raised)));
+    expect(autoMetalDrop(0, 62, 64, raised) == 1, "a zone moved down stays on the map");
+    // The lift where the zone ends up counts: here the ground rises from row 18.
+    const auto step = [](int, int y) { return y >= 18 ? 64 : 32; };
+    expect(autoMetalDrop(0, 16, 64, step) == 4, "the lift is read where the zone lands");
     revertFeatureBatch(map, change);
     expect(map.features.size() == 1 && map.features[0].name == "Rock", "undo takes the metal back off");
 }

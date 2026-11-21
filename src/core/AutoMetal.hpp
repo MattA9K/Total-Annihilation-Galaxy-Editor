@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 #include <vector>
@@ -31,6 +32,24 @@ inline std::vector<std::pair<int, int>> autoMetalCells(int tileWidth, int tileHe
         }
     }
     return cells;
+}
+
+// The game draws a feature half its ground height higher on screen than its cells,
+// and a metal extractor goes where the metal shows. So a zone for the block at
+// feature cell x, y moves down by its lift, in whole cells, to sit on the block's
+// tiles on screen. lift gives the lift in pixels at a cell, and the zone stays on
+// a map cellsHigh feature cells tall.
+inline int autoMetalDrop(int x, int y, int cellsHigh, const std::function<int(int cellX, int cellY)>& lift) {
+    int drop = 0;
+    // The lift is read where the zone ends up, which a few rounds settle.
+    for (int round = 0; round < 4; ++round) {
+        const int next = std::clamp((lift(x, y + drop) + 8) / 16, 0, std::max(0, cellsHigh - 1 - y));
+        if (next == drop) {
+            break;
+        }
+        drop = next;
+    }
+    return drop;
 }
 
 }  // namespace galaxy
