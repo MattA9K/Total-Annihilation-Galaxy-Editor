@@ -145,6 +145,47 @@ std::vector<std::uint8_t> buildSectionMinimap(const SectionStamp& section) {
     return minimap;
 }
 
+SectionStamp cropSectionStamp(const SectionStamp& section, int x, int y, int width, int height) {
+    const int x0 = std::clamp(x, 0, std::max(0, section.tileWidth));
+    const int y0 = std::clamp(y, 0, std::max(0, section.tileHeight));
+    const int x1 = std::clamp(x + width, x0, std::max(0, section.tileWidth));
+    const int y1 = std::clamp(y + height, y0, std::max(0, section.tileHeight));
+    SectionStamp crop;
+    crop.version = section.version;
+    crop.heightsOnly = section.heightsOnly;
+    crop.tileWidth = x1 - x0;
+    crop.tileHeight = y1 - y0;
+    std::unordered_map<std::uint32_t, std::uint32_t> kept;
+    for (int ty = y0; ty < y1; ++ty) {
+        for (int tx = x0; tx < x1; ++tx) {
+            const std::size_t cell = static_cast<std::size_t>(ty) * static_cast<std::size_t>(section.tileWidth) + static_cast<std::size_t>(tx);
+            const std::uint32_t index = cell < section.indices.size() ? section.indices[cell] : 0;
+            auto found = kept.find(index);
+            if (found == kept.end()) {
+                found = kept.emplace(index, static_cast<std::uint32_t>(kept.size())).first;
+                const std::size_t bytes = static_cast<std::size_t>(index) * 1024;
+                if (!section.heightsOnly && bytes + 1024 <= section.tileImages.size()) {
+                    crop.tileImages.insert(crop.tileImages.end(), section.tileImages.begin() + static_cast<std::ptrdiff_t>(bytes),
+                        section.tileImages.begin() + static_cast<std::ptrdiff_t>(bytes + 1024));
+                } else if (!section.heightsOnly) {
+                    crop.tileImages.insert(crop.tileImages.end(), 1024, 0);
+                }
+            }
+            crop.indices.push_back(found->second);
+        }
+    }
+    crop.tileCount = static_cast<int>(kept.size());
+    // Two heights a tile each way.
+    const int heightWidth = section.tileWidth * 2;
+    for (int hy = y0 * 2; hy < y1 * 2; ++hy) {
+        for (int hx = x0 * 2; hx < x1 * 2; ++hx) {
+            const std::size_t index = static_cast<std::size_t>(hy) * static_cast<std::size_t>(heightWidth) + static_cast<std::size_t>(hx);
+            crop.heights.push_back(index < section.heights.size() ? section.heights[index] : 0);
+        }
+    }
+    return crop;
+}
+
 std::vector<std::uint8_t> writeSectionStamp(const SectionStamp& section) {
     require(!section.heightsOnly, "A section needs its tile pictures");
     require(section.tileWidth > 0 && section.tileHeight > 0 && section.tileWidth <= 512 && section.tileHeight <= 512,

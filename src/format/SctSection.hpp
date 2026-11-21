@@ -74,6 +74,10 @@ SectionStamp loadSectionStamp(const std::vector<std::uint8_t>& bytes);
 // Pixels outside it are palette index 0.
 std::vector<std::uint8_t> buildSectionMinimap(const SectionStamp& section);
 
+// The tiles and heights of a rectangle inside a section, x and y and the size in tiles. The
+// rectangle is clipped to the section, and only the tile pictures it uses are kept.
+SectionStamp cropSectionStamp(const SectionStamp& section, int x, int y, int width, int height);
+
 // Encodes a section as a version 3 .sct file that loadSectionStamp reads back.
 // The stamp needs its tile pictures, so a heights-only copy is refused. A tile
 // mask is not stored: every tile in the rectangle is written. The minimap is

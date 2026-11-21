@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -123,6 +124,30 @@ namespace galaxy {
 // Lava, Acid and Metal share a cell the same way, and every name has Acid and Metal in it.
 // Lava, Crystal and Metal share a cell the same way, and every name has Crystal and Metal in it.
 inline constexpr int kBrushCellTiles = 16;
+// The 4 x 4 and 8 x 8 brushes lay their corners every 8 tiles and use 8 x 8 tile pieces, so a
+// coast or blend can turn twice as often. Those pieces are halved copies of the 16 x 16 ones,
+// filed in folders named like theirs with -8x8 on the end, such as CoastTiles-8x8. Cliffs, coastal
+// cliffs, slopes, ridges and rivers have no 8 x 8 pieces, so those strokes stay 16 x 16.
+inline constexpr int kFineCellTiles = 8;
+
+// The tile size of the pieces in a section folder, and the folder's name without the -8x8
+// ending: CoastTiles-8x8 holds 8 x 8 pieces of the CoastTiles kind, and CoastTiles holds 16 x 16.
+inline int brushPieceFolderTiles(std::string_view folder, std::string& kind) {
+    constexpr std::string_view ending = "-8x8";
+    if (folder.size() > ending.size()) {
+        const std::string_view tail = folder.substr(folder.size() - ending.size());
+        bool same = true;
+        for (std::size_t i = 0; i < ending.size() && same; ++i) {
+            same = std::tolower(static_cast<unsigned char>(tail[i])) == ending[i];
+        }
+        if (same) {
+            kind = std::string(folder.substr(0, folder.size() - ending.size()));
+            return kFineCellTiles;
+        }
+    }
+    kind = std::string(folder);
+    return kBrushCellTiles;
+}
 
 // Corner bits of a cell mask.
 inline constexpr int kCornerTopLeft = 1;
@@ -3263,6 +3288,9 @@ struct BrushCell {
     int mask = 0;
     // The level at each corner: top left, top right, bottom left, bottom right.
     std::array<int, 4> corners = {0, 0, 0, 0};
+    // A cell whose corners did not change, redrawn only so its band matches the size of the
+    // pieces beside it. It is left as it is when the tileset has no piece for it.
+    bool matched = false;
 };
 
 struct BrushPlan {
@@ -3273,17 +3301,17 @@ struct BrushPlan {
     std::vector<BrushCell> cells;
 };
 
-// The 8 x 8 brush paints the point where four 16 x 16 cells meet. The cursor
-// snaps to the nearest such point, and a map large enough to have one keeps the
-// snap off the outer edge so four cells always share it. nodeX and nodeY are
-// that point, in the same coordinates planBrush uses.
-inline bool brushCornerNode(int tileX, int tileY, int cellsX, int cellsY, int& nodeX, int& nodeY) {
-    if (tileX < 0 || tileY < 0 || cellsX < 0 || cellsY < 0) {
+// A brush smaller than a cell, 4 x 4 on the 8 tile cells, paints the point where four cells
+// meet. The cursor snaps to the nearest such point, and a map large enough to have one keeps
+// the snap off the outer edge so four cells always share it. nodeX and nodeY are that point, in
+// the same coordinates planBrush uses. cellTiles is the cell size: 16, or 8 for the fine brushes.
+inline bool brushCornerNode(int tileX, int tileY, int cellsX, int cellsY, int& nodeX, int& nodeY, int cellTiles = kBrushCellTiles) {
+    if (tileX < 0 || tileY < 0 || cellsX < 0 || cellsY < 0 || cellTiles <= 0) {
         return false;
     }
-    const int half = kBrushCellTiles / 2;
-    nodeX = (tileX + half) / kBrushCellTiles;
-    nodeY = (tileY + half) / kBrushCellTiles;
+    const int half = cellTiles / 2;
+    nodeX = (tileX + half) / cellTiles;
+    nodeY = (tileY + half) / cellTiles;
     if (cellsX > 1) {
         nodeX = std::clamp(nodeX, 1, cellsX - 1);
     }
@@ -3293,20 +3321,21 @@ inline bool brushCornerNode(int tileX, int tileY, int cellsX, int cellsY, int& n
     return nodeX >= 0 && nodeY >= 0 && nodeX <= cellsX && nodeY <= cellsY;
 }
 
-// Top-left cell of a square brush centered on the pointer. 16 x 16 is the cell
-// under the pointer. 32, 64, 128, 256 and 512 cover an even number of cells, so
-// the center is the nearest point where four cells meet and the block reaches
-// the same distance on every side of that point.
-inline void brushBlockOrigin(int tileX, int tileY, int brushTiles, int cellsX, int cellsY, int& originX, int& originY) {
-    const int blockCells = std::max(1, brushTiles / kBrushCellTiles);
+// Top-left cell of a square brush centered on the pointer. A brush one cell wide, 16 x 16 on
+// the 16 tile cells or 8 x 8 on the 8 tile cells, is the cell under the pointer. Larger brushes
+// cover an even number of cells, so the center is the nearest point where four cells meet and
+// the block reaches the same distance on every side of that point.
+inline void brushBlockOrigin(int tileX, int tileY, int brushTiles, int cellsX, int cellsY, int& originX, int& originY, int cellTiles = kBrushCellTiles) {
+    cellTiles = std::max(1, cellTiles);
+    const int blockCells = std::max(1, brushTiles / cellTiles);
     if (blockCells <= 1) {
-        originX = tileX / kBrushCellTiles;
-        originY = tileY / kBrushCellTiles;
+        originX = tileX / cellTiles;
+        originY = tileY / cellTiles;
         return;
     }
-    const int half = kBrushCellTiles / 2;
-    int nodeX = (tileX + half) / kBrushCellTiles;
-    int nodeY = (tileY + half) / kBrushCellTiles;
+    const int half = cellTiles / 2;
+    int nodeX = (tileX + half) / cellTiles;
+    int nodeY = (tileY + half) / cellTiles;
     if (cellsX >= 0) {
         nodeX = std::clamp(nodeX, 0, cellsX);
     }
@@ -3750,6 +3779,434 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
         plan.cells.push_back(cell);
     }
     return plan;
+}
+
+// True for a paint that meets a lower paint through cliff pieces, such as GreenWorld's Base-219
+// or Lava's Base-190: a cliff top.
+inline bool brushCliffLevel(const BrushGraph& graph, int level) {
+    for (int other = 0; other < level && other < graph.size(); ++other) {
+        const TransitionStyle style = graph.style(other, level);
+        if (style == TransitionStyle::Cliff || style == TransitionStyle::CoastalCliffDeep || style == TransitionStyle::CoastalCliffShallow) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Reads corners on the 8 tile grid. A corner between the corners of the 16 tile grid lies inside a
+// 16 x 16 cell, and cliffs only come in 16 x 16 pieces, so it is only a cliff top when a 16 tile
+// corner around it is one. Otherwise it is the raised rim of a coast, whose grass Base-85 and
+// Base-219 share, and it is read as the highest other land around it.
+inline BrushNodeReader fineNodeReader(const BrushGraph& graph, BrushNodeReader read) {
+    return [&graph, read](int x, int y) {
+        const int level = read(x, y);
+        if ((x % 2 == 0 && y % 2 == 0) || !brushCliffLevel(graph, level)) {
+            return level;
+        }
+        int land = -1;
+        for (const int cy : {y - y % 2, y + y % 2}) {
+            for (const int cx : {x - x % 2, x + x % 2}) {
+                const int around = read(cx, cy);
+                if (around == level) {
+                    return level;
+                }
+                if (!brushCliffLevel(graph, around)) {
+                    land = std::max(land, around);
+                }
+            }
+        }
+        return land >= 0 ? land : level;
+    };
+}
+
+// An 8 tile stroke redraws whole 16 x 16 transition cells. Where a stroke on the 8 tile cells
+// changes a cell that lies in a 16 x 16 cell whose corners on the 16 tile grid differ, that 16 x 16
+// cell holds a 16 x 16 piece, and the rest of it is redrawn too, as 8 x 8 pieces on the corners
+// read from the map. Otherwise the part of the old piece left beside the new ones would end its
+// band, such as a coast's shallows, in a straight line. blockX, blockY and blockCells are the
+// painted block, which the stroke fills itself; blockCells is 0 for a corner stroke. Corners run
+// on the 8 tile grid, as in planBrush.
+inline void redrawWholeCoarseCells(BrushPlan& plan, int cellsX, int cellsY, int blockX, int blockY, int blockCells, const BrushNodeReader& readNode) {
+    if (!readNode || cellsX <= 0 || cellsY <= 0) {
+        return;
+    }
+    const auto keyOf = [&](int x, int y) {
+        return static_cast<long long>(y) * (cellsX + 1) + x;
+    };
+    std::unordered_map<long long, int> after;
+    for (const BrushNode& node : plan.nodes) {
+        after[keyOf(node.x, node.y)] = node.level;
+    }
+    std::unordered_map<long long, int> before;
+    const auto levelBefore = [&](int x, int y) {
+        x = std::clamp(x, 0, cellsX);
+        y = std::clamp(y, 0, cellsY);
+        const long long key = keyOf(x, y);
+        const auto found = before.find(key);
+        if (found != before.end()) {
+            return found->second;
+        }
+        const int level = readNode(x, y);
+        before.emplace(key, level);
+        return level;
+    };
+    const auto levelAfter = [&](int x, int y) {
+        x = std::clamp(x, 0, cellsX);
+        y = std::clamp(y, 0, cellsY);
+        const auto found = after.find(keyOf(x, y));
+        return found != after.end() ? found->second : levelBefore(x, y);
+    };
+    const auto inBlock = [&](int cx, int cy) {
+        return blockCells > 0 && cx >= blockX && cx < blockX + blockCells && cy >= blockY && cy < blockY + blockCells;
+    };
+    std::unordered_map<long long, bool> planned;
+    std::vector<std::pair<int, int>> touched;
+    for (const BrushCell& cell : plan.cells) {
+        planned[keyOf(cell.x, cell.y)] = true;
+        touched.emplace_back(cell.x, cell.y);
+    }
+    for (int cy = blockY; blockCells > 0 && cy < blockY + blockCells; ++cy) {
+        for (int cx = blockX; cx < blockX + blockCells; ++cx) {
+            touched.emplace_back(cx, cy);
+        }
+    }
+    std::unordered_map<long long, bool> parents;
+    for (const auto& [cx, cy] : touched) {
+        const int px = (cx >= 0 ? cx : cx - 1) / 2;
+        const int py = (cy >= 0 ? cy : cy - 1) / 2;
+        if (!parents.emplace(keyOf(px, py), true).second) {
+            continue;
+        }
+        // The 16 x 16 cell's own corners, two 8 tile cells apart, before the stroke.
+        const int a = levelBefore(px * 2, py * 2);
+        const int b = levelBefore(px * 2 + 2, py * 2);
+        const int c = levelBefore(px * 2, py * 2 + 2);
+        const int d = levelBefore(px * 2 + 2, py * 2 + 2);
+        if (a == b && a == c && a == d) {
+            continue;
+        }
+        for (int sy = py * 2; sy < py * 2 + 2; ++sy) {
+            for (int sx = px * 2; sx < px * 2 + 2; ++sx) {
+                if (sx < 0 || sy < 0 || sx >= cellsX || sy >= cellsY || inBlock(sx, sy) || planned.count(keyOf(sx, sy)) != 0) {
+                    continue;
+                }
+                BrushCell cell;
+                cell.x = sx;
+                cell.y = sy;
+                cell.corners = {levelAfter(sx, sy), levelAfter(sx + 1, sy), levelAfter(sx, sy + 1), levelAfter(sx + 1, sy + 1)};
+                cell.level = *std::min_element(cell.corners.begin(), cell.corners.end());
+                cell.upper = *std::max_element(cell.corners.begin(), cell.corners.end());
+                cell.mask = 0;
+                if (cell.upper > cell.level) {
+                    for (int corner = 0; corner < 4; ++corner) {
+                        cell.mask |= cell.corners[static_cast<std::size_t>(corner)] == cell.upper ? (1 << corner) : 0;
+                    }
+                }
+                planned[keyOf(sx, sy)] = true;
+                plan.cells.push_back(cell);
+            }
+        }
+    }
+}
+
+// Which sizes of brush piece a 16 x 16 cell holds: kCoarseBand for a 16 x 16 piece's band,
+// kFineBand for an 8 x 8 piece's, kFixedPiece for a piece that only comes in 16 x 16, any of them,
+// or 0 for flat ground.
+inline constexpr int kCoarseBand = 1;
+inline constexpr int kFineBand = 2;
+// A piece that only comes in 16 x 16, such as a cliff or a river. An 8 x 8 stroke stays off it.
+inline constexpr int kFixedPiece = 4;
+using BrushPieceSizes = std::function<int(int cellX, int cellY)>;
+
+// Keeps every coast, shallows and blend band one size along its whole length. A band that changes
+// size at a cell edge jumps there, because a 16 x 16 piece's band crosses a cell side at its middle
+// and an 8 x 8 piece's a quarter of the way along, and that jump is a hard crease.
+//
+// After a stroke on the 8 tile cells, the 16 x 16 cells it touches are followed along every band
+// that crosses their sides. Each 16 x 16 cell that a band runs into and that holds a 16 x 16 piece
+// is redrawn as four 8 x 8 cells on the corners read from the map, and its bands are followed in
+// turn. The walk stops at flat ground, at 8 x 8 pieces, and at cells the brush did not lay, such as
+// cliffs or a map's own coast. A touched 16 x 16 cell that holds a 16 x 16 piece is redrawn whole,
+// so no part of that piece is left beside the new ones. Corners run on the 8 tile grid, as in
+// planBrush, and pieceSizes takes 16 x 16 cells. Returns how many 16 x 16 cells were redrawn beyond
+// the stroke's own cells. At most limit cells are followed.
+inline int matchBandSizes(BrushPlan& plan, int cellsX, int cellsY, int blockX, int blockY, int blockCells, const BrushNodeReader& readNode,
+                          const BrushPieceSizes& pieceSizes, int limit = 4096) {
+    if (!readNode || !pieceSizes || cellsX <= 0 || cellsY <= 0) {
+        return 0;
+    }
+    const auto keyOf = [&](int x, int y) {
+        return static_cast<long long>(y) * (cellsX + 2) + x;
+    };
+    std::unordered_map<long long, int> after;
+    for (const BrushNode& node : plan.nodes) {
+        after[keyOf(node.x, node.y)] = node.level;
+    }
+    std::unordered_map<long long, int> before;
+    const auto levelAfter = [&](int x, int y) {
+        x = std::clamp(x, 0, cellsX);
+        y = std::clamp(y, 0, cellsY);
+        const long long key = keyOf(x, y);
+        if (const auto found = after.find(key); found != after.end()) {
+            return found->second;
+        }
+        if (const auto found = before.find(key); found != before.end()) {
+            return found->second;
+        }
+        const int level = readNode(x, y);
+        before.emplace(key, level);
+        return level;
+    };
+    const int parentsX = (cellsX + 1) / 2;
+    const int parentsY = (cellsY + 1) / 2;
+    std::unordered_map<long long, int> sizes;
+    const auto sizesOf = [&](int px, int py) {
+        const long long key = keyOf(px, py);
+        if (const auto found = sizes.find(key); found != sizes.end()) {
+            return found->second;
+        }
+        const int value = pieceSizes(px, py);
+        sizes.emplace(key, value);
+        return value;
+    };
+    const auto inBlock = [&](int cx, int cy) {
+        return blockCells > 0 && cx >= blockX && cx < blockX + blockCells && cy >= blockY && cy < blockY + blockCells;
+    };
+    std::unordered_map<long long, bool> planned;
+    std::vector<std::pair<int, int>> touched;
+    for (const BrushCell& cell : plan.cells) {
+        planned[keyOf(cell.x, cell.y)] = true;
+        touched.emplace_back(cell.x, cell.y);
+    }
+    for (int cy = blockY; blockCells > 0 && cy < blockY + blockCells; ++cy) {
+        for (int cx = blockX; cx < blockX + blockCells; ++cx) {
+            if (cx >= 0 && cy >= 0 && cx < cellsX && cy < cellsY) {
+                touched.emplace_back(cx, cy);
+            }
+        }
+    }
+    // Redraws the 8 x 8 cells of one 16 x 16 cell that the stroke left alone.
+    const auto redraw = [&](int px, int py) {
+        for (int sy = py * 2; sy < py * 2 + 2; ++sy) {
+            for (int sx = px * 2; sx < px * 2 + 2; ++sx) {
+                if (sx >= cellsX || sy >= cellsY || inBlock(sx, sy) || planned.count(keyOf(sx, sy)) != 0) {
+                    continue;
+                }
+                BrushCell cell;
+                cell.x = sx;
+                cell.y = sy;
+                cell.corners = {levelAfter(sx, sy), levelAfter(sx + 1, sy), levelAfter(sx, sy + 1), levelAfter(sx + 1, sy + 1)};
+                cell.level = *std::min_element(cell.corners.begin(), cell.corners.end());
+                cell.upper = *std::max_element(cell.corners.begin(), cell.corners.end());
+                for (int corner = 0; corner < 4 && cell.upper > cell.level; ++corner) {
+                    cell.mask |= cell.corners[static_cast<std::size_t>(corner)] == cell.upper ? (1 << corner) : 0;
+                }
+                cell.matched = true;
+                planned[keyOf(sx, sy)] = true;
+                plan.cells.push_back(cell);
+            }
+        }
+    };
+    std::unordered_map<long long, bool> visited;
+    std::vector<std::pair<int, int>> queue;
+    for (const auto& [cx, cy] : touched) {
+        const int px = cx / 2;
+        const int py = cy / 2;
+        if (visited.emplace(keyOf(px, py), true).second) {
+            queue.emplace_back(px, py);
+            if ((sizesOf(px, py) & kCoarseBand) != 0) {
+                redraw(px, py);
+            }
+        }
+    }
+    int converted = 0;
+    for (std::size_t next = 0; next < queue.size(); ++next) {
+        const auto [px, py] = queue[next];
+        // The three corners along each side: a band crosses that side when they differ.
+        constexpr int kSides[4][4] = {{0, 0, 1, 0}, {0, 2, 1, 0}, {0, 0, 0, 1}, {2, 0, 0, 1}};  // start x, start y, step x, step y
+        constexpr int kAcross[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+        for (int side = 0; side < 4; ++side) {
+            const int x0 = px * 2 + kSides[side][0];
+            const int y0 = py * 2 + kSides[side][1];
+            const int a = levelAfter(x0, y0);
+            const int b = levelAfter(x0 + kSides[side][2], y0 + kSides[side][3]);
+            const int c = levelAfter(x0 + 2 * kSides[side][2], y0 + 2 * kSides[side][3]);
+            if (a == b && b == c) {
+                continue;
+            }
+            const int qx = px + kAcross[side][0];
+            const int qy = py + kAcross[side][1];
+            if (qx < 0 || qy < 0 || qx >= parentsX || qy >= parentsY || visited.count(keyOf(qx, qy)) != 0) {
+                continue;
+            }
+            visited.emplace(keyOf(qx, qy), true);
+            if ((sizesOf(qx, qy) & kCoarseBand) == 0 || converted >= limit) {
+                continue;
+            }
+            redraw(qx, qy);
+            ++converted;
+            queue.emplace_back(qx, qy);
+        }
+    }
+    return converted;
+}
+
+// Reads corners on the 8 tile grid inside 16 x 16 pieces. A 16 x 16 piece only joins the lands at its
+// own four corners, so a point between them is one of those lands: the pale water by a 16 x 16
+// shore stands at shallow height, but it is the coast's water or land, not Base-68. A point on a
+// side is one of that side's two corners, and the middle one of the four, chosen so no quarter of
+// the cell has the same land on opposite corners, which no piece draws. A point beside an 8 x 8
+// piece keeps its own reading, since that piece was drawn on it. levelHeights gives each level's
+// height, for the nearest land when the reading is none of them; pieceSizes takes 16 x 16 cells.
+inline BrushNodeReader coarseInteriorReader(const std::vector<int>& levelHeights, BrushNodeReader read, BrushPieceSizes pieceSizes) {
+    struct Caches {
+        std::unordered_map<long long, int> raw;
+        std::unordered_map<long long, int> sizes;
+        std::unordered_map<long long, int> settled;
+    };
+    auto caches = std::make_shared<Caches>();
+    const auto keyOf = [](int x, int y) {
+        return (static_cast<long long>(y) << 32) ^ static_cast<long long>(static_cast<unsigned int>(x));
+    };
+    const auto rawAt = [caches, read, keyOf](int x, int y) {
+        const long long key = keyOf(x, y);
+        if (const auto found = caches->raw.find(key); found != caches->raw.end()) {
+            return found->second;
+        }
+        const int level = read(x, y);
+        caches->raw.emplace(key, level);
+        return level;
+    };
+    const auto sizesAt = [caches, pieceSizes, keyOf](int px, int py) {
+        if (px < 0 || py < 0) {
+            return 0;
+        }
+        const long long key = keyOf(px, py);
+        if (const auto found = caches->sizes.find(key); found != caches->sizes.end()) {
+            return found->second;
+        }
+        const int value = pieceSizes(px, py);
+        caches->sizes.emplace(key, value);
+        return value;
+    };
+    const auto coarseOnly = [sizesAt](int px, int py) {
+        const int sizes = sizesAt(px, py);
+        return (sizes & kCoarseBand) != 0 && (sizes & kFineBand) == 0;
+    };
+    const auto heightOf = [levelHeights](int level) {
+        return level >= 0 && static_cast<std::size_t>(level) < levelHeights.size() ? levelHeights[static_cast<std::size_t>(level)] : 0;
+    };
+    // The reading, or the land among allowed nearest to it in height.
+    const auto within = [heightOf](int reading, const std::vector<int>& allowed) {
+        if (allowed.empty() || std::find(allowed.begin(), allowed.end(), reading) != allowed.end()) {
+            return reading;
+        }
+        int best = allowed.front();
+        for (const int level : allowed) {
+            if (std::abs(heightOf(level) - heightOf(reading)) < std::abs(heightOf(best) - heightOf(reading))) {
+                best = level;
+            }
+        }
+        return best;
+    };
+    // A point on a side of the 16 tile grid, between corners (ax, ay) and (bx, by), with the 16 x 16
+    // cells on either side of that side at (p1x, p1y) and (p2x, p2y).
+    const auto sidePoint = [rawAt, sizesAt, coarseOnly, within](int x, int y, int ax, int ay, int bx, int by, int p1x, int p1y, int p2x, int p2y) {
+        const int reading = rawAt(x, y);
+        const bool besideFine = (sizesAt(p1x, p1y) & kFineBand) != 0 || (sizesAt(p2x, p2y) & kFineBand) != 0;
+        if (besideFine || (!coarseOnly(p1x, p1y) && !coarseOnly(p2x, p2y))) {
+            return reading;
+        }
+        return within(reading, {rawAt(ax, ay), rawAt(bx, by)});
+    };
+    return [rawAt, coarseOnly, within, sidePoint, heightOf, caches, keyOf](int x, int y) {
+        if (x % 2 == 0 && y % 2 == 0) {
+            return rawAt(x, y);
+        }
+        const long long key = keyOf(x, y);
+        if (const auto found = caches->settled.find(key); found != caches->settled.end()) {
+            return found->second;
+        }
+        int level = 0;
+        if (y % 2 == 0) {
+            // On a side running across, between the cells above and below.
+            level = sidePoint(x, y, x - 1, y, x + 1, y, x / 2, y / 2 - 1, x / 2, y / 2);
+        } else if (x % 2 == 0) {
+            level = sidePoint(x, y, x, y - 1, x, y + 1, x / 2 - 1, y / 2, x / 2, y / 2);
+        } else {
+            // The middle of a 16 x 16 cell.
+            const int reading = rawAt(x, y);
+            const int px = x / 2;
+            const int py = y / 2;
+            if (!coarseOnly(px, py)) {
+                level = reading;
+            } else {
+                const int a = rawAt(x - 1, y - 1);
+                const int b = rawAt(x + 1, y - 1);
+                const int c = rawAt(x - 1, y + 1);
+                const int d = rawAt(x + 1, y + 1);
+                const int top = sidePoint(x, y - 1, x - 1, y - 1, x + 1, y - 1, px, py - 1, px, py);
+                const int bottom = sidePoint(x, y + 1, x - 1, y + 1, x + 1, y + 1, px, py, px, py + 1);
+                const int left = sidePoint(x - 1, y, x - 1, y - 1, x - 1, y + 1, px - 1, py, px, py);
+                const int right = sidePoint(x + 1, y, x + 1, y - 1, x + 1, y + 1, px, py, px + 1, py);
+                // Opposite corners of a quarter on one land and the other two on another: no piece draws that.
+                const auto awkward = [](int q0, int q1, int q2, int q3) {
+                    const bool diagonal = q0 == q3 && q1 == q2 && q0 != q1;
+                    int distinct = 1 + (q1 != q0 ? 1 : 0);
+                    distinct += (q2 != q0 && q2 != q1) ? 1 : 0;
+                    distinct += (q3 != q0 && q3 != q1 && q3 != q2) ? 1 : 0;
+                    return (diagonal ? 4 : 0) + (distinct > 2 ? 1 : 0);
+                };
+                const std::vector<int> corners = {a, b, c, d};
+                const int preferred = within(reading, corners);
+                level = preferred;
+                int bestScore = 1 << 20;
+                for (const int candidate : {preferred, a, b, c, d}) {
+                    const int score = awkward(a, top, left, candidate) + awkward(top, b, candidate, right)
+                        + awkward(left, candidate, c, bottom) + awkward(candidate, right, bottom, d);
+                    const bool closer = score == bestScore && std::abs(heightOf(candidate) - heightOf(reading)) < std::abs(heightOf(level) - heightOf(reading));
+                    if (score < bestScore || closer) {
+                        bestScore = score;
+                        level = candidate;
+                    }
+                }
+            }
+        }
+        caches->settled.emplace(key, level);
+        return level;
+    };
+}
+
+// True when a stroke on the 16 tile cells would leave a 16 x 16 piece beside an 8 x 8 piece: some
+// 16 x 16 cell it redraws or fills sits beside one that holds an 8 x 8 piece. Such a stroke is
+// painted on the 8 tile cells instead, so the band stays one size.
+inline bool coarseStrokeMeetsFineBand(const BrushPlan& plan, int cellsX, int cellsY, int blockX, int blockY, int blockCells, const BrushPieceSizes& pieceSizes) {
+    if (!pieceSizes) {
+        return false;
+    }
+    std::vector<std::pair<int, int>> touched;
+    for (const BrushCell& cell : plan.cells) {
+        touched.emplace_back(cell.x, cell.y);
+    }
+    for (int cy = blockY; blockCells > 0 && cy < blockY + blockCells; ++cy) {
+        for (int cx = blockX; cx < blockX + blockCells; ++cx) {
+            touched.emplace_back(cx, cy);
+        }
+    }
+    const auto isTouched = [&](int x, int y) {
+        return std::find(touched.begin(), touched.end(), std::pair<int, int>{x, y}) != touched.end();
+    };
+    for (const auto& [cx, cy] : touched) {
+        constexpr int kAround[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+        for (const auto& step : kAround) {
+            const int qx = cx + step[0];
+            const int qy = cy + step[1];
+            if (qx >= 0 && qy >= 0 && qx < cellsX && qy < cellsY && !isTouched(qx, qy) && (pieceSizes(qx, qy) & kFineBand) != 0) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 }  // namespace galaxy

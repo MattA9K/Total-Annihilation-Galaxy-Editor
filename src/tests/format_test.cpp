@@ -9,6 +9,7 @@
 #include "core/I18n.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/OrbitCamera.hpp"
+#include "core/PieceScaler.hpp"
 #include "core/RiverBrush.hpp"
 #include "core/SlopeBrush.hpp"
 #include "core/TextPreview.hpp"
@@ -6356,6 +6357,274 @@ void testDesertTrees() {
     }
 }
 
+void testFineBrush() {
+    using namespace galaxy;
+    // The -8x8 folders hold the halved pieces.
+    std::string kind;
+    expect(brushPieceFolderTiles("CoastTiles-8x8", kind) == 8 && kind == "CoastTiles", "CoastTiles-8x8 holds 8 x 8 coast pieces");
+    expect(brushPieceFolderTiles("blendtiles-8X8", kind) == 8 && kind == "blendtiles", "the -8x8 ending is read in any case");
+    expect(brushPieceFolderTiles("BlendTiles", kind) == 16 && kind == "BlendTiles", "the plain folders hold 16 x 16 pieces");
+
+    // On the 8 tile cells the corners are 8 tiles apart.
+    int nodeX = 0;
+    int nodeY = 0;
+    expect(brushCornerNode(11, 4, 16, 16, nodeX, nodeY, 8) && nodeX == 1 && nodeY == 1, "the 4 x 4 brush snaps to the nearest meeting of 8 x 8 cells");
+    expect(brushCornerNode(13, 21, 16, 16, nodeX, nodeY, 8) && nodeX == 2 && nodeY == 3, "a point past halfway snaps to the next meeting");
+    int originX = 0;
+    int originY = 0;
+    brushBlockOrigin(13, 21, 8, 16, 16, originX, originY, 8);
+    expect(originX == 1 && originY == 2, "the 8 x 8 brush fills the 8 x 8 cell under the pointer");
+    brushBlockOrigin(13, 21, 16, 16, 16, originX, originY, 8);
+    expect(originX == 1 && originY == 2, "a 16 tile brush on 8 tile cells centers on the nearest meeting of cells");
+
+    // An 8 tile stroke that changes one quarter of a 16 x 16 coast cell redraws the other three.
+    {
+        // Land on the corners up to (1, 1) of the 8 tile grid: the top-left 16 x 16 cell is a coast.
+        const BrushNodeReader coast = [](int x, int y) { return x <= 1 && y <= 1 ? 1 : 0; };
+        BrushPlan plan;
+        plan.nodes = {BrushNode{2, 2, 1}};
+        plan.cells = {BrushCell{1, 1, 0, 1, 1, {1, 0, 0, 1}}};
+        redrawWholeCoarseCells(plan, 4, 4, 0, 0, 0, coast);
+        std::vector<std::pair<int, int>> cells;
+        for (const BrushCell& cell : plan.cells) {
+            cells.emplace_back(cell.x, cell.y);
+        }
+        std::sort(cells.begin(), cells.end());
+        expect(cells == std::vector<std::pair<int, int>>{{0, 0}, {0, 1}, {1, 0}, {1, 1}}, "the rest of the 16 x 16 coast cell is redrawn");
+        const auto right = std::find_if(plan.cells.begin(), plan.cells.end(), [](const BrushCell& cell) { return cell.x == 1 && cell.y == 0; });
+        expect(right != plan.cells.end() && right->mask == (kCornerTopLeft | kCornerBottomLeft) && right->upper == 1 && right->level == 0,
+            "a redrawn quarter takes its corners from the map");
+        BrushPlan flat;
+        flat.cells = {BrushCell{3, 3, 0, 0, 0, {0, 0, 0, 0}}};
+        redrawWholeCoarseCells(flat, 4, 4, 0, 0, 0, coast);
+        expect(flat.cells.size() == 1, "a flat 16 x 16 cell is left alone");
+    }
+
+    // A band keeps one size: an 8 x 8 stroke on a 16 x 16 coast redraws the coast along its band.
+    {
+        // Land on the top two rows of corners of the 8 tile grid, water below: a coast along the
+        // top row of 16 x 16 cells, which all hold 16 x 16 pieces. The row below is flat water.
+        const BrushNodeReader coast = [](int, int y) { return y <= 1 ? 1 : 0; };
+        const auto plainCoast = [](int, int y) { return y == 0 ? kCoarseBand : 0; };
+        const auto touchFirst = [] {
+            BrushPlan plan;
+            plan.nodes = {BrushNode{0, 1, 1}};
+            plan.cells = {BrushCell{0, 0, 0, 1, 3, {1, 1, 1, 1}}};
+            return plan;
+        };
+        BrushPlan plan = touchFirst();
+        expect(matchBandSizes(plan, 8, 4, 0, 0, 0, coast, plainCoast) == 3, "the whole 16 x 16 coast along the band is redrawn as 8 x 8");
+        int bandCells = 0;
+        bool onlyTheCoast = true;
+        for (const BrushCell& cell : plan.cells) {
+            bandCells += cell.y <= 1 ? 1 : 0;
+            onlyTheCoast = onlyTheCoast && cell.y <= 1;
+        }
+        expect(bandCells == 16 && onlyTheCoast, "every 8 x 8 cell of the coast is redrawn, and none of the flat water below");
+        BrushPlan stopped = touchFirst();
+        const auto fineBeyond = [](int x, int y) { return y != 0 ? 0 : (x == 2 ? kFineBand : kCoarseBand); };
+        expect(matchBandSizes(stopped, 8, 4, 0, 0, 0, coast, fineBeyond) == 1, "the walk stops at 8 x 8 pieces");
+        BrushPlan limited = touchFirst();
+        expect(matchBandSizes(limited, 8, 4, 0, 0, 0, coast, plainCoast, 1) == 1, "the walk stops at its limit");
+        BrushPlan nothing = touchFirst();
+        expect(matchBandSizes(nothing, 8, 4, 0, 0, 0, coast, [](int, int) { return 0; }) == 0 && nothing.cells.size() == 1,
+            "tiles the brush did not lay are left alone");
+        // A 16 x 16 stroke beside an 8 x 8 band is painted on the 8 tile cells.
+        BrushPlan coarse;
+        coarse.cells = {BrushCell{1, 1, 0, 1, 1, {1, 0, 0, 0}}};
+        expect(coarseStrokeMeetsFineBand(coarse, 4, 4, 0, 0, 0, [](int x, int y) { return x == 2 && y == 1 ? kFineBand : 0; }),
+            "a 16 x 16 stroke beside an 8 x 8 piece is found");
+        expect(!coarseStrokeMeetsFineBand(coarse, 4, 4, 0, 0, 0, [](int x, int y) { return x == 3 && y == 3 ? kFineBand : 0; }),
+            "8 x 8 pieces elsewhere do not matter");
+        expect(!coarseStrokeMeetsFineBand(coarse, 4, 4, 2, 1, 1, [](int x, int y) { return x == 2 && y == 1 ? kFineBand : 0; }),
+            "8 x 8 pieces the stroke paints over do not matter");
+    }
+
+    // Inside a 16 x 16 piece, a point is one of the piece's own lands.
+    {
+        const std::vector<int> heights = {0, 68, 85};  // water, shallows, land
+        // A coast: land on the top corners, water on the bottom ones, and the pale water read as shallows.
+        const BrushNodeReader coast = [](int x, int y) { return x % 2 == 0 && y % 2 == 0 ? (y == 0 ? 2 : 0) : 1; };
+        const BrushNodeReader inside = coarseInteriorReader(heights, coast, [](int x, int y) { return x == 0 && y == 0 ? kCoarseBand : 0; });
+        expect(inside(1, 0) == 2 && inside(1, 2) == 0, "a point between two corners of one land is that land");
+        expect(inside(0, 1) == 2 && inside(1, 1) == 2, "pale shore water inside a 16 x 16 coast is read as the coast's own land, not Base-68");
+        const BrushNodeReader besideFine = coarseInteriorReader(heights, coast, [](int x, int y) { return x == 0 && y == 0 ? kCoarseBand : (x == 0 && y == 1 ? kFineBand : 0); });
+        expect(besideFine(1, 2) == 1, "a point beside an 8 x 8 piece keeps its reading");
+        const BrushNodeReader plain = coarseInteriorReader(heights, coast, [](int, int) { return 0; });
+        expect(plain(1, 1) == 1, "cells without 16 x 16 pieces are read as they are");
+        // Water only at the bottom-right corner, and the middle read as water: the bottom-right quarter
+        // would have water on two opposite corners, so the middle is land.
+        const BrushNodeReader corner = [](int x, int y) { return x % 2 == 0 && y % 2 == 0 ? (x == 2 && y == 2 ? 0 : 2) : (x == 1 && y == 1 ? 0 : 1); };
+        const BrushNodeReader cornerInside = coarseInteriorReader(heights, corner, [](int x, int y) { return x == 0 && y == 0 ? kCoarseBand : 0; });
+        expect(cornerInside(1, 1) == 2, "the middle of a 16 x 16 cell is chosen so no quarter is a diagonal");
+    }
+
+    // A halved piece's flat ground is moved into line with the land's ground on the map.
+    {
+        PaletteImage ground;
+        ground.width = 512;
+        ground.height = 512;
+        for (int y = 0; y < 512; ++y) {
+            for (int x = 0; x < 512; ++x) {
+                ground.pixels.push_back(static_cast<std::uint8_t>(20 + ((x / 32) + (y / 32) * 16) % 200));
+            }
+        }
+        // An 8 x 8 tile piece of that ground from its top-left corner, with a band of colour 5 across it.
+        SectionStamp piece;
+        piece.tileWidth = 8;
+        piece.tileHeight = 8;
+        piece.tileCount = 64;
+        for (int ty = 0; ty < 8; ++ty) {
+            for (int tx = 0; tx < 8; ++tx) {
+                piece.indices.push_back(static_cast<std::uint32_t>(ty * 8 + tx));
+                for (int y = 0; y < 32; ++y) {
+                    for (int x = 0; x < 32; ++x) {
+                        const int py = ty * 32 + y;
+                        piece.tileImages.push_back(py >= 100 && py < 110 ? 5 : ground.at(tx * 32 + x, py));
+                    }
+                }
+            }
+        }
+        piece.heights.assign(256, 85);
+        const SectionStamp same = anchorPieceGround(piece, {&ground}, 16, 32);
+        expect(sectionImage(same).pixels == sectionImage(piece).pixels, "a piece on the ground's own grid is left as it is");
+        const PaletteImage moved = sectionImage(anchorPieceGround(piece, {&ground}, 8, 0));
+        expect(moved.at(0, 0) == ground.at(256, 0) && moved.at(255, 40) == ground.at(511, 40) && moved.at(10, 200) == ground.at(266, 200),
+            "a piece half a section along takes the ground from half a section along");
+        expect(moved.at(5, 104) == 5 && moved.at(200, 100) == 5, "the band is left as it is");
+        expect(anchorPieceGround(piece, {&ground}, 8, 0).heights == piece.heights, "anchoring keeps the heights");
+    }
+
+    // The band tile lists keep their hashes sorted.
+    expect(decodeTileHashes(encodeTileHashes({5, 1, 5, 0xFFFFFFFFFFFFFFFFull})) == std::vector<std::uint64_t>{1, 5, 0xFFFFFFFFFFFFFFFFull},
+        "band tile lists are sorted and kept whole");
+
+    // Inside a 16 x 16 coast, the raised rim is the shore's land, not a cliff top.
+    {
+        const BrushGraph graph({0, 85, 219});
+        expect(brushCliffLevel(graph, 2) && !brushCliffLevel(graph, 1) && !brushCliffLevel(graph, 0), "Base-219 is a cliff top and Base-85 is not");
+        // The 16 tile corners are water and land; the point between them reads as the cliff top by its height.
+        const BrushNodeReader rim = [](int x, int y) { return x == 1 && y == 0 ? 2 : (x == 0 ? 1 : 0); };
+        const BrushNodeReader fine = fineNodeReader(graph, rim);
+        expect(fine(1, 0) == 1, "a rim between water and land on the 8 tile grid is read as the land");
+        expect(fine(0, 0) == 1 && fine(2, 0) == 0, "the 16 tile corners are read as they are");
+        const BrushNodeReader cliff = [](int x, int) { return x <= 1 ? 2 : 1; };
+        expect(fineNodeReader(graph, cliff)(1, 0) == 2, "a point beside a cliff top corner stays a cliff top");
+    }
+
+    // A quarter of a section keeps only the pictures it uses, and two heights a tile.
+    SectionStamp section;
+    section.tileWidth = 2;
+    section.tileHeight = 2;
+    section.tileCount = 3;
+    section.indices = {0, 1, 2, 1};
+    section.tileImages.assign(3 * 1024, 0);
+    for (int tile = 0; tile < 3; ++tile) {
+        std::fill(section.tileImages.begin() + tile * 1024, section.tileImages.begin() + (tile + 1) * 1024, static_cast<std::uint8_t>(10 + tile));
+    }
+    for (int i = 0; i < 16; ++i) {
+        section.heights.push_back(static_cast<std::uint8_t>(i));
+    }
+    const SectionStamp quarter = cropSectionStamp(section, 1, 1, 1, 1);
+    expect(quarter.tileWidth == 1 && quarter.tileHeight == 1 && quarter.tileCount == 1 && quarter.indices == std::vector<std::uint32_t>{0}
+               && quarter.tileImages.size() == 1024 && quarter.tileImages[0] == 11,
+        "a cropped section keeps its one picture");
+    expect(quarter.heights == std::vector<std::uint8_t>{10, 11, 14, 15}, "a cropped section keeps the heights under its tiles");
+
+    // The lands a blend joins come from its name.
+    expect(blendPieceWorlds("Blend-GreenMars-B-01") == std::vector<std::string>{"GreenWorld", "Mars"}, "Blend-GreenMars joins GreenWorld and Mars");
+    expect(blendPieceWorlds("Blend-Archi-T-02") == std::vector<std::string>{"Archipelago", "GreenWorld"}, "Blend-Archi joins Archipelago and GreenWorld");
+    expect(blendPieceWorlds("Blend-Lush-Low-BL-02") == std::vector<std::string>{"Lush", "Lava"}, "a one-land blend joins Lava");
+    expect(blendPieceWorlds("Blend-Tri-Acid-T-Ice-R-01") == std::vector<std::string>{"Acid", "Ice", "Lava"}, "a three-way blend naming two lands has Lava too");
+    expect(blendPieceWorlds("Blend-Tri-Grass-L-Archi-T-Crystal-01") == std::vector<std::string>{"GreenWorld", "Archipelago", "Crystal"},
+        "a three-way blend naming three lands joins those");
+    expect(blendPieceWorlds("Coast-Land-BL-01").empty(), "a coast is not a blend");
+
+    // A halved piece: grass on the left, water on the right, and a sand band down the middle.
+    const auto nearestIndex = [](int r, int g, int b) {
+        int best = 0;
+        int bestDistance = 1 << 30;
+        for (int i = 0; i < 256; ++i) {
+            const int dr = kTaPalette[i][0] - r;
+            const int dg = kTaPalette[i][1] - g;
+            const int db = kTaPalette[i][2] - b;
+            if (dr * dr + dg * dg + db * db < bestDistance) {
+                bestDistance = dr * dr + dg * dg + db * db;
+                best = i;
+            }
+        }
+        return static_cast<std::uint8_t>(best);
+    };
+    const std::uint8_t greens[2] = {nearestIndex(40, 110, 30), nearestIndex(55, 130, 40)};
+    const std::uint8_t blues[2] = {nearestIndex(30, 60, 200), nearestIndex(40, 80, 220)};
+    const std::uint8_t sand = nearestIndex(230, 210, 140);
+    std::mt19937 noise(4);
+    const auto groundOf = [&](const std::uint8_t* colours) {
+        PaletteImage ground;
+        ground.width = 256;
+        ground.height = 256;
+        for (int i = 0; i < 256 * 256; ++i) {
+            ground.pixels.push_back(colours[noise() % 2]);
+        }
+        return ground;
+    };
+    std::vector<PieceLand> lands = {makePieceLand(groundOf(greens), 85), makePieceLand(groundOf(blues), 0)};
+    SectionStamp piece;
+    piece.tileWidth = 16;
+    piece.tileHeight = 16;
+    for (int ty = 0; ty < 16; ++ty) {
+        for (int tx = 0; tx < 16; ++tx) {
+            piece.indices.push_back(static_cast<std::uint32_t>(ty * 16 + tx));
+            for (int y = 0; y < 32; ++y) {
+                for (int x = 0; x < 32; ++x) {
+                    const int px = tx * 32 + x;
+                    const int py = ty * 32 + y;
+                    const std::uint8_t colour = px < 232 ? lands[0].ground.at(px % 256, py % 256)
+                        : px >= 280 ? lands[1].ground.at(px % 256, py % 256) : sand;
+                    piece.tileImages.push_back(colour);
+                }
+            }
+        }
+    }
+    piece.tileCount = 256;
+    for (int y = 0; y < 32; ++y) {
+        for (int x = 0; x < 32; ++x) {
+            piece.heights.push_back(static_cast<std::uint8_t>(x < 15 ? 85 : 0));
+        }
+    }
+    expect(pieceCornerLands(piece, lands, {0, 1}) == std::array<int, 4>{0, 1, 0, 1}, "the corners of a piece are found by height and colour");
+    const SectionStamp halved = halvePiece(piece, lands, {0, 1}, 7);
+    expect(halved.tileWidth == 8 && halved.tileHeight == 8 && halved.heights.size() == 256, "a halved piece is 8 x 8 tiles with two heights a tile");
+    expect(halved.heights.front() == 85 && halved.heights[15] == 0, "the heights are halved too");
+    const PaletteImage out = sectionImage(halved);
+    // The corner tiles are flat ground, so they are the lands' own tiles, whole.
+    const auto isGroundTile = [&](int tileX, int tileY, const PaletteImage& ground) {
+        for (int oy = 0; oy < ground.height; oy += 32) {
+            for (int ox = 0; ox < ground.width; ox += 32) {
+                bool same = true;
+                for (int y = 0; y < 32 && same; ++y) {
+                    for (int x = 0; x < 32 && same; ++x) {
+                        same = out.at(tileX * 32 + x, tileY * 32 + y) == ground.at(ox + x, oy + y);
+                    }
+                }
+                if (same) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    expect(isGroundTile(0, 0, lands[0].ground) && isGroundTile(0, 7, lands[0].ground), "flat grass in a halved piece is the grass's own tiles");
+    expect(isGroundTile(7, 0, lands[1].ground) && isGroundTile(7, 7, lands[1].ground), "flat water in a halved piece is the water's own tiles");
+    int sandPixels = 0;
+    for (int y = 0; y < 256; ++y) {
+        for (int x = 120; x < 136; ++x) {
+            sandPixels += out.at(x, y) == sand ? 1 : 0;
+        }
+    }
+    expect(sandPixels > 256 * 8, "the sand band survives, at half width: " + std::to_string(sandPixels));
+}
+
 void testRandomMapProgress() {
     using namespace galaxy;
     RmsObjectSettings objects;
@@ -6983,6 +7252,7 @@ int main() {
     testCliffs();
     testDesertTrees();
     testRandomMapProgress();
+    testFineBrush();
     testStartsAndResources();
     testStampBrushes();
     testAutoMetal();

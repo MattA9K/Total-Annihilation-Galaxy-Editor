@@ -3,6 +3,7 @@
 
 #include "core/BlendColours.hpp"
 #include "core/AutoMetal.hpp"
+#include "core/PieceScaler.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/DocumentNames.hpp"
 #include "core/EditorSettings.hpp"
@@ -364,9 +365,12 @@ bool isBrushStrokeWorld(std::string_view world) {
     return lowerText(world) == "basetilebrushstrokes";
 }
 
-// Cliff, coast and shallow coast sections are the pieces that join one base to the next.
+// Cliff, coast and shallow coast sections are the pieces that join one base to the next. The
+// -8x8 folders, such as CoastTiles-8x8, hold the same kinds of piece at 8 x 8 tiles.
 bool isTransitionWorld(std::string_view world) {
-    const std::string name = lowerText(world);
+    std::string kind;
+    brushPieceFolderTiles(world, kind);
+    const std::string name = lowerText(kind);
     return name == "clifftiles" || name == "coasttiles" || name == "shallowcoasttiles" || name == "shallowdeeptiles" || name == "coastdsl" || name == "coastalcliff" || name == "blendtiles";
 }
 
@@ -377,12 +381,7 @@ bool isRiverWorld(std::string_view world) {
 }
 
 std::uint64_t hashBrushTile(const std::uint8_t* bytes) {
-    std::uint64_t hash = 14695981039346656037ull;
-    for (int i = 0; i < 1024; ++i) {
-        hash ^= bytes[i];
-        hash *= 1099511628211ull;
-    }
-    return hash;
+    return brushTileHash(bytes);
 }
 
 // 0 is grass, 1 is lava, and 2 is acid. The three-way tiles share one height
@@ -2984,8 +2983,9 @@ int seaIslandKindOf(std::string_view name, int tiles) {
     return 0;
 }
 
-// Map tiles on a side. 8 paints one corner. The others fill whole 16 x 16 cells.
-constexpr int kBrushSizes[] = {8, 16, 32, 64, 128, 256, 512};
+// Map tiles on a side. 4 x 4 paints one corner and 8 x 8 one cell, both on 8 x 8 tile cells
+// with the 8 x 8 pieces. The others fill whole 16 x 16 cells with the 16 x 16 pieces.
+constexpr int kBrushSizes[] = {4, 8, 16, 32, 64, 128, 256, 512};
 constexpr int kBrushSizeCount = static_cast<int>(sizeof(kBrushSizes) / sizeof(kBrushSizes[0]));
 
 std::string fitLabel(const std::string& text, float width) {
@@ -6116,32 +6116,35 @@ void EditorApp::drawMap() {
             extendMountain(tileX, tileY);
         } else if (overMap && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             paintBrushStroke(tileX, tileY);
-            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
-            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+            const int brushCell = brushCellTiles();
+            const int cellsAcross = (map_->tileWidth + brushCell - 1) / brushCell;
+            const int cellsDown = (map_->tileHeight + brushCell - 1) / brushCell;
             if (const int span = hillSpan(); span > 0) {
                 hillOrigin(tileX, tileY, span, hillSpanHigh(), brushStrokeX_, brushStrokeY_);
-            } else if (brushSize_ < kBrushCellTiles) {
-                brushCornerNode(tileX, tileY, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_);
+            } else if (brushSize_ < brushCell) {
+                brushCornerNode(tileX, tileY, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_, brushCell);
             } else {
-                brushBlockOrigin(tileX, tileY, brushSize_, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_);
+                brushBlockOrigin(tileX, tileY, brushSize_, cellsAcross, cellsDown, brushStrokeX_, brushStrokeY_, brushCell);
             }
             brushStroking_ = true;
         } else if (brushStroking_ && overMap && ImGui::IsMouseDown(ImGuiMouseButton_Left)
             && !brushVaries()) {
             // Medium and Large islands are one per click, since each click changes the island size.
-            // A drag paints again when the snap point changes. The 8 x 8 brush follows the meeting of four cells.
-            // A larger even brush follows the same point, because that point is the center of its square.
-            // A hill follows the 8 x 8 quadrant or 16 x 16 cell under the pointer.
-            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
-            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
-            int stepX = tileX / kBrushCellTiles;
-            int stepY = tileY / kBrushCellTiles;
+            // A drag paints again when the snap point changes. A brush smaller than a cell follows the
+            // meeting of four cells. A larger even brush follows the same point, because that point is the
+            // center of its square. A one-cell brush follows the cell under the pointer: 8 x 8 on the
+            // 8 tile cells, 16 x 16 on the 16 tile cells. A hill follows the 8 x 8 quadrant or 16 x 16 cell under the pointer.
+            const int brushCell = brushCellTiles();
+            const int cellsAcross = (map_->tileWidth + brushCell - 1) / brushCell;
+            const int cellsDown = (map_->tileHeight + brushCell - 1) / brushCell;
+            int stepX = tileX / brushCell;
+            int stepY = tileY / brushCell;
             if (const int span = hillSpan(); span > 0) {
                 hillOrigin(tileX, tileY, span, hillSpanHigh(), stepX, stepY);
-            } else if (brushSize_ < kBrushCellTiles) {
-                brushCornerNode(tileX, tileY, cellsAcross, cellsDown, stepX, stepY);
-            } else if (brushSize_ > kBrushCellTiles) {
-                brushBlockOrigin(tileX, tileY, brushSize_, cellsAcross, cellsDown, stepX, stepY);
+            } else if (brushSize_ < brushCell) {
+                brushCornerNode(tileX, tileY, cellsAcross, cellsDown, stepX, stepY, brushCell);
+            } else if (brushSize_ > brushCell) {
+                brushBlockOrigin(tileX, tileY, brushSize_, cellsAcross, cellsDown, stepX, stepY, brushCell);
             }
             if (stepX != brushStrokeX_ || stepY != brushStrokeY_) {
                 paintBrushStroke(tileX, tileY);
@@ -6701,7 +6704,7 @@ void EditorApp::drawMap() {
         // 8 x 8 is centered on the point where four cells meet. 16 x 16 is the cell
         // under the pointer. Larger brushes are centered on that same point, so the
         // pointer sits in the middle of the square.
-        const int brushTiles = riverTool ? kBrushCellTiles : std::max(kBrushCellTiles / 2, brushSize_);
+        const int brushTiles = riverTool ? kBrushCellTiles : std::max(kFineCellTiles / 2, brushSize_);
         int originCellX = tileX / kBrushCellTiles;
         int originCellY = tileY / kBrushCellTiles;
         int spanCellsX = 1;
@@ -6733,28 +6736,30 @@ void EditorApp::drawMap() {
         float y0 = 0.0f;
         float x1 = 0.0f;
         float y1 = 0.0f;
-        if (!riverTool && brushTiles < kBrushCellTiles) {
-            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
-            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+        // The base brush lays its cells every 8 tiles at 4 x 4 and 8 x 8, otherwise every 16.
+        const int brushCell = riverTool ? kBrushCellTiles : brushCellTiles();
+        if (!riverTool && brushTiles < brushCell) {
+            const int cellsAcross = (map_->tileWidth + brushCell - 1) / brushCell;
+            const int cellsDown = (map_->tileHeight + brushCell - 1) / brushCell;
             int nodeX = 0;
             int nodeY = 0;
-            brushCornerNode(tileX, tileY, cellsAcross, cellsDown, nodeX, nodeY);
+            brushCornerNode(tileX, tileY, cellsAcross, cellsDown, nodeX, nodeY, brushCell);
             const float halfPx = static_cast<float>(brushTiles / 2 * 32);
-            x0 = static_cast<float>(nodeX * kBrushCellTiles * 32) - halfPx;
-            y0 = static_cast<float>(nodeY * kBrushCellTiles * 32) - halfPx;
+            x0 = static_cast<float>(nodeX * brushCell * 32) - halfPx;
+            y0 = static_cast<float>(nodeY * brushCell * 32) - halfPx;
             x1 = x0 + static_cast<float>(brushTiles * 32);
             y1 = y0 + static_cast<float>(brushTiles * 32);
         } else if (!riverTool) {
-            const int cellsAcross = (map_->tileWidth + kBrushCellTiles - 1) / kBrushCellTiles;
-            const int cellsDown = (map_->tileHeight + kBrushCellTiles - 1) / kBrushCellTiles;
+            const int cellsAcross = (map_->tileWidth + brushCell - 1) / brushCell;
+            const int cellsDown = (map_->tileHeight + brushCell - 1) / brushCell;
             int blockX = 0;
             int blockY = 0;
-            brushBlockOrigin(tileX, tileY, brushTiles, cellsAcross, cellsDown, blockX, blockY);
-            const int blockCells = std::max(1, brushTiles / kBrushCellTiles);
-            x0 = static_cast<float>(blockX * kBrushCellTiles * 32);
-            y0 = static_cast<float>(blockY * kBrushCellTiles * 32);
-            x1 = x0 + static_cast<float>(blockCells * kBrushCellTiles * 32);
-            y1 = y0 + static_cast<float>(blockCells * kBrushCellTiles * 32);
+            brushBlockOrigin(tileX, tileY, brushTiles, cellsAcross, cellsDown, blockX, blockY, brushCell);
+            const int blockCells = std::max(1, brushTiles / brushCell);
+            x0 = static_cast<float>(blockX * brushCell * 32);
+            y0 = static_cast<float>(blockY * brushCell * 32);
+            x1 = x0 + static_cast<float>(blockCells * brushCell * 32);
+            y1 = y0 + static_cast<float>(blockCells * brushCell * 32);
         } else {
             x0 = static_cast<float>(originCellX * kBrushCellTiles * 32);
             y0 = static_cast<float>(originCellY * kBrushCellTiles * 32);
@@ -9289,7 +9294,9 @@ void EditorApp::autoMetal() {
     if (key != metalPicturesKey_) {
         metalPictures_.clear();
         for (const TilesetSection& section : source->sections) {
-            const std::string world = lowerText(section.world);
+            std::string kind;
+            brushPieceFolderTiles(section.world, kind);
+            const std::string world = lowerText(kind);
             const bool ground = world == "basetiles" || world == "basetilebrushstrokes" || world == "clifftiles" || world == "coasttiles"
                 || world == "coastdsl" || world == "shallowcoasttiles" || world == "shallowdeeptiles" || world == "slopes";
             if (!ground || lowerText(section.category) != "metal") {
@@ -9438,6 +9445,13 @@ std::vector<RandomMapStampBrush> EditorApp::collectStampBrushes() {
     auto savedRiverCatalog = std::move(riverCatalog_);
     auto savedRiverSections = std::move(riverSections_);
     auto savedSharedPictures = std::move(sharedPictures_);
+    auto savedCoarseBandTiles = std::move(coarseBandTiles_);
+    auto savedFineBandTiles = std::move(fineBandTiles_);
+    auto savedFixedTiles = std::move(fixedTiles_);
+    auto savedForeignPictures = std::move(foreignPictures_);
+    auto savedForeignNames = std::move(foreignNames_);
+    auto savedBrushGrounds = std::move(brushGrounds_);
+    auto savedBrushBaseTiles = std::move(brushBaseTiles_);
     brushPaints_.clear();
     brushCatalogKey_.clear();
     brushCatalogStampsOnly_ = true;
@@ -9531,6 +9545,13 @@ std::vector<RandomMapStampBrush> EditorApp::collectStampBrushes() {
     riverCatalog_ = std::move(savedRiverCatalog);
     riverSections_ = std::move(savedRiverSections);
     sharedPictures_ = std::move(savedSharedPictures);
+    coarseBandTiles_ = std::move(savedCoarseBandTiles);
+    fineBandTiles_ = std::move(savedFineBandTiles);
+    fixedTiles_ = std::move(savedFixedTiles);
+    foreignPictures_ = std::move(savedForeignPictures);
+    foreignNames_ = std::move(savedForeignNames);
+    brushGrounds_ = std::move(savedBrushGrounds);
+    brushBaseTiles_ = std::move(savedBrushBaseTiles);
     ensureBrushPaints();
     return brushes;
 }
@@ -10907,6 +10928,18 @@ void EditorApp::armBrush(const std::string& name) {
     statusNote_ = "Brush " + name;
 }
 
+int EditorApp::brushCellTiles() const {
+    if (brushSize_ > kFineCellTiles || armedBrushKind() != BrushKind::Base) {
+        return kBrushCellTiles;
+    }
+    for (const BrushPiece& piece : brushPieces_) {
+        if (piece.tiles == kFineCellTiles) {
+            return kFineCellTiles;
+        }
+    }
+    return kBrushCellTiles;
+}
+
 void EditorApp::paintBrushStroke(int tileX, int tileY) {
     if (!map_ || brushName_.empty() || brushTilesetPath_.empty()) {
         return;
@@ -10919,8 +10952,150 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         paintRiver(tileX, tileY, armedBrushKind());
         return;
     }
-    const int cell = kBrushCellTiles;
-    // 8 x 8 sets one corner. Larger brushes fill whole 16 x 16 cells, centered on the pointer.
+    const int cell = brushCellTiles();
+    BrushOutcome outcome = paintBaseBrush(tileX, tileY, cell, true, cell);
+    bool movedToFine = false;
+    if (outcome == BrushOutcome::NeedsFine) {
+        // A 16 tile stroke beside an 8 x 8 band is painted on the 8 tile cells, so the band stays one
+        // size. It keeps the footprint of the 16 tile stroke.
+        movedToFine = true;
+        outcome = paintBaseBrush(tileX, tileY, kFineCellTiles, false, kBrushCellTiles);
+        if (outcome == BrushOutcome::Done && error_.empty()) {
+            statusNote_ += ". It meets 8 x 8 pieces, so its edges are 8 x 8 too";
+        }
+    }
+    if (outcome != BrushOutcome::NeedsCoarse) {
+        return;
+    }
+    if (!movedToFine) {
+        // A 4 x 4 or 8 x 8 stroke that reached a cliff. Painted 16 x 16 instead, it would land off its
+        // outline and leave its edges against the 8 x 8 work around it, so the map is left alone.
+        statusNote_ = coarseOnlyPiece_ + " only comes in 16 x 16, so a 4 x 4 or 8 x 8 stroke cannot reach it. "
+            "Paint here with the 16 x 16 brush";
+        error_.clear();
+        return;
+    }
+    // The stroke reached a cliff, and cliffs only have 16 x 16 pieces, so the stroke is painted on the
+    // 16 tile cells, the footprint its outline showed.
+    const std::string coarsePiece = coarseOnlyPiece_;
+    paintBaseBrush(tileX, tileY, kBrushCellTiles, false, kBrushCellTiles);
+    if (error_.empty()) {
+        statusNote_ += ". " + coarsePiece + " only comes in 16 x 16, so this stroke used the 16 x 16 pieces";
+    }
+}
+
+int EditorApp::brushCellPieceSizes(int cellX, int cellY) const {
+    if (!map_ || (coarseBandTiles_.empty() && fineBandTiles_.empty())) {
+        return 0;
+    }
+    // Another tileset's ground the brush cannot join, such as a lava coast while GreenWorld is chosen:
+    // its band is left alone.
+    if (!foreignGroundIn(cellX * kBrushCellTiles, cellY * kBrushCellTiles, kBrushCellTiles, kBrushCellTiles).empty()) {
+        return 0;
+    }
+    int sizes = 0;
+    const int x0 = cellX * kBrushCellTiles;
+    const int y0 = cellY * kBrushCellTiles;
+    for (int ty = std::max(0, y0); ty < std::min(map_->tileHeight, y0 + kBrushCellTiles) && sizes != (kCoarseBand | kFineBand); ++ty) {
+        for (int tx = std::max(0, x0); tx < std::min(map_->tileWidth, x0 + kBrushCellTiles); ++tx) {
+            const std::size_t index = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
+            if (index >= map_->indices.size()) {
+                continue;
+            }
+            const std::size_t bytes = static_cast<std::size_t>(map_->indices[index]) * 1024;
+            if (bytes + 1024 > map_->tileImages.size()) {
+                continue;
+            }
+            const std::uint32_t picture = map_->indices[index];
+            auto found = pictureBandSizes_.find(picture);
+            if (found == pictureBandSizes_.end()) {
+                const std::uint64_t hash = hashBrushTile(map_->tileImages.data() + bytes);
+                int pictureSizes = 0;
+                if (std::binary_search(coarseBandTiles_.begin(), coarseBandTiles_.end(), hash)) {
+                    pictureSizes |= kCoarseBand;
+                } else if (std::binary_search(fixedTiles_.begin(), fixedTiles_.end(), hash)) {
+                    pictureSizes |= kFixedPiece;
+                } else if (std::binary_search(fineBandTiles_.begin(), fineBandTiles_.end(), hash)
+                           || (!brushBaseTiles_.empty() && brushBaseTiles_.count(hash) == 0)) {
+                    // An 8 x 8 piece's band, or a tile that is neither a 16 x 16 piece's band nor flat
+                    // ground: an 8 x 8 piece whose ground was moved onto the map's grid, or something the
+                    // brush did not lay. Either way a 16 x 16 piece beside it would not continue its band.
+                    pictureSizes |= kFineBand;
+                }
+                found = pictureBandSizes_.emplace(picture, pictureSizes).first;
+            }
+            sizes |= found->second;
+        }
+    }
+    return sizes;
+}
+
+const PaletteImage* EditorApp::brushGround(const std::string& category, const std::string& name) {
+    const std::string key = lowerText(category) + "/" + lowerText(name);
+    if (const auto found = brushGrounds_.find(key); found != brushGrounds_.end()) {
+        return found->second.width > 0 ? &found->second : nullptr;
+    }
+    PaletteImage& ground = brushGrounds_[key];
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        if (archive.path != brushTilesetPath_) {
+            continue;
+        }
+        for (const TilesetSection& section : archive.sections) {
+            if (isBaseBrushTile(section.world, section.name) && lowerText(section.category) == lowerText(category)
+                && lowerText(section.name) == lowerText(name)) {
+                try {
+                    if (const HpiFile* file = archive.archive().find(section.archivePath)) {
+                        ground = sectionImage(loadSectionStamp(archive.archive().extract(*file)));
+                    }
+                } catch (const std::exception&) {
+                }
+                break;
+            }
+        }
+    }
+    return ground.width > 0 ? &ground : nullptr;
+}
+
+std::string EditorApp::foreignGroundIn(int tileX, int tileY, int width, int height) const {
+    if (!map_ || foreignPictures_.empty()) {
+        return {};
+    }
+    for (int ty = std::max(0, tileY); ty < std::min(map_->tileHeight, tileY + height); ++ty) {
+        for (int tx = std::max(0, tileX); tx < std::min(map_->tileWidth, tileX + width); ++tx) {
+            const std::size_t index = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
+            if (index >= map_->indices.size()) {
+                continue;
+            }
+            const std::uint32_t picture = map_->indices[index];
+            auto found = pictureForeign_.find(picture);
+            if (found == pictureForeign_.end()) {
+                int named = -1;
+                const std::size_t bytes = static_cast<std::size_t>(picture) * 1024;
+                if (bytes + 1024 <= map_->tileImages.size()) {
+                    if (const auto foreign = foreignPictures_.find(hashBrushTile(map_->tileImages.data() + bytes)); foreign != foreignPictures_.end()) {
+                        const auto at = std::find(foreignNames_.begin(), foreignNames_.end(), foreign->second);
+                        named = static_cast<int>(at - foreignNames_.begin());
+                        if (at == foreignNames_.end()) {
+                            foreignNames_.push_back(foreign->second);
+                        }
+                    }
+                }
+                found = pictureForeign_.emplace(picture, named).first;
+            }
+            if (found->second >= 0) {
+                return foreignNames_[static_cast<std::size_t>(found->second)];
+            }
+        }
+    }
+    return {};
+}
+
+EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cellTiles, bool mayRefine, int footprintTiles) {
+    const int cell = cellTiles;
+    pictureBandSizes_.clear();
+    pictureForeign_.clear();
+    // A brush smaller than a cell sets one corner: 4 x 4 on the 8 tile cells, or 8 x 8 on the 16
+    // tile cells when the tileset has no 8 x 8 pieces. Larger brushes fill whole cells, centered on the pointer.
     const bool cornerBrush = brushSize_ < cell;
     const int size = cornerBrush ? brushSize_ : std::max(cell, brushSize_ / cell * cell);
     const int blockCells = cornerBrush ? 0 : size / cell;
@@ -10928,16 +11103,23 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     const int cellsY = (map_->tileHeight + cell - 1) / cell;
     int blockX = 0;
     int blockY = 0;
-    if (!cornerBrush) {
-        brushBlockOrigin(tileX, tileY, size, cellsX, cellsY, blockX, blockY);
+    if (!cornerBrush && footprintTiles > cell && size % footprintTiles == 0) {
+        // Placed on the coarser grid, then counted in this stroke's cells.
+        const int footprintX = (map_->tileWidth + footprintTiles - 1) / footprintTiles;
+        const int footprintY = (map_->tileHeight + footprintTiles - 1) / footprintTiles;
+        brushBlockOrigin(tileX, tileY, size, footprintX, footprintY, blockX, blockY, footprintTiles);
+        blockX *= footprintTiles / cell;
+        blockY *= footprintTiles / cell;
+    } else if (!cornerBrush) {
+        brushBlockOrigin(tileX, tileY, size, cellsX, cellsY, blockX, blockY, cell);
     }
     int nodeX = 0;
     int nodeY = 0;
     if (tileX < 0 || tileY < 0 || tileX >= map_->tileWidth || tileY >= map_->tileHeight
-        || (cornerBrush && !brushCornerNode(tileX, tileY, cellsX, cellsY, nodeX, nodeY))
+        || (cornerBrush && !brushCornerNode(tileX, tileY, cellsX, cellsY, nodeX, nodeY, cell))
         || (!cornerBrush && (blockX >= cellsX || blockY >= cellsY || blockX + blockCells <= 0 || blockY + blockCells <= 0))) {
         statusNote_ = "The brush is outside the map";
-        return;
+        return BrushOutcome::Done;
     }
 
     static std::mt19937 rng{std::random_device{}()};
@@ -10955,9 +11137,12 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         }
         return matches;
     };
-    const auto piecesFor = [&](const std::string& category, std::string_view piece) {
+    const auto piecesFor = [&](const std::string& category, std::string_view piece, int tiles) {
         std::vector<BrushPiece*> matches;
         for (BrushPiece& candidate : brushPieces_) {
+            if (candidate.tiles != tiles) {
+                continue;
+            }
             const bool own = lowerText(candidate.category) == lowerText(category);
             // Blend pieces are shared, so Lava, Mars and GreenWorld can place them.
             // Two-way blends live in BlendTiles/Shared and three-way blends in BlendTiles/3-Way.
@@ -10972,6 +11157,30 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         std::uniform_int_distribution<int> pick(0, static_cast<int>(matches.size()) - 1);
         return matches[static_cast<std::size_t>(pick(rng))];
     };
+    // The stroke for one flat cell at cell (cx, cy). An 8 x 8 cell cut from a 16 x 16 stroke takes the
+    // quarter its place on the 16 tile grid calls for, from one stroke for the whole 16 x 16 cell, so the
+    // ground continues across the 8 tile lines exactly as a 16 x 16 stroke lays it.
+    const auto flatStrokeAt = [&](std::vector<BrushStroke*> strokes, int cx, int cy) -> BrushStroke* {
+        if (strokes.empty()) {
+            return nullptr;
+        }
+        if (cell != kFineCellTiles || strokes.front()->cropTiles == 0) {
+            return pickOne(strokes);
+        }
+        const int quarterX = (cx & 1) * kFineCellTiles;
+        const int quarterY = (cy & 1) * kFineCellTiles;
+        std::vector<BrushStroke*> quarters;
+        for (BrushStroke* stroke : strokes) {
+            if (stroke->cropTiles > 0 && stroke->cropX == quarterX && stroke->cropY == quarterY) {
+                quarters.push_back(stroke);
+            }
+        }
+        if (quarters.empty()) {
+            return pickOne(strokes);
+        }
+        const std::uint32_t parent = static_cast<std::uint32_t>(cx >> 1) * 73856093u ^ static_cast<std::uint32_t>(cy >> 1) * 19349663u;
+        return quarters[parent % static_cast<std::uint32_t>(quarters.size())];
+    };
 
     std::vector<BrushStroke*> blockStrokes;
     bool repeatCell = false;
@@ -10984,7 +11193,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
         }
         if (blockStrokes.empty()) {
             statusNote_ = "No " + brushName_ + " " + brushSizeLabel(repeatCell ? cell : size) + " brush stroke";
-            return;
+            return BrushOutcome::Done;
         }
     }
 
@@ -11040,6 +11249,16 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
             }
             slot = loadSectionStamp(source->archive().extract(*file));
         };
+        // A stroke cut from a quarter of a 16 x 16 one is cut once, when it is first loaded.
+        auto loadStroke = [&](BrushStroke& stroke) {
+            if (stroke.stamp) {
+                return;
+            }
+            loadStamp(stroke.stamp, stroke.sectionPath, stroke.name);
+            if (stroke.cropTiles > 0) {
+                stroke.stamp = cropSectionStamp(*stroke.stamp, stroke.cropX, stroke.cropY, stroke.cropTiles, stroke.cropTiles);
+            }
+        };
 
         struct PlannedStamp {
             const SectionStamp* stamp = nullptr;
@@ -11047,16 +11266,22 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
             int y = 0;
         };
         std::vector<PlannedStamp> planned;
+        // 8 x 8 pieces whose flat ground was shifted onto the map's grid where they go.
+        std::deque<SectionStamp> anchored;
         int transitionPieces = 0;
+        // 16 x 16 cells beside the stroke redrawn as 8 x 8 so their band keeps one size.
+        int matchedCells = 0;
 
         BrushStroke* chosen = nullptr;
         if (!cornerBrush) {
-            chosen = pickOne(blockStrokes);
-            loadStamp(chosen->stamp, chosen->sectionPath, chosen->name);
+            chosen = flatStrokeAt(blockStrokes, blockX, blockY);
+            loadStroke(*chosen);
             if (repeatCell) {
                 for (int cy = std::max(0, blockY); cy < std::min(cellsY, blockY + blockCells); ++cy) {
                     for (int cx = std::max(0, blockX); cx < std::min(cellsX, blockX + blockCells); ++cx) {
-                        planned.push_back(PlannedStamp{&*chosen->stamp, cx * cell, cy * cell});
+                        BrushStroke* here = flatStrokeAt(blockStrokes, cx, cy);
+                        loadStroke(*here);
+                        planned.push_back(PlannedStamp{&*here->stamp, cx * cell, cy * cell});
                     }
                 }
             } else {
@@ -11153,7 +11378,13 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                                             const int sy = ty * 2 + (ty < nodeY * cell ? 1 : 0);
                                             const std::size_t heightIndex = static_cast<std::size_t>(sy) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(sx);
                                             const int height = heightIndex < map_->heights.size() ? map_->heights[heightIndex] : levelHeights[static_cast<std::size_t>(matched)];
-                                            if (other < 0) {
+                                            if (other < 0 && namedPartner && trailingNumber(found->second.partnerName) >= 0) {
+                                                // A partner land's shore, whose liquid this brush cannot paint: the
+                                                // land where the height is nearer it, otherwise read by height below.
+                                                const int liquid = trailingNumber(found->second.partnerName);
+                                                const int land = levelHeights[static_cast<std::size_t>(matched)];
+                                                voted = std::abs(height - land) <= std::abs(height - liquid) ? matched : -1;
+                                            } else if (other < 0) {
                                                 voted = matched;
                                             } else {
                                                 const int matchedDistance = std::abs(height - levelHeights[static_cast<std::size_t>(matched)]);
@@ -11189,44 +11420,136 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                 }
                 return 0;
             };
-            const BrushPlan plan = cornerBrush
-                ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readCorner)
-                : planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readCorner);
+            // On the 8 tile cells, a corner inside a 16 x 16 piece is one of that piece's own lands, and
+            // never a cliff top unless a corner of the 16 tile grid beside it is one.
+            const bool bandLists = !coarseBandTiles_.empty() && !fineBandTiles_.empty();
+            const BrushPieceSizes pieceSizes = [&](int x, int y) { return brushCellPieceSizes(x, y); };
+            const BrushNodeReader readNode = cell != kFineCellTiles ? BrushNodeReader(readCorner)
+                : bandLists ? fineNodeReader(graph, coarseInteriorReader(levelHeights, readCorner, pieceSizes))
+                : fineNodeReader(graph, readCorner);
+            BrushPlan plan = cornerBrush
+                ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readNode)
+                : planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readNode);
+            // Each band stays one size along its length, so no band jumps where 8 x 8 pieces meet 16 x 16 ones.
+            if (cell == kFineCellTiles && bandLists) {
+                matchedCells = matchBandSizes(plan, cellsX, cellsY, blockX, blockY, cornerBrush ? 0 : blockCells, readNode, pieceSizes);
+            } else if (cell == kFineCellTiles) {
+                // Without the lists, at least no part of a 16 x 16 piece is left beside the new 8 x 8 ones.
+                redrawWholeCoarseCells(plan, cellsX, cellsY, blockX, blockY, cornerBrush ? 0 : blockCells, readNode);
+            }
+            if (cell == kFineCellTiles && bandLists && !fixedTiles_.empty()) {
+                // An 8 x 8 stroke cannot redraw part of a piece that only comes in 16 x 16, such as a
+                // cliff, without cutting its band, so it stays off them.
+                const auto onFixed = [&](int cx, int cy) { return (brushCellPieceSizes(cx / 2, cy / 2) & kFixedPiece) != 0; };
+                bool fixed = false;
+                for (const BrushCell& planCell : plan.cells) {
+                    fixed = fixed || onFixed(planCell.x, planCell.y);
+                }
+                for (int cy = blockY; !cornerBrush && !fixed && cy < blockY + blockCells; ++cy) {
+                    for (int cx = blockX; cx < blockX + blockCells && !fixed; ++cx) {
+                        fixed = cx >= 0 && cy >= 0 && cx < cellsX && cy < cellsY && onFixed(cx, cy);
+                    }
+                }
+                if (fixed) {
+                    coarseOnlyPiece_ = "The cliff, slope, ridge or river here";
+                    return BrushOutcome::NeedsCoarse;
+                }
+            }
+            if (cell == kBrushCellTiles && mayRefine && bandLists && brushCellTiles() == kBrushCellTiles
+                && coarseStrokeMeetsFineBand(plan, cellsX, cellsY, blockX, blockY, cornerBrush ? 0 : blockCells, pieceSizes)) {
+                bool haveFine = false;
+                for (const BrushPiece& piece : brushPieces_) {
+                    haveFine = haveFine || piece.tiles == kFineCellTiles;
+                }
+                if (haveFine) {
+                    return BrushOutcome::NeedsFine;
+                }
+            }
             std::vector<std::string> missing;
+            // An 8 tile stroke that needs a piece only the 16 x 16 set has, such as a cliff.
+            bool coarseOnly = false;
             const auto noteMissing = [&](const std::string& what) {
                 if (std::find(missing.begin(), missing.end(), what) == missing.end()) {
                     missing.push_back(what);
                 }
             };
+            std::string foreignGround;
             for (const BrushCell& ringCell : plan.cells) {
+                // A cell holding ground this brush cannot join would be read wrongly by its height and
+                // redrawn with pieces that do not fit it. Cells redrawn only to match are skipped.
+                if (const std::string foreign = foreignGroundIn(ringCell.x * cell, ringCell.y * cell, cell, cell); !foreign.empty()) {
+                    if (!ringCell.matched && foreignGround.empty()) {
+                        foreignGround = foreign;
+                    }
+                    continue;
+                }
                 const BrushPaint* lower = levels[static_cast<std::size_t>(ringCell.level)];
                 if (ringCell.mask == 0) {
                     // Flat ground: the cell is all one base again.
                     const std::vector<BrushStroke*> flat = strokesFor(lower->name, cell, lower->category);
                     if (flat.empty()) {
-                        noteMissing(lower->name + " " + brushSizeLabel(cell) + " brush stroke");
+                        if (!ringCell.matched) {
+                            noteMissing(lower->name + " " + brushSizeLabel(cell) + " brush stroke");
+                        }
                         continue;
                     }
-                    BrushStroke* stroke = pickOne(flat);
-                    loadStamp(stroke->stamp, stroke->sectionPath, stroke->name);
+                    BrushStroke* stroke = flatStrokeAt(flat, ringCell.x, ringCell.y);
+                    loadStroke(*stroke);
                     planned.push_back(PlannedStamp{&*stroke->stamp, ringCell.x * cell, ringCell.y * cell});
                     continue;
                 }
                 const BrushPaint* upper = levels[static_cast<std::size_t>(ringCell.upper)];
                 const std::string piece = brushPieceName(graph, ringCell.corners, brushCoastLiquid_);
                 if (piece.empty()) {
-                    noteMissing("a piece joining " + lower->name + " to " + upper->name);
+                    // A cell redrawn only to match its neighbours keeps its old picture when no piece fits it.
+                    if (!ringCell.matched) {
+                        noteMissing("a piece joining " + lower->name + " to " + upper->name);
+                    }
                     continue;
                 }
-                const std::vector<BrushPiece*> pieces = piecesFor(armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category, piece);
+                const std::string& pieceCategory = armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
+                const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
+                if (pieces.empty() && ringCell.matched) {
+                    continue;
+                }
                 if (pieces.empty()) {
+                    if (cell != kBrushCellTiles && !piecesFor(pieceCategory, piece, kBrushCellTiles).empty()) {
+                        // Only a 16 x 16 piece draws this, such as a cliff. A 16 x 16 piece among 8 x 8 ones
+                        // would leave its band jumping at the cell's edge, so the stroke is not painted 8 x 8.
+                        if (!coarseOnly) {
+                            coarseOnlyPiece_ = piece;
+                        }
+                        coarseOnly = true;
+                    }
                     noteMissing(piece);
                     continue;
                 }
                 BrushPiece* transition = pickOne(pieces);
                 loadStamp(transition->stamp, transition->sectionPath, transition->name);
-                planned.push_back(PlannedStamp{&*transition->stamp, ringCell.x * cell, ringCell.y * cell});
+                const SectionStamp* stamp = &*transition->stamp;
+                if (transition->tiles == kFineCellTiles) {
+                    // Its flat ground lines up with the same ground around it.
+                    std::vector<const PaletteImage*> grounds;
+                    for (const int corner : ringCell.corners) {
+                        const BrushPaint* land = levels[static_cast<std::size_t>(corner)];
+                        const PaletteImage* ground = brushGround(land->category, land->name);
+                        if (ground != nullptr && std::find(grounds.begin(), grounds.end(), ground) == grounds.end()) {
+                            grounds.push_back(ground);
+                        }
+                    }
+                    anchored.push_back(anchorPieceGround(*stamp, grounds, ringCell.x * cell, ringCell.y * cell));
+                    stamp = &anchored.back();
+                }
+                planned.push_back(PlannedStamp{stamp, ringCell.x * cell, ringCell.y * cell});
                 ++transitionPieces;
+            }
+            if (!foreignGround.empty()) {
+                statusNote_ = foreignGround + " is in the way: " + brushWorld_ + " has no pieces that join it";
+                error_.clear();
+                return BrushOutcome::Done;
+            }
+            if (coarseOnly) {
+                return BrushOutcome::NeedsCoarse;
             }
             if (!missing.empty()) {
                 // The tileset is not finished for this paint yet, so the map is left alone.
@@ -11239,7 +11562,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
                 }
                 statusNote_ = note + " for " + brushName_;
                 error_.clear();
-                return;
+                return BrushOutcome::Done;
             }
         }
 
@@ -11261,6 +11584,11 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
             if (!cornerBrush && transitionPieces > 0) {
                 note += " with " + std::to_string(transitionPieces) + (transitionPieces == 1 ? " transition piece" : " transition pieces");
             }
+            if (matchedCells > 0) {
+                note += ", and redrew " + std::to_string(matchedCells) + (matchedCells == 1 ? " 16 x 16 cell" : " 16 x 16 cells")
+                    + " of its band as 8 x 8 to match";
+            }
+
             if (changes.size() == 1) {
                 rememberPlacement(std::move(changes.front()));
             } else {
@@ -11273,6 +11601,7 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     } catch (const std::exception& ex) {
         error_ = ex.what();
     }
+    return BrushOutcome::Done;
 }
 
 int EditorApp::hillSpan() const {
@@ -12352,6 +12681,13 @@ void EditorApp::ensureBrushPaints() {
     riverCatalog_.clear();
     riverCatalogReady_ = false;
     brushTilesetPath_.clear();
+    coarseBandTiles_.clear();
+    fineBandTiles_.clear();
+    fixedTiles_.clear();
+    foreignPictures_.clear();
+    foreignNames_.clear();
+    brushGrounds_.clear();
+    brushBaseTiles_.clear();
     brushCoastLiquid_ = "Water";
     brushCatalogKey_ = key;
     if (source == nullptr) {
@@ -12368,7 +12704,9 @@ void EditorApp::ensureBrushPaints() {
         || lowerText(brushWorld_) == "metal";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
-        const bool blend = blendWorld && lowerText(section.world) == "blendtiles";
+        std::string sectionKind;
+        const int sectionTiles = brushPieceFolderTiles(section.world, sectionKind);
+        const bool blend = blendWorld && lowerText(sectionKind) == "blendtiles";
         const bool greenHill = lowerText(brushWorld_) == "greenworld" && lowerText(section.world) == "greenworld"
             && lowerText(section.category) == "hills";
         const bool greenIsland = lowerText(brushWorld_) == "greenworld" && lowerText(section.world) == "greenworld"
@@ -12488,6 +12826,7 @@ void EditorApp::ensureBrushPaints() {
             cliff.name = section.name;
             cliff.category = section.category;
             cliff.sectionPath = section.archivePath;
+            cliff.tiles = sectionTiles;
             brushPieces_.push_back(std::move(cliff));
         }
         if (greenHill) {
@@ -12931,6 +13270,61 @@ void EditorApp::ensureBrushPaints() {
             break;
         }
     }
+    // The band tiles of both sizes of piece, so a stroke can keep each band one size.
+    for (const auto& [path, into] : {std::pair<const char*, std::vector<std::uint64_t>*>{kCoarseBandTilesPath, &coarseBandTiles_},
+             std::pair<const char*, std::vector<std::uint64_t>*>{kFineBandTilesPath, &fineBandTiles_},
+             std::pair<const char*, std::vector<std::uint64_t>*>{kFixedTilesPath, &fixedTiles_}}) {
+        try {
+            if (const HpiFile* file = source->archive().find(path)) {
+                *into = decodeTileHashes(source->archive().extract(*file));
+            }
+        } catch (const std::exception&) {
+        }
+    }
+    // The 4 x 4 and 8 x 8 brushes fill flat cells with 8 x 8 strokes. A land with none of its own,
+    // which is every land but GreenWorld, uses the four quarters of each of its 16 x 16 strokes.
+    {
+        std::vector<std::pair<std::string, std::string>> lands;
+        for (const BrushPaint& paint : brushPaints_) {
+            if (paint.kind == BrushKind::Base && trailingNumber(paint.name) >= 0) {
+                lands.emplace_back(paint.category, paint.name);
+            }
+        }
+        for (const BrushPaint& partner : brushPartners_) {
+            lands.emplace_back(partner.category, partner.name);
+        }
+        std::vector<BrushStroke> quarters;
+        for (const auto& [category, name] : lands) {
+            bool haveFine = false;
+            for (const BrushStroke& stroke : brushStrokes_) {
+                haveFine = haveFine || (brushCategoryMatches(stroke.category, category) && brushStrokeVariation(stroke.name, name, kFineCellTiles) >= 0);
+            }
+            if (haveFine) {
+                continue;
+            }
+            int number = 0;
+            for (const BrushStroke& stroke : brushStrokes_) {
+                if (!brushCategoryMatches(stroke.category, category) || brushStrokeVariation(stroke.name, name, kBrushCellTiles) < 0) {
+                    continue;
+                }
+                for (int quarter = 0; quarter < 4; ++quarter) {
+                    BrushStroke fine;
+                    char suffix[24];
+                    std::snprintf(suffix, sizeof(suffix), "-%dx%d-%02d", kFineCellTiles, kFineCellTiles, ++number);
+                    fine.name = name + suffix;
+                    fine.category = stroke.category;
+                    fine.sectionPath = stroke.sectionPath;
+                    fine.cropX = (quarter & 1) * kFineCellTiles;
+                    fine.cropY = (quarter >> 1) * kFineCellTiles;
+                    fine.cropTiles = kFineCellTiles;
+                    quarters.push_back(std::move(fine));
+                }
+            }
+        }
+        for (BrushStroke& stroke : quarters) {
+            brushStrokes_.push_back(std::move(stroke));
+        }
+    }
     std::vector<const BrushPaint*> pictured;
     for (const BrushPaint& paint : brushPaints_) {
         if (paint.kind == BrushKind::Base && trailingNumber(paint.name) >= 0) {
@@ -13148,6 +13542,36 @@ void EditorApp::ensureBrushPaints() {
                     continue;
                 }
                 rememberPath(piece.sectionPath, lavaGround->category, lavaGround->name, true, lavaLiquid->category, lavaLiquid->name);
+            }
+        }
+        // A partner land's own coasts, such as a lava shore beside GreenWorld: the brush has no pieces
+        // for that land's liquid, but the shore's land side is the partner land. Its rim rises above
+        // the land, nearer GreenWorld's Base-85 than its own liquid, so without the pictures that rim
+        // is read as GreenWorld ground. Each tile is the partner land when its height is nearer that
+        // land than the liquid; the liquid side is read by its height as before.
+        for (const BrushPaint& partner : brushPartners_) {
+            int liquid = -1;
+            std::string liquidName;
+            for (const TilesetSection& section : source->sections) {
+                if (isBaseBrushTile(section.world, section.name) && lowerText(section.category) == lowerText(partner.category)) {
+                    const int height = trailingNumber(section.name);
+                    if (height >= 0 && (liquid < 0 || height < liquid)) {
+                        liquid = height;
+                        liquidName = section.name;
+                    }
+                }
+            }
+            if (liquid < 0 || liquid >= trailingNumber(partner.name)) {
+                continue;
+            }
+            for (const TilesetSection& section : source->sections) {
+                std::string kind;
+                brushPieceFolderTiles(section.world, kind);
+                const std::string folder = lowerText(kind);
+                if (lowerText(section.category) != lowerText(partner.category) || (folder != "coasttiles" && folder != "coastdsl")) {
+                    continue;
+                }
+                rememberPath(section.archivePath, partner.category, partner.name, true, partner.category, liquidName);
             }
         }
         // A lava cliff rises from Base-86 to Base-190. Heights along that face also
@@ -16414,6 +16838,106 @@ void EditorApp::ensureBrushPaints() {
             addHillButton("Rocky-0 8x8", seaIcons[2]);
             addHillButton("Island-0 Medium", seaIcons[3]);
             addHillButton("Island-0 Large", seaIcons[4]);
+        }
+    }
+    if (!brushCatalogStampsOnly_) {
+        // The flat ground of every base this brush cannot join: every base of the tileset that is
+        // neither one of this tileset's own nor a partner land. Pictures those share with a base the
+        // brush knows, such as one water drawn for two tilesets, stay with the known base.
+        const auto isLevel = [&](const std::string& category, const std::string& name) {
+            for (const BrushPaint& paint : brushPaints_) {
+                if (paint.kind == BrushKind::Base && lowerText(paint.category) == lowerText(category) && lowerText(paint.name) == lowerText(name)) {
+                    return true;
+                }
+            }
+            for (const BrushPaint& partner : brushPartners_) {
+                if (lowerText(partner.category) == lowerText(category) && lowerText(partner.name) == lowerText(name)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        const auto picturesOf = [&](const TilesetSection& section, const std::function<void(std::uint64_t)>& visit) {
+            try {
+                if (const HpiFile* file = source->archive().find(section.archivePath)) {
+                    const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                    for (int tile = 0; tile < stamp.tileCount; ++tile) {
+                        visit(hashBrushTile(stamp.tileImages.data() + static_cast<std::size_t>(tile) * 1024));
+                    }
+                }
+            } catch (const std::exception&) {
+            }
+        };
+        std::unordered_set<std::uint64_t> known;
+        for (const TilesetSection& section : source->sections) {
+            const bool base = isBaseBrushTile(section.world, section.name);
+            bool stroke = false;
+            if (isBrushStrokeWorld(section.world)) {
+                for (const int size : {1, 2, 4, 8, 16, 32, 64, 128, 256, 512}) {
+                    for (const BrushPaint& partner : brushPartners_) {
+                        stroke = stroke || brushStrokeVariation(section.name, partner.name, size) >= 0;
+                    }
+                    for (const BrushPaint& paint : brushPaints_) {
+                        stroke = stroke || brushStrokeVariation(section.name, paint.name, size) >= 0;
+                    }
+                }
+            }
+            if ((base || stroke) && (stroke || isLevel(section.category, section.name))) {
+                picturesOf(section, [&](std::uint64_t hash) { known.insert(hash); });
+            }
+        }
+        brushBaseTiles_ = known;
+        // Each picture's bases, then one name for them. A picture several bases share, such as the water
+        // GreenWorld, Ice and Metal all use, is named after the tilesets the brush works with.
+        struct Owner {
+            std::string category;
+            std::string name;
+            bool related = false;
+        };
+        std::unordered_map<std::uint64_t, std::vector<Owner>> owners;
+        for (const TilesetSection& section : source->sections) {
+            if (!isBaseBrushTile(section.world, section.name) || isLevel(section.category, section.name)) {
+                continue;
+            }
+            bool related = false;
+            for (const BrushPaint& paint : brushPaints_) {
+                related = related || lowerText(paint.category) == lowerText(section.category);
+            }
+            for (const BrushPaint& partner : brushPartners_) {
+                related = related || lowerText(partner.category) == lowerText(section.category);
+            }
+            // Only the known bases' own pictures count against it: a partner's shore is remembered with
+            // its liquid's tiles too, and those are still that liquid.
+            picturesOf(section, [&](std::uint64_t hash) {
+                if (known.count(hash) == 0) {
+                    std::vector<Owner>& list = owners[hash];
+                    const bool listed = std::any_of(list.begin(), list.end(), [&](const Owner& owner) {
+                        return owner.category == section.category && owner.name == section.name;
+                    });
+                    if (!listed) {
+                        list.push_back(Owner{section.category, section.name, related});
+                    }
+                }
+            });
+        }
+        for (const auto& [hash, list] : owners) {
+            const bool anyRelated = std::any_of(list.begin(), list.end(), [](const Owner& owner) { return owner.related; });
+            std::vector<const Owner*> named;
+            for (const Owner& owner : list) {
+                if (owner.related || !anyRelated) {
+                    named.push_back(&owner);
+                }
+            }
+            const bool sameBase = std::all_of(named.begin(), named.end(), [&](const Owner* owner) { return owner->name == named.front()->name; });
+            std::string label;
+            for (std::size_t i = 0; i < named.size(); ++i) {
+                label += i == 0 ? "" : (i + 1 == named.size() ? " or " : ", ");
+                label += sameBase ? named[i]->category : named[i]->category + " " + named[i]->name;
+            }
+            if (sameBase) {
+                label += " " + named.front()->name;
+            }
+            foreignPictures_.emplace(hash, label);
         }
     }
     if (!brushName_.empty()) {

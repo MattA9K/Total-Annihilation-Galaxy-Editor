@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/BrushStrokes.hpp"
+#include "core/PieceScaler.hpp"
 #include "core/OrbitCamera.hpp"
 #include "core/RandomMap.hpp"
 #include "core/RiverBrush.hpp"
@@ -235,6 +237,43 @@ private:
     void armBrush(const std::string& name);
     // Stamps one random BaseTileBrushStrokes variation for the armed paint and size.
     void paintBrushStroke(int tileX, int tileY);
+    // One base brush stroke on cells of cellTiles tiles. NeedsCoarse, with the map left alone, when an
+    // 8 tile stroke needs a piece only the 16 x 16 set has, such as a cliff. NeedsFine when a 16 tile
+    // stroke would put a 16 x 16 piece beside an 8 x 8 band, which it checks only when mayRefine is set.
+    // footprintTiles is the grid the painted block is placed on: a 16 x 16 stroke moved onto the 8 tile
+    // cells keeps the footprint its outline showed.
+    enum class BrushOutcome { Done, NeedsCoarse, NeedsFine };
+    BrushOutcome paintBaseBrush(int tileX, int tileY, int cellTiles, bool mayRefine, int footprintTiles);
+    // Which sizes of brush piece the 16 x 16 cell at cellX, cellY holds: kCoarseBand, kFineBand,
+    // both, or 0. Read from the tile pictures and the tileset's lists of band tiles.
+    int brushCellPieceSizes(int cellX, int cellY) const;
+    // The band tiles of the tileset's 16 x 16 and 8 x 8 pieces, sorted. Empty for a tileset without the lists.
+    std::vector<std::uint64_t> coarseBandTiles_;
+    std::vector<std::uint64_t> fineBandTiles_;
+    // The tiles of the pieces that only come in 16 x 16, such as cliffs and rivers, sorted.
+    std::vector<std::uint64_t> fixedTiles_;
+    // Pictures of the flat ground of other tilesets' bases, which this brush has no pieces to join,
+    // such as Lava Base-41 while GreenWorld is chosen, with the base's name. A stroke that would
+    // redraw a cell holding one is refused: read by its height, the lava would pass for shallow water.
+    std::unordered_map<std::uint64_t, std::string> foreignPictures_;
+    // The name of the other base in the cell, or empty, for the stroke being planned.
+    std::string foreignGroundIn(int tileX, int tileY, int width, int height) const;
+    mutable std::unordered_map<std::uint32_t, int> pictureForeign_;
+    // Pictures of the flat ground of this brush's own bases and partner lands, with their strokes.
+    std::unordered_set<std::uint64_t> brushBaseTiles_;
+    mutable std::vector<std::string> foreignNames_;
+    // The flat ground of each land, from its BaseTiles section, by "category/name" in lower case. The
+    // 8 x 8 pieces are shifted onto the map's grid with it. Read on first use.
+    std::unordered_map<std::string, PaletteImage> brushGrounds_;
+    const PaletteImage* brushGround(const std::string& category, const std::string& name);
+    // The band sizes of each tile picture on the map, by picture index, for the stroke being planned.
+    // Cleared at the start of every stroke, since a stroke adds pictures and undo takes them away.
+    mutable std::unordered_map<std::uint32_t, int> pictureBandSizes_;
+    // The first piece an 8 tile stroke needed that only the 16 x 16 set has, for the status bar.
+    std::string coarseOnlyPiece_;
+    // The cell size the armed base brush paints on: 8 for the 4 x 4 and 8 x 8 brushes when the
+    // tileset has 8 x 8 pieces, otherwise 16.
+    int brushCellTiles() const;
     // River, bridge, ridge and spacer brushes work on one 16 x 16 cell and read the map to choose the piece.
     void ensureRiverCatalog();
     RiverPlan riverPlanAt(int cellX, int cellY, BrushKind kind);
@@ -538,19 +577,26 @@ private:
     // brush reads those tiles by height. Each entry lists the bases as category and name.
     std::unordered_map<std::uint64_t, std::vector<std::pair<std::string, std::string>>> sharedPictures_;
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
+    // A land with no 8 x 8 stroke of its own gets four, one for each quarter of a 16 x 16 one:
+    // cropTiles is then 8 and cropX and cropY say which quarter, in tiles.
     struct BrushStroke {
         std::string name;
         std::string category;
         std::string sectionPath;
         std::optional<SectionStamp> stamp;
+        int cropX = 0;
+        int cropY = 0;
+        int cropTiles = 0;
     };
     std::vector<BrushStroke> brushStrokes_;
     // CliffTiles and CoastTiles sections, such as Cliff-High-BR-01 and Coast-Water-B-01. Loaded on first use.
+    // tiles is 16, or 8 for the halved pieces in the -8x8 folders that the 4 x 4 and 8 x 8 brushes use.
     struct BrushPiece {
         std::string name;
         std::string category;
         std::string sectionPath;
         std::optional<SectionStamp> stamp;
+        int tiles = kBrushCellTiles;
     };
     std::vector<BrushPiece> brushPieces_;
     // Sections from the Rivers folder, such as River-Horizontal-02 and RiverB-L-B-01. Loaded on first use.
