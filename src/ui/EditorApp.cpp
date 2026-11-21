@@ -11327,10 +11327,14 @@ void EditorApp::hillOrigin(int tileX, int tileY, int width, int height, int& ori
         return;
     }
     // Each side snaps on its own, so a 56 x 32 plateau lines up the same way a square does.
-    // Wider than a cell: centered on the cell corner nearest the pointer, the way a 32 x 32
-    // pool covers four cells. A cell or less: the cell, or the 8 x 8 quadrant, under the pointer.
+    // An odd number of cells, such as a 48 x 48 island: centered on the cell under the pointer.
+    // Wider than a cell otherwise: centered on the cell corner nearest the pointer, the way a
+    // 32 x 32 pool covers four cells. A cell or less: the cell, or the 8 x 8 quadrant, under it.
     const auto axis = [](int tile, int size) {
         const int cell = kBrushCellTiles;
+        if (size > cell && size % cell == 0 && (size / cell) % 2 == 1) {
+            return (tile >= 0 ? tile / cell : -1) * cell - (size / cell / 2) * cell;
+        }
         if (size > cell) {
             return (tile + cell / 2) / cell * cell - size / 2;
         }
@@ -12370,6 +12374,10 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "hill_";
         const bool lavaPoolSection = lowerText(brushWorld_) == "lava" && lowerText(section.world) == "lava"
             && lowerText(section.category) == "pools";
+        // Lava.hpi isle L-isle01 to L-isle10, 48 x 48 islands in the lava sea. Their copies in
+        // the favorites have every height under 41 raised to 41, so the lava sits on Base-41.
+        const bool lavaIsleSection = lowerText(brushWorld_) == "lava" && lowerText(section.world) == "lava"
+            && lowerText(section.category) == "isle";
         const bool marsHillSection = lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
             && lowerText(section.category) == "hills";
         const bool marsPoolSection = lowerText(brushWorld_) == "mars" && lowerText(section.world) == "mars"
@@ -12449,7 +12457,7 @@ void EditorApp::ensureBrushPaints() {
         const bool archipelagoIsland = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "islands";
         if (!brushCategoryMatches(section.category, brushWorld_) && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
-            && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection
+            && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
             && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
@@ -12550,6 +12558,16 @@ void EditorApp::ensureBrushPaints() {
             hill.name = section.name;
             hill.sectionPath = section.archivePath;
             hill.hill85 = true;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (lavaIsleSection) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = "Island 48x48";
+            hill.noun = "island";
+            hill.baseName = "base-41";
+            hill.baseHeight = 41;
             hillSections_.push_back(std::move(hill));
         }
         if (lavaPoolSection) {
@@ -16188,6 +16206,13 @@ void EditorApp::ensureBrushPaints() {
             addHillButton("Pool-86 8x8", lavaPools[0]);
             addHillButton("Pool-86 16x16", lavaPools[1]);
             addHillButton("Pool-86 32x32", lavaPools[2]);
+            std::string isle;
+            for (const HillSection& hill : hillSections_) {
+                if (hill.group == "Island 48x48" && hill.tiles > 0 && isle.empty()) {
+                    isle = hill.sectionPath;
+                }
+            }
+            addHillButton("Island 48x48", isle);
         }
         if (lushPools) {
             std::string pool8;
