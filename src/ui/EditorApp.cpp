@@ -50,6 +50,76 @@
 #include <utility>
 
 namespace galaxy {
+
+// The part of a random map that runs on another thread: the script, then the tiles and
+// stamps that draw it. The map itself is only changed back on the main thread.
+struct RandomMapJob {
+    std::uint64_t serial = 0;
+    const RandomMapTiles* tiles = nullptr;
+    std::vector<RandomMapStampBrush> stampBrushes;
+    RmsScript script;
+    std::vector<int> levels;
+    std::optional<BrushCanvas> canvas;
+    RmsTerrainNames names;
+    RmsObjectSettings objects;
+    std::mt19937 rng;
+    int players = 2;
+    int tileWidth = 0;
+    int tileHeight = 0;
+
+    RandomMapOutcome outcome;
+    RandomMapStampPlan plan;
+    std::vector<RmsMessage> stampNotes;
+    std::size_t groundStamps = 0;
+    std::string failure;
+    bool cancelled = false;
+
+    std::atomic<int> step{0};
+    std::atomic<double> fraction{0.0};
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> done{false};
+    // Set once the work is back, so the window shows the last step for a frame first.
+    bool building = false;
+
+    void run() {
+        try {
+            RandomMapOptions options;
+            options.players = players;
+            options.objects = &objects;
+            options.cancel = &cancel;
+            options.progress = [this](RandomMapStage stage, double done) {
+                step = static_cast<int>(RandomMapStep::Lands) + static_cast<int>(stage);
+                fraction = done;
+            };
+            outcome = runRandomMapScript(script, *canvas, names, options, rng);
+            step = static_cast<int>(RandomMapStep::Tiles);
+            fraction = 0.0;
+            canvas->repair([&](const std::array<int, 4>& corners) { return !tiles->pieces(canvas->graph(), levels, corners).empty(); });
+            fraction = 0.3;
+            if (cancel) {
+                throw RandomMapCancelled();
+            }
+            plan = planRandomMapStamps(*tiles, levels, *canvas, rng);
+            if (cancel) {
+                throw RandomMapCancelled();
+            }
+            // Hills, rough patches and islands go over the painted ground.
+            step = static_cast<int>(RandomMapStep::Stamps);
+            fraction = 0.0;
+            groundStamps = plan.stamps.size();
+            for (RandomMapStamp& stamp : planStampBrushes(script, outcome, stampBrushes, *canvas, names, tileWidth, tileHeight, rng, stampNotes)) {
+                plan.stamps.push_back(std::move(stamp));
+            }
+            fraction = 1.0;
+        } catch (const RandomMapCancelled&) {
+            cancelled = true;
+        } catch (const std::exception& ex) {
+            failure = ex.what();
+        }
+        done = true;
+    }
+};
+
 namespace {
 
 ImU32 featureColor(std::string_view name) {
@@ -9319,6 +9389,25 @@ std::vector<RandomMapStampBrush> EditorApp::collectStampBrushes() {
     const std::string savedWorld = brushWorld_;
     const std::string savedName = brushName_;
     const int savedNext = nextSeaIsland_;
+    // The Tile Brush's own catalog is set aside while each world's stamps are read, and put
+    // back after, so the brush does not rebuild it.
+    auto savedBrushCatalogKey = std::move(brushCatalogKey_);
+    auto savedBrushCoastLiquid = std::move(brushCoastLiquid_);
+    auto savedBrushPaints = std::move(brushPaints_);
+    auto savedBrushPartners = std::move(brushPartners_);
+    auto savedBrushPictures = std::move(brushPictures_);
+    auto savedBrushPieces = std::move(brushPieces_);
+    auto savedBrushStrokes = std::move(brushStrokes_);
+    auto savedBrushTilesetPath = std::move(brushTilesetPath_);
+    auto savedDunePictures = std::move(dunePictures_);
+    auto savedHillSections = std::move(hillSections_);
+    auto savedRiverCatalogReady = std::move(riverCatalogReady_);
+    auto savedRiverCatalog = std::move(riverCatalog_);
+    auto savedRiverSections = std::move(riverSections_);
+    auto savedSharedPictures = std::move(sharedPictures_);
+    brushPaints_.clear();
+    brushCatalogKey_.clear();
+    brushCatalogStampsOnly_ = true;
     for (const std::string& world : worlds) {
         // Arm each world in turn: its catalog lists the stamp buttons and measures their pieces.
         brushWorld_ = world;
@@ -9388,9 +9477,27 @@ std::vector<RandomMapStampBrush> EditorApp::collectStampBrushes() {
             }
         }
     }
+    brushCatalogStampsOnly_ = false;
     brushWorld_ = savedWorld;
     brushName_ = savedName;
     nextSeaIsland_ = savedNext;
+    for (BrushPaint& paint : brushPaints_) {
+        destroyTexture(paint.preview);
+    }
+    brushCatalogKey_ = std::move(savedBrushCatalogKey);
+    brushCoastLiquid_ = std::move(savedBrushCoastLiquid);
+    brushPaints_ = std::move(savedBrushPaints);
+    brushPartners_ = std::move(savedBrushPartners);
+    brushPictures_ = std::move(savedBrushPictures);
+    brushPieces_ = std::move(savedBrushPieces);
+    brushStrokes_ = std::move(savedBrushStrokes);
+    brushTilesetPath_ = std::move(savedBrushTilesetPath);
+    dunePictures_ = std::move(savedDunePictures);
+    hillSections_ = std::move(savedHillSections);
+    riverCatalogReady_ = std::move(savedRiverCatalogReady);
+    riverCatalog_ = std::move(savedRiverCatalog);
+    riverSections_ = std::move(savedRiverSections);
+    sharedPictures_ = std::move(savedSharedPictures);
     ensureBrushPaints();
     return brushes;
 }
@@ -9404,6 +9511,22 @@ void EditorApp::ensureStampBrushes() {
 }
 
 bool EditorApp::generateRandomMap() {
+    if (!startRandomMap()) {
+        return false;
+    }
+    if (randomMapWork_.valid()) {
+        randomMapWork_.wait();
+    }
+    while (randomMapJob_) {
+        finishRandomMap();
+    }
+    return !randomMapFailed_;
+}
+
+bool EditorApp::startRandomMap() {
+    if (randomMapJob_) {
+        return false;
+    }
     randomMapNotes_.clear();
     randomMapResult_.clear();
     randomMapFailed_ = true;
@@ -9431,8 +9554,12 @@ bool EditorApp::generateRandomMap() {
 
     try {
         ensureStampBrushes();
-        const std::vector<RandomMapStampBrush>& stampBrushes = randomMapStampBrushes_;
-        const auto stampNamed = [&](std::string_view name) -> const RandomMapStampBrush* {
+        auto job = std::make_shared<RandomMapJob>();
+        job->serial = mapSerial_;
+        job->tiles = &tiles;
+        job->stampBrushes = randomMapStampBrushes_;
+        const auto stampNamed = [job = job.get()](std::string_view name) -> const RandomMapStampBrush* {
+            const std::vector<RandomMapStampBrush>& stampBrushes = job->stampBrushes;
             std::string wanted(name);
             for (char& character : wanted) {
                 character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
@@ -9448,10 +9575,12 @@ bool EditorApp::generateRandomMap() {
         const int cellsX = (map_->tileWidth + cell - 1) / cell;
         const int cellsY = (map_->tileHeight + cell - 1) / cell;
         const int players = std::clamp(randomMapPlayers_, 1, 10);
-        std::mt19937 rng(static_cast<std::uint32_t>(randomMapSeed_));
+        job->rng.seed(static_cast<std::uint32_t>(randomMapSeed_));
+        std::mt19937& rng = job->rng;
         RmsScriptSettings settings;
         settings.conditions = rmsConditions(players, cellsX, cellsY);
-        const RmsScript script = readRandomMapScript(randomMapScript_, settings, rng);
+        job->script = readRandomMapScript(randomMapScript_, settings, rng);
+        const RmsScript& script = job->script;
 
         // The brush's levels are every base of each world the script names.
         std::vector<int> used;
@@ -9474,23 +9603,28 @@ bool EditorApp::generateRandomMap() {
         if (used.empty() && tiles.findPaint(kRandomMapFallbackTerrain) >= 0) {
             used.push_back(tiles.findPaint(kRandomMapFallbackTerrain));
         }
-        const std::vector<int> levels = tiles.levelsFor(used);
+        job->levels = tiles.levelsFor(used);
+        const std::vector<int>& levels = job->levels;
         if (levels.empty()) {
             randomMapResult_ = text(Text::RandomMapNoTileset);
             return false;
         }
-        BrushCanvas canvas(cellsX + 1, cellsY + 1, tiles.graphFor(levels));
-        RmsTerrainNames names;
-        names.find = [&](std::string_view name) {
+        job->canvas.emplace(cellsX + 1, cellsY + 1, tiles.graphFor(levels));
+        RmsTerrainNames& names = job->names;
+        names.find = [job = job.get()](std::string_view name) {
+            const RandomMapTiles& tiles = *job->tiles;
+            const std::vector<int>& levels = job->levels;
             const int paint = tiles.findPaint(name);
             const auto found = std::find(levels.begin(), levels.end(), paint);
             return paint < 0 || found == levels.end() ? -1 : static_cast<int>(found - levels.begin());
         };
         names.fallback = std::max(0, names.find(kRandomMapFallbackTerrain));
-        names.isStamp = [&](std::string_view name) { return stampNamed(name) != nullptr; };
+        names.isStamp = [stampNamed](std::string_view name) { return stampNamed(name) != nullptr; };
         // A cliff rises to the nearest higher base of the same world that the Tile
         // Brush joins with cliff faces: GreenWorld Base-85 to Base-219, Lava Base-86 to Base-190.
-        names.cliffAbove = [&](int terrain) {
+        names.cliffAbove = [job = job.get()](int terrain) {
+            const RandomMapTiles& tiles = *job->tiles;
+            const std::vector<int>& levels = job->levels;
             if (terrain < 0 || static_cast<std::size_t>(terrain) >= levels.size()) {
                 return -1;
             }
@@ -9512,7 +9646,7 @@ bool EditorApp::generateRandomMap() {
         };
         // Features come from every loaded archive: the game's own and TA_Features_2013.ccx.
         // Where two archives define one name, the first one loaded wins, as in the Features tab.
-        RmsObjectSettings objects;
+        RmsObjectSettings& objects = job->objects;
         {
             std::unordered_set<std::string> seen;
             for (const TilesetArchive& archive : tilesets_.archives()) {
@@ -9543,20 +9677,130 @@ bool EditorApp::generateRandomMap() {
             objects.cellsHigh = map_->heightHeight();
             objects.cellsPerNode = kBrushCellTiles * 2;
         }
-        RandomMapOptions options;
-        options.players = players;
-        options.objects = &objects;
-        const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
-        canvas.repair([&](const std::array<int, 4>& corners) { return !tiles.pieces(canvas.graph(), levels, corners).empty(); });
-        RandomMapStampPlan plan = planRandomMapStamps(tiles, levels, canvas, rng);
-        // Hills, rough patches and islands go over the painted ground.
-        std::vector<RmsMessage> stampNotes;
-        // The painted ground comes first; hills, rough patches and islands after it.
-        const std::size_t groundStamps = plan.stamps.size();
-        for (RandomMapStamp& stamp : planStampBrushes(script, outcome, stampBrushes, canvas, names, map_->tileWidth, map_->tileHeight, rng, stampNotes)) {
-            plan.stamps.push_back(std::move(stamp));
-        }
+        job->players = players;
+        job->tileWidth = map_->tileWidth;
+        job->tileHeight = map_->tileHeight;
+        job->step = static_cast<int>(RandomMapStep::Lands);
+        randomMapJob_ = job;
+        randomMapWork_ = std::async(std::launch::async, [job]() { job->run(); });
+        statusNote_ = text(Text::RandomMapGenerating);
+        return true;
+    } catch (const std::exception& ex) {
+        randomMapResult_ = ex.what();
+        return false;
+    }
+}
 
+void EditorApp::cancelRandomMap() {
+    if (randomMapJob_) {
+        randomMapJob_->cancel = true;
+    }
+}
+
+EditorApp::~EditorApp() {
+    // A random map still running is told to stop; the future then waits for it.
+    cancelRandomMap();
+    if (randomMapWork_.valid()) {
+        randomMapWork_.wait();
+    }
+}
+
+void EditorApp::drawRandomMapProgress() {
+    const std::string title = withId(Text::RandomMapProgressTitle, "Random Map Progress");
+    if (randomMapJob_ && !ImGui::IsPopupOpen(title.c_str())) {
+        ImGui::OpenPopup(title.c_str());
+    }
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, theme::alertFlags())) {
+        return;
+    }
+    if (!randomMapJob_) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    // Each step's share of the bar, roughly how long it takes on a big map.
+    static constexpr double kWeights[] = {0.03, 0.10, 0.02, 0.05, 0.10, 0.05, 0.45, 0.12, 0.03, 0.05};
+    static constexpr Text kLabels[] = {Text::RandomMapStepPreparing, Text::RandomMapStepLands, Text::RandomMapStepElevation,
+                                       Text::RandomMapStepCliffs, Text::RandomMapStepTerrain, Text::RandomMapStepConnections,
+                                       Text::RandomMapStepObjects, Text::RandomMapStepTiles, Text::RandomMapStepStamps,
+                                       Text::RandomMapStepBuilding};
+    static_assert(std::size(kWeights) == static_cast<std::size_t>(RandomMapStep::Count));
+    static_assert(std::size(kLabels) == static_cast<std::size_t>(RandomMapStep::Count));
+    const int step = std::clamp(randomMapJob_->step.load(), 0, static_cast<int>(RandomMapStep::Count) - 1);
+    double done = 0.0;
+    for (int i = 0; i < step; ++i) {
+        done += kWeights[i];
+    }
+    done += kWeights[step] * std::clamp(randomMapJob_->fraction.load(), 0.0, 1.0);
+    const bool cancelling = randomMapJob_->cancel.load();
+    const std::string label = std::string(text(cancelling ? Text::Cancel : kLabels[step])) + (cancelling ? "" : "...");
+    ImGui::TextUnformatted(label.c_str());
+    const float width = std::max(ImGui::GetFontSize() * 22.0f, ImGui::CalcTextSize(label.c_str()).x);
+    const std::string percent = std::to_string(static_cast<int>(std::lround(done * 100.0))) + "%";
+    ImGui::ProgressBar(static_cast<float>(done), ImVec2(width, 0.0f), percent.c_str());
+    ImGui::Spacing();
+    const char* cancelLabel = text(Text::Cancel);
+    const float cancelWidth = theme::pushButtonWidth(cancelLabel);
+    theme::alignRight(cancelWidth);
+    ImGui::BeginDisabled(cancelling || randomMapJob_->building);
+    if (ImGui::Button(cancelLabel, ImVec2(cancelWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        cancelRandomMap();
+    }
+    ImGui::EndDisabled();
+    ImGui::EndPopup();
+}
+
+void EditorApp::finishRandomMap() {
+    if (!randomMapJob_ || !randomMapJob_->done) {
+        return;
+    }
+    RandomMapJob& job = *randomMapJob_;
+    if (!job.building && !job.cancelled && job.failure.empty() && randomMapWork_.valid()) {
+        // One frame with the last step showing before the main thread is busy writing the map.
+        job.building = true;
+        job.step = static_cast<int>(RandomMapStep::Building);
+        job.fraction = 0.0;
+        return;
+    }
+    if (randomMapWork_.valid()) {
+        randomMapWork_.get();
+    }
+    const std::shared_ptr<RandomMapJob> held = std::move(randomMapJob_);
+    randomMapJob_.reset();
+    // A run that fails says why in the Random Map window; a finished one sets its own note.
+    statusNote_.clear();
+    if (job.cancelled) {
+        randomMapResult_ = text(Text::RandomMapCancelled);
+        statusNote_ = randomMapResult_;
+        return;
+    }
+    if (!job.failure.empty()) {
+        randomMapResult_ = job.failure;
+        return;
+    }
+    // The map being generated is the one showing; the progress window keeps it so.
+    if (!map_ || job.serial != mapSerial_) {
+        randomMapResult_ = text(Text::RandomMapCancelled);
+        return;
+    }
+    const TilesetArchive* source = nullptr;
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        if (isRandomMapTileset(archive.path)) {
+            source = &archive;
+            break;
+        }
+    }
+    if (source == nullptr) {
+        randomMapResult_ = text(Text::RandomMapNoTileset);
+        return;
+    }
+    try {
+        const RmsScript& script = job.script;
+        const RandomMapOutcome& outcome = job.outcome;
+        const RandomMapStampPlan& plan = job.plan;
+        const RmsObjectSettings& objects = job.objects;
+        const std::vector<RmsMessage>& stampNotes = job.stampNotes;
+        const std::size_t groundStamps = job.groundStamps;
         // Every section is read before the map changes, so a missing file leaves the map alone.
         std::unordered_map<std::string, SectionStamp> loaded;
         for (const RandomMapStamp& stamp : plan.stamps) {
@@ -9574,7 +9818,7 @@ bool EditorApp::generateRandomMap() {
         std::optional<TilePatch> before = captureTilePatch(*map_, 0, 0, map_->tileWidth, map_->tileHeight);
         if (!before) {
             randomMapResult_ = text(Text::RandomMapNeedsMap);
-            return false;
+            return;
         }
         // The painted ground before hills and other stamps go on: the level each feature was placed for.
         std::vector<std::uint8_t> groundBeforeStamps;
@@ -9722,10 +9966,8 @@ bool EditorApp::generateRandomMap() {
             + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped + nodesOnHills)) + " features" : std::string())
             + (outcome.placesStarts ? ", " + std::to_string(outcome.starts.size()) + (outcome.starts.size() == 1 ? " start" : " starts") : std::string());
         error_.clear();
-        return true;
     } catch (const std::exception& ex) {
         randomMapResult_ = ex.what();
-        return false;
     }
 }
 
@@ -9811,7 +10053,8 @@ void EditorApp::drawRandomMap() {
             continue;
         }
         const std::string key = archive.path.string() + "\n" + std::to_string(archive.sections.size());
-        if (key != randomMapTilesKey_) {
+        // A random map running in the background reads these tiles, so they wait for it.
+        if (key != randomMapTilesKey_ && !generatingRandomMap()) {
             randomMapTiles_ = RandomMapTiles(archive.sections);
             randomMapTilesKey_ = key;
         }
@@ -9951,11 +10194,11 @@ void EditorApp::drawRandomMap() {
     }
     ImGui::SameLine();
     theme::alignRight(generateWidth);
-    ImGui::BeginDisabled(!map_ || savingMap());
+    ImGui::BeginDisabled(!map_ || savingMap() || generatingRandomMap());
     // Return types a new line in the script, so it does not press Generate.
     if (theme::defaultButton(generateLabel, ImVec2(generateWidth, 0.0f), false)) {
         saveRandomMapScript();
-        generateRandomMap();
+        startRandomMap();
     }
     ImGui::EndDisabled();
     ImGui::End();
@@ -10100,7 +10343,8 @@ bool EditorApp::draw() {
         continueLoadingTilesets(std::chrono::milliseconds(16));
     }
     finishMapSave();
-    if (!savingMap()) {
+    finishRandomMap();
+    if (!savingMap() && !generatingRandomMap()) {
         autosaveIfDue();
     }
     const int placementId = pasteArmed_ ? -2 : selectedSection_;
@@ -10109,7 +10353,7 @@ bool EditorApp::draw() {
         placeOffsetY_ = 0;
         placementOffsetFor_ = placementId;
     }
-    if (!ImGui::GetIO().WantTextInput && !hpiEditor_.focused()) {
+    if (!ImGui::GetIO().WantTextInput && !hpiEditor_.focused() && !generatingRandomMap()) {
         // The Features tab copies, cuts and pastes features only, and every
         // other tab does the same for terrain tiles only.
         const bool featureKeys = featuresTab_ && map_.has_value();
@@ -10580,6 +10824,7 @@ bool EditorApp::draw() {
         }
         ImGui::EndPopup();
     }
+    drawRandomMapProgress();
     drawNewMap();
     drawResizeMap();
     drawModifyHeight();
@@ -12046,7 +12291,8 @@ void EditorApp::ensureBrushPaints() {
     }
     std::string key = "missing";
     if (source != nullptr) {
-        key = source->path.string() + "\n" + std::to_string(source->sections.size()) + "\n" + brushWorld_;
+        key = source->path.string() + "\n" + std::to_string(source->sections.size()) + "\n" + brushWorld_
+            + (brushCatalogStampsOnly_ ? "\nstamps" : "");
     } else if (loadingTilesets()) {
         key = "loading";
     }
@@ -12458,6 +12704,10 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     }
+    // The blend partners and the pictures that tell each tile's land apart are for painting
+    // by hand. The random map generator only reads a world's hill and pool buttons, so it
+    // skips them: they take seconds for each world.
+    if (!brushCatalogStampsOnly_) {
     // Lava Base-86 blends into Mars, GreenWorld, Acid, Crystal, Ice, and Metal at Base-85, into Desert
     // at Base-80, into Archipelago at Base-78, and into Lush at Base-77. GreenWorld
     // Base-85 also blends into Mars, Metal, Acid, Crystal, Ice, Lush, and Desert.
@@ -15705,6 +15955,7 @@ void EditorApp::ensureBrushPaints() {
             sharedPictures_[hash] = list;
             brushPictures_.erase(hash);
         }
+    }
     }
     // Rivers and bridges get a button of their own after the base tiles. Their pictures
     // are the first horizontal piece of each.

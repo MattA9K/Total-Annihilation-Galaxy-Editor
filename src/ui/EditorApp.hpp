@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <future>
 #include <optional>
 #include <set>
@@ -32,8 +33,15 @@ namespace galaxy {
 // one random hill onto GreenWorld Base-85.
 enum class BrushKind { Base, River, Bridge, Ridge, Spacer, Slope, Hill };
 
+// The steps the random map progress window names, in order: the generator's own
+// steps from Lands to Objects, then the tiles and stamps that draw them.
+enum class RandomMapStep { Preparing, Lands, Elevation, Cliffs, Terrain, Connections, Objects, Tiles, Stamps, Building, Count };
+struct RandomMapJob;
+
 class EditorApp {
 public:
+    // Stops a random map still running on another thread.
+    ~EditorApp();
     // Loads every tileset archive before returning.
     void loadTilesets();
     // The same work in small steps, so a splash screen can show progress.
@@ -182,9 +190,17 @@ private:
     // File > Random Map Generator: a floating window with an Age of Empires II
     // style random map script, run on the active map with the Tile Brush.
     void drawRandomMap();
-    // Runs the window's script on the active map as one undoable edit. Returns
-    // false, and leaves the map alone, when nothing could be painted.
+    // Runs the window's script on the active map as one undoable edit, waiting for it to
+    // finish. Returns false, and leaves the map alone, when nothing could be painted.
     bool generateRandomMap();
+    // The same in the background: startRandomMap prepares the run on this thread and
+    // hands the script to another; finishRandomMap, called every frame, writes the
+    // result into the map once it is back. A progress window shows meanwhile.
+    bool startRandomMap();
+    void finishRandomMap();
+    void cancelRandomMap();
+    bool generatingRandomMap() const { return randomMapJob_ != nullptr; }
+    void drawRandomMapProgress();
     std::filesystem::path randomMapScriptPath() const;
     void saveRandomMapScript() const;
     void drawNewMap();
@@ -237,6 +253,9 @@ private:
     // Horizontal Mtn and Vertical Mtn (Lush) are rows of 32 x 32 pieces: an end, middle
     // pieces, and the other end. A click places the two ends, and dragging along the
     // mountain adds middle pieces. Horizontal runs west to east, Vertical north to south.
+    // While the random map generator collects stamp brushes, the catalog skips the
+    // pictures and blend partners that only painting by hand needs.
+    bool brushCatalogStampsOnly_ = false;
     bool mountainArmed() const { return brushName_ == "Horizontal Mtn" || brushName_ == "Vertical Mtn"; }
     bool mountainVertical() const { return brushName_ == "Vertical Mtn"; }
     // The tiles the mountain covers: the whole mountain while dragging, otherwise the
@@ -724,6 +743,9 @@ private:
     // GreenWorld's hills, rough patches and islands as script stamps, measured once per tileset.
     std::vector<RandomMapStampBrush> randomMapStampBrushes_;
     std::string randomMapStampKey_;
+    // The random map running in the background, if any.
+    std::shared_ptr<RandomMapJob> randomMapJob_;
+    std::future<void> randomMapWork_;
     // Auto Metal: MegaMetal4 on every 8 x 8 tile block of Metal ground.
     void autoMetal();
     // Every tile picture of the random map tileset's Metal sections, read once per tileset.

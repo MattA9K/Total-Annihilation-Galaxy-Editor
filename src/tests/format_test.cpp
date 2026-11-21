@@ -6311,6 +6311,54 @@ void testDesertTrees() {
     expect(apart, "no two trees stand side by side");
 }
 
+void testRandomMapProgress() {
+    using namespace galaxy;
+    RmsObjectSettings objects;
+    objects.features = {{"ArchiTree01", "archipelago", "trees", 1, 1, 0, false}};
+    objects.terrainLands = {"", "Desert", "Lava", "Desert"};
+    objects.terrainLiquid = {true, false, false, false};
+    objects.cellsPerNode = 4;
+    objects.cellsWide = 8 * 4;
+    objects.cellsHigh = 8 * 4;
+    const RmsScript script = readScript(
+        "<LAND_GENERATION>\nbase_terrain GRASS\n<OBJECTS_GENERATION>\n"
+        "create_object TREES { number_of_objects 4 number_of_groups 3 }\n"
+        "create_object TREES { number_of_objects 6 }\n");
+    // Each step is reported in order, and the run ends with the objects step finished.
+    std::vector<std::pair<RandomMapStage, double>> reports;
+    RandomMapOptions options;
+    options.objects = &objects;
+    options.progress = [&](RandomMapStage stage, double fraction) { reports.emplace_back(stage, fraction); };
+    PlainCanvas canvas(9, 9);
+    std::mt19937 rng(5);
+    runRandomMapScript(script, canvas, plainNames(), options, rng);
+    bool ordered = !reports.empty() && reports.front().first == RandomMapStage::Lands;
+    for (std::size_t i = 1; i < reports.size(); ++i) {
+        const auto& [stage, fraction] = reports[i];
+        const auto& [before, beforeFraction] = reports[i - 1];
+        ordered = ordered && (stage > before || (stage == before && fraction >= beforeFraction)) && fraction >= 0.0 && fraction <= 1.0;
+    }
+    expect(ordered, "random map progress moves forward through the steps");
+    expect(!reports.empty() && reports.back().first == RandomMapStage::Objects && reports.back().second == 1.0,
+        "random map progress ends with the objects placed");
+    // A cancelled run stops with RandomMapCancelled.
+    std::atomic<bool> cancel{false};
+    options.cancel = &cancel;
+    options.progress = [&](RandomMapStage stage, double) {
+        if (stage == RandomMapStage::Terrain) {
+            cancel = true;
+        }
+    };
+    bool stopped = false;
+    try {
+        PlainCanvas again(9, 9);
+        runRandomMapScript(script, again, plainNames(), options, rng);
+    } catch (const RandomMapCancelled&) {
+        stopped = true;
+    }
+    expect(stopped, "a cancelled random map stops");
+}
+
 void testStartsAndResources() {
     using namespace galaxy;
     RmsObjectSettings objects;
@@ -6870,6 +6918,7 @@ int main() {
     testBlendDoodads();
     testCliffs();
     testDesertTrees();
+    testRandomMapProgress();
     testStartsAndResources();
     testStampBrushes();
     testAutoMetal();

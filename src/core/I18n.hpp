@@ -210,6 +210,19 @@ enum class Text : int {
     FilePreviewBytes,
     FilePreviewUnreadable,
     FilePreviewTruncated,
+    RandomMapProgressTitle,
+    RandomMapGenerating,
+    RandomMapCancelled,
+    RandomMapStepPreparing,
+    RandomMapStepLands,
+    RandomMapStepElevation,
+    RandomMapStepCliffs,
+    RandomMapStepTerrain,
+    RandomMapStepConnections,
+    RandomMapStepObjects,
+    RandomMapStepTiles,
+    RandomMapStepStamps,
+    RandomMapStepBuilding,
     Count
 };
 

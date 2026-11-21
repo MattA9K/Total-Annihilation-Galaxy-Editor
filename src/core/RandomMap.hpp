@@ -5,6 +5,8 @@
 #include "core/TilesetLibrary.hpp"
 
 #include <array>
+#include <atomic>
+#include <exception>
 #include <functional>
 #include <random>
 #include <string>
@@ -209,10 +211,23 @@ struct RmsStart {
     int y = 0;
 };
 
+// The steps of a random map run, in the order they happen, for a progress bar.
+enum class RandomMapStage { Lands, Elevation, Cliffs, Terrain, Connections, Objects };
+
+// Thrown by runRandomMapScript when the run is cancelled.
+struct RandomMapCancelled : std::exception {
+    const char* what() const noexcept override { return "The random map was cancelled."; }
+};
+
 struct RandomMapOptions {
     int players = 2;
     // Null when features are not placed; a script with <OBJECTS_GENERATION> then gets a note.
     const RmsObjectSettings* objects = nullptr;
+    // Told the step under way and how far through it the run is, from 0 to 1. It is called
+    // often, so it should be cheap; a run on another thread can store the values.
+    std::function<void(RandomMapStage, double)> progress;
+    // When set, the run stops at its next progress report by throwing RandomMapCancelled.
+    const std::atomic<bool>* cancel = nullptr;
 };
 
 struct RandomMapOutcome {

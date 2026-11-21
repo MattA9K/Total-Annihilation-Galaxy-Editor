@@ -1,6 +1,7 @@
 #include "core/RandomMap.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cctype>
 #include <cmath>
 #include <limits>
@@ -130,16 +131,33 @@ public:
             }
         }
         // The game's order: land, elevation, cliffs, terrain, connections, objects.
+        report(RandomMapStage::Lands, 0.0);
         landGeneration();
+        report(RandomMapStage::Elevation, 0.0);
         elevationGeneration();
+        report(RandomMapStage::Cliffs, 0.0);
         cliffGeneration();
+        report(RandomMapStage::Terrain, 0.0);
         terrainGeneration();
+        report(RandomMapStage::Connections, 0.0);
         connectionGeneration();
+        report(RandomMapStage::Objects, 0.0);
         objectGeneration();
+        report(RandomMapStage::Objects, 1.0);
     }
 
 private:
     void note(int line, std::string text) { outcome_.messages.push_back(RmsMessage{line, std::move(text)}); }
+
+    // Tells the caller how far the run has got, and stops it when it was cancelled.
+    void report(RandomMapStage stage, double fraction) {
+        if (options_.cancel != nullptr && options_.cancel->load(std::memory_order_relaxed)) {
+            throw RandomMapCancelled();
+        }
+        if (options_.progress) {
+            options_.progress(stage, std::clamp(fraction, 0.0, 1.0));
+        }
+    }
 
     void noteUnsupportedSections() {
         for (const auto& [section, line] : script_.sections) {
@@ -1227,6 +1245,13 @@ private:
         DoodadKind kind = DoodadKind::Trees;
         // Grounds that have features of their own in this choice.
         std::set<std::string> lands;
+        // Whether each feature suits each ground, worked out once: the checks read names
+        // and would otherwise run for every cell a feature tries.
+        mutable std::unordered_map<std::uint64_t, bool> suits;
+        // The features that may stand on each ground, by terrain.
+        mutable std::unordered_map<int, std::vector<const RmsFeature*>> byGround;
+        // 1 when every feature is a tree one cell across, -1 until worked out.
+        mutable int smallTrees = -1;
     };
 
     static bool allWorlds(const RmsFeature& feature) {
@@ -1364,10 +1389,19 @@ private:
         }
         int commandIndex = 0;
         bool startsDone = false;
+        int objectCommands = 0;
+        for (const RmsCommand& command : script_.commands) {
+            objectCommands += command.section == "OBJECTS_GENERATION" && command.name == "create_object" && !command.args.empty() ? 1 : 0;
+        }
+        int objectCommand = 0;
         for (const RmsCommand& command : script_.commands) {
             if (command.section != "OBJECTS_GENERATION" || command.name != "create_object" || command.args.empty()) {
                 continue;
             }
+            // Each create_object is an even share of the step.
+            commandShare_ = 1.0 / std::max(1, objectCommands);
+            commandStart_ = commandShare_ * objectCommand++;
+            report(RandomMapStage::Objects, commandStart_);
             if (isStartName(command.args[0].text)) {
                 if (startsDone) {
                     note(command.line, "Start positions were already placed by an earlier " + command.args[0].text + ".");
@@ -1709,19 +1743,36 @@ private:
             return false;
         }
         // Sea-floor features only in water, everything else only on dry land.
-        if (liquid != underwaterFeature(feature)) {
+        if (liquid != isUnderwater(feature)) {
             return false;
         }
-        if (choice.followsLand) {
-            const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
-            const std::string base = slot < objects.terrainBases.size() ? objects.terrainBases[slot] : std::string();
-            const bool own = featureSuitsLand(feature, choice.kind, land) && featureSuitsBase(feature, base);
-            const bool fallback = sharedFallback(choice.kind) && allWorlds(feature) && !ownsGround(choice, slot);
-            if (!own && !fallback) {
-                return false;
-            }
+        return !choice.followsLand || suitsGround(feature, choice, slot);
+    }
+
+    // True when the feature belongs on this ground's land and Base tile, or is a shared
+    // feature standing in where the choice has none of its own.
+    bool suitsGround(const RmsFeature& feature, const ObjectChoice& choice, std::size_t slot) const {
+        const std::uint64_t key = (static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&feature)) << 12) ^ static_cast<std::uint64_t>(slot);
+        if (const auto found = choice.suits.find(key); found != choice.suits.end()) {
+            return found->second;
         }
-        return true;
+        const RmsObjectSettings& objects = *options_.objects;
+        const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
+        const std::string base = slot < objects.terrainBases.size() ? objects.terrainBases[slot] : std::string();
+        const bool own = featureSuitsLand(feature, choice.kind, land) && featureSuitsBase(feature, base);
+        const bool fallback = sharedFallback(choice.kind) && allWorlds(feature) && !ownsGround(choice, slot);
+        const bool suits = own || fallback;
+        choice.suits.emplace(key, suits);
+        return suits;
+    }
+
+    bool isUnderwater(const RmsFeature& feature) const {
+        if (const auto found = underwater_.find(&feature); found != underwater_.end()) {
+            return found->second;
+        }
+        const bool underwater = underwaterFeature(feature);
+        underwater_.emplace(&feature, underwater);
+        return underwater;
     }
 
     // True when the choice has a feature of its own for this terrain's land and Base tile.
@@ -1745,12 +1796,32 @@ private:
         if (!cellAllowed(rules, x, y, group, command)) {
             return false;
         }
+        // Every feature's top-left cell is this one, so none fits if it is taken, and no
+        // tree fits where a tree may not stand.
+        if (x < 0 || y < 0 || x >= cellsWide_ || y >= cellsHigh_
+            || occupied_[static_cast<std::size_t>(y) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(x)]) {
+            return false;
+        }
+        if (allSmallTrees(choice)) {
+            const std::size_t tile = static_cast<std::size_t>(y / 2) * static_cast<std::size_t>(tilesWide_) + static_cast<std::size_t>(x / 2);
+            if ((tile < treesOnTile_.size() && treesOnTile_[tile] >= kMaxTreesPerTile) || treeBeside(x, y, 1, 1)) {
+                return false;
+            }
+        }
         // Features are tried in a fresh random order each time, so every feature of a kind
-        // is as likely as any other, whichever ones fail to fit here.
-        std::vector<const RmsFeature*> order = choice.features;
-        std::shuffle(order.begin(), order.end(), rng_);
-        for (const RmsFeature* candidate : order) {
-            const RmsFeature& feature = *candidate;
+        // is as likely as any other, whichever ones fail to fit here. The order is drawn one
+        // feature at a time, a shuffle that stops at the first feature that fits.
+        // A feature takes the ground of its top-left cell, so only those that suit it are tried.
+        const int ground = usesBlends(choice) ? doodadGroundAt(x, y) : groundAt(x, y);
+        if (ground < 0) {
+            return false;
+        }
+        const std::vector<const RmsFeature*>& suited = featuresFor(choice, ground);
+        order_.assign(suited.begin(), suited.end());
+        for (std::size_t next = 0; next < order_.size(); ++next) {
+            const std::size_t pick = next + std::uniform_int_distribution<std::size_t>(0, order_.size() - 1 - next)(rng_);
+            std::swap(order_[next], order_[pick]);
+            const RmsFeature& feature = *order_[next];
             if (!featureFits(feature, choice, rules, x, y)) {
                 continue;
             }
@@ -1800,6 +1871,35 @@ private:
             }
         }
         return false;
+    }
+
+    // The features of the choice that may stand on this ground, worked out once for each ground.
+    const std::vector<const RmsFeature*>& featuresFor(const ObjectChoice& choice, int ground) const {
+        if (const auto found = choice.byGround.find(ground); found != choice.byGround.end()) {
+            return found->second;
+        }
+        const RmsObjectSettings& objects = *options_.objects;
+        const std::size_t slot = static_cast<std::size_t>(ground);
+        const bool liquid = slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot];
+        std::vector<const RmsFeature*> suited;
+        for (const RmsFeature* feature : choice.features) {
+            if (liquid == isUnderwater(*feature) && (!choice.followsLand || suitsGround(*feature, choice, slot))) {
+                suited.push_back(feature);
+            }
+        }
+        return choice.byGround.emplace(ground, std::move(suited)).first->second;
+    }
+
+    // True when every feature of the choice is a tree one cell across.
+    bool allSmallTrees(const ObjectChoice& choice) {
+        if (choice.smallTrees < 0) {
+            bool all = !choice.features.empty();
+            for (const RmsFeature* feature : choice.features) {
+                all = all && isTree(*feature) && std::max(1, feature->footprintX) == 1 && std::max(1, feature->footprintZ) == 1;
+            }
+            choice.smallTrees = all ? 1 : 0;
+        }
+        return choice.smallTrees == 1;
     }
 
     bool isTree(const RmsFeature& feature) {
@@ -1957,12 +2057,17 @@ private:
         int wanted = 0;
         int made = 0;
         int groupId = 0;
+        // Progress through this command: one unit for each object, or for each group.
+        const double units = static_cast<double>(rounds.size()) * std::max(1, grouped ? groupCount : perGroup);
+        int unit = 0;
+        const auto step = [&]() { report(RandomMapStage::Objects, commandStart_ + commandShare_ * std::min(1.0, ++unit / units)); };
         for (const int player : rounds) {
             rules.player = player;
             if (!grouped) {
                 // Separate objects, each anywhere it fits.
                 wanted += perGroup;
                 for (int object = 0; object < perGroup; ++object) {
+                    step();
                     bool found = false;
                     for (int attempt = 0; attempt < 400 && !found; ++attempt) {
                         const auto [x, y] = pickCell(rules);
@@ -1977,6 +2082,7 @@ private:
                 continue;
             }
             for (int group = 0; group < groupCount; ++group) {
+                step();
                 const int size = std::max(1, perGroup + (variance > 0 ? std::uniform_int_distribution<int>(-variance, variance)(rng_) : 0));
                 wanted += size;
                 ++groupId;
@@ -2042,6 +2148,12 @@ private:
     std::vector<unsigned char> treeCells_;
     int tilesWide_ = 0;
     std::unordered_map<const RmsFeature*, bool> trees_;
+    mutable std::unordered_map<const RmsFeature*, bool> underwater_;
+    // Where the create_object under way starts in the objects step, and its share of it.
+    double commandStart_ = 0.0;
+    double commandShare_ = 1.0;
+    // placeAt's order of features to try, kept to save an allocation for every cell.
+    std::vector<const RmsFeature*> order_;
     std::vector<Placed> placed_;
 
     const RmsScript& script_;
