@@ -1311,6 +1311,49 @@ private:
         return flat_[static_cast<std::size_t>(ly) * static_cast<std::size_t>(latticeX_) + static_cast<std::size_t>(lx)];
     }
 
+    // True when the brush cell at lattice (lx, ly) is a gentle blend between dry
+    // grounds: no water or lava at any corner, and no cliff between them.
+    bool gentleBlend(int lx, int ly) const {
+        const RmsObjectSettings& objects = *options_.objects;
+        int low = std::numeric_limits<int>::max();
+        int high = std::numeric_limits<int>::min();
+        for (int dy = 0; dy <= 1; ++dy) {
+            for (int dx = 0; dx <= 1; ++dx) {
+                const int corner = canvas_.at(lx + dx, ly + dy);
+                const std::size_t slot = static_cast<std::size_t>(corner);
+                if (corner < 0 || slot >= objects.terrainHeights.size() || (slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot])) {
+                    return false;
+                }
+                low = std::min(low, objects.terrainHeights[slot]);
+                high = std::max(high, objects.terrainHeights[slot]);
+            }
+        }
+        return high - low <= kBlendDoodadRise;
+    }
+
+    // The ground under a feature cell for doodads such as trees: as groundAt, but on a
+    // gentle blend each quarter of the brush cell takes the ground of its own corner,
+    // so a forest's trees reach out to its edge.
+    int doodadGroundAt(int x, int y) const {
+        const int flat = groundAt(x, y);
+        if (flat >= 0 || x < 0 || y < 0 || x >= cellsWide_ || y >= cellsHigh_) {
+            return flat;
+        }
+        const int lx = std::min(x / perNode_, latticeX_ - 1);
+        const int ly = std::min(y / perNode_, latticeY_ - 1);
+        if (!gentleBlend(lx, ly)) {
+            return -1;
+        }
+        const int qx = (x - lx * perNode_) * 2 >= perNode_ ? 1 : 0;
+        const int qy = (y - ly * perNode_) * 2 >= perNode_ ? 1 : 0;
+        return canvas_.at(lx + qx, ly + qy);
+    }
+
+    // Doodads may stand on blends; metal, vents and starts keep to one flat ground.
+    static bool usesBlends(const ObjectChoice& choice) {
+        return choice.followsLand && choice.kind != DoodadKind::MetalNodes && choice.kind != DoodadKind::GeoVents;
+    }
+
     // True when a coast, cliff or blend lies within distance feature cells.
     bool nearEdge(int x, int y, int distance) const {
         if (distance <= 0) {
@@ -1425,7 +1468,7 @@ private:
                 if (cx >= cellsWide_ || cy >= cellsHigh_ || occupied_[static_cast<std::size_t>(cy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(cx)]) {
                     return false;
                 }
-                const int here = groundAt(cx, cy);
+                const int here = usesBlends(choice) ? doodadGroundAt(cx, cy) : groundAt(cx, cy);
                 if (here < 0 || (ground != -2 && here != ground)) {
                     return false;
                 }
@@ -1511,27 +1554,39 @@ private:
         for (const RmsFeature* feature : choice.features) {
             anyAllWorlds = anyAllWorlds || allWorlds(*feature);
         }
+        const auto usable = [&](int ground) {
+            const std::size_t slot = static_cast<std::size_t>(ground);
+            const bool liquid = slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot];
+            if (rules.terrain >= 0 ? ground != rules.terrain : liquid) {
+                return false;
+            }
+            if (choice.followsLand) {
+                const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
+                const bool own = !land.empty() && ownsGround(choice, slot);
+                const bool fallback = sharedFallback(choice.kind) && anyAllWorlds && !own;
+                if (!own && !fallback) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        const bool blends = usesBlends(choice);
         std::vector<int> cells;
         for (int ly = 0; ly < latticeY_; ++ly) {
             for (int lx = 0; lx < latticeX_; ++lx) {
                 const int ground = flat_[static_cast<std::size_t>(ly) * static_cast<std::size_t>(latticeX_) + static_cast<std::size_t>(lx)];
-                if (ground < 0) {
-                    continue;
-                }
-                const std::size_t slot = static_cast<std::size_t>(ground);
-                const bool liquid = slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot];
-                if (rules.terrain >= 0 ? ground != rules.terrain : liquid) {
-                    continue;
-                }
-                if (choice.followsLand) {
-                    const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
-                    const bool own = !land.empty() && ownsGround(choice, slot);
-                    const bool fallback = sharedFallback(choice.kind) && anyAllWorlds && !own;
-                    if (!own && !fallback) {
-                        continue;
+                bool any = false;
+                if (ground >= 0) {
+                    any = usable(ground);
+                } else if (blends && gentleBlend(lx, ly)) {
+                    // A blend counts when any of its corners is ground the choice can use.
+                    for (int corner = 0; corner < 4 && !any; ++corner) {
+                        any = usable(canvas_.at(lx + corner % 2, ly + corner / 2));
                     }
                 }
-                cells.push_back(ly * latticeX_ + lx);
+                if (any) {
+                    cells.push_back(ly * latticeX_ + lx);
+                }
             }
         }
         return cells;

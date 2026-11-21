@@ -153,6 +153,9 @@ int footprintRise(const std::vector<std::uint8_t>& heights, int width, int heigh
 // Metal nodes on ground that rises more than this, such as a hill, are removed: a metal
 // extractor cannot be built there.
 inline constexpr int kMetalNodeMaxRise = 16;
+// Doodads such as trees stand on a blend between two grounds whose heights are this
+// close, such as Lush at 77 and GreenWorld at 85, but not across a cliff or a coast.
+inline constexpr int kBlendDoodadRise = 16;
 // How far, in feature cells, a metal node on a hill may move to reach flat ground.
 inline constexpr int kMetalNodeMoveRadius = 48;
 // The nearest place, out to radius feature cells from (x, y), for a w x h footprint
@@ -173,6 +176,10 @@ struct RmsObjectSettings {
     std::vector<bool> terrainLiquid;
     // Each terrain's Base tile name, such as "Base-78". May be empty.
     std::vector<std::string> terrainBases;
+    // Each terrain's ground height, such as 77. Doodads such as trees go on a blend
+    // between two dry grounds when their heights are within kBlendDoodadRise; with
+    // no heights they keep to cells of one ground.
+    std::vector<int> terrainHeights;
     // The map in feature cells.
     int cellsWide = 0;
     int cellsHigh = 0;

@@ -6043,6 +6043,64 @@ void testDoodads() {
     expect(cells.size() == outcome.features.size(), "no two features share a cell");
 }
 
+void testBlendDoodads() {
+    using namespace galaxy;
+    // A Lush forest (GRASS, 77) with a GreenWorld clearing (DESERT, 85) in the middle,
+    // a cliff plateau (LAVA, 300) at the left and a pond (WATER) at the right.
+    RmsObjectSettings objects;
+    objects.features = {
+        {"LushTree01", "lush", "trees", 1, 1, 0, false},
+        {"LushMetal1", "lush", "metal", 1, 1, 100, false},
+    };
+    objects.terrainLands = {"Lush", "Lush", "Lush", "Green"};
+    objects.terrainLiquid = {true, false, false, false};
+    objects.terrainHeights = {20, 77, 300, 85};
+    objects.cellsPerNode = 4;
+    objects.cellsWide = 16 * 4;
+    objects.cellsHigh = 8 * 4;
+    RandomMapOptions options;
+    options.players = 0;
+    options.objects = &objects;
+    PlainCanvas canvas(17, 9);
+    std::mt19937 rng(11);
+    const RmsScript script = readScript(
+        "<LAND_GENERATION>\nbase_terrain GRASS\n"
+        "create_land { terrain_type DESERT land_position 50 50 base_size 1 number_of_tiles 0 }\n"
+        "create_land { terrain_type LAVA land_position 10 50 base_size 1 number_of_tiles 0 }\n"
+        "create_land { terrain_type WATER land_position 90 50 base_size 1 number_of_tiles 0 }\n"
+        "<OBJECTS_GENERATION>\n"
+        "create_object TREES { number_of_objects 400 }\n"
+        "create_object METAL_NODES { number_of_objects 40 }\n");
+    const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
+    int blendTrees = 0;
+    bool treesRight = true;
+    bool metalFlat = true;
+    for (const RmsPlacedFeature& feature : outcome.features) {
+        const int lx = feature.x / 4;
+        const int ly = feature.y / 4;
+        const std::array<int, 4> corners = {canvas.at(lx, ly), canvas.at(lx + 1, ly), canvas.at(lx, ly + 1), canvas.at(lx + 1, ly + 1)};
+        const bool flat = corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3];
+        if (feature.name == "LushMetal1") {
+            metalFlat = metalFlat && flat && corners[0] == 1;
+            continue;
+        }
+        if (flat) {
+            treesRight = treesRight && corners[0] != 0 && corners[0] != 3;
+            continue;
+        }
+        // On a blend the corner nearest the tree is forest, and no corner is cliff or water.
+        const int nearest = canvas.at(lx + ((feature.x % 4) >= 2 ? 1 : 0), ly + ((feature.y % 4) >= 2 ? 1 : 0));
+        treesRight = treesRight && nearest == 1;
+        for (const int corner : corners) {
+            treesRight = treesRight && corner != 0 && corner != 2;
+        }
+        ++blendTrees;
+    }
+    expect(treesRight, "trees stand on the forest's own quarter of a blend, never by a cliff or water");
+    expect(blendTrees > 0, "trees reach onto the blend at the forest's edge: " + std::to_string(blendTrees));
+    expect(metalFlat, "metal nodes still keep to flat cells of one ground");
+}
+
 void testStartsAndResources() {
     using namespace galaxy;
     RmsObjectSettings objects;
@@ -6509,6 +6567,7 @@ int main() {
     testRandomMapGenerator();
     testBrushCanvas();
     testDoodads();
+    testBlendDoodads();
     testStartsAndResources();
     testStampBrushes();
     testAutoMetal();

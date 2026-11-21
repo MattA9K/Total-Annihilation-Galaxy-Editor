@@ -1048,115 +1048,96 @@ create_object ROCKS {
   min_distance_to_players 12
 }
 )"},
-    {"Lush", "Green Hell", R"(/* LUSH: Green Hell
-   Dense Lush jungle around dark lagoons, with Archipelago sandbars and
-   dry Desert clearings.
+    {"Lush", "Black Forest", R"(/* LUSH: Black Forest
+   After Age of Empires II's Black Forest: a dark Lush forest over the whole map,
+   with a GreenWorld clearing for each player and narrow paths cut between them.
    Galaxy Editor random map script, in the syntax Age of Empires II uses.
    Terrain names are the Tile Brush bases, such as LUSH_BASE-77, and one tile
-   is one square of the map's game size: 16 x 16 map tiles. */
+   is one square of the map's game size: 16 x 16 map tiles.
+   Age of Empires II paints its forest as terrain. Here the forest floor is
+   LUSH_BASE-77 and the trees are features, placed thickly on it below. */
 
 <PLAYER_SETUP>
 random_placement
 
 <LAND_GENERATION>
-base_terrain LUSH_BASE-27
+/* The forest floor covers the map. */
+base_terrain LUSH_BASE-77
 
-/* An island for each player, kept two tiles from the others. */
+/* A grass clearing for each player. Age of Empires II gives the players half
+   the map and lets forest grow back over most of it; here the clearings are
+   kept small to begin with. */
 create_player_lands {
-  terrain_type LUSH_BASE-77
-  land_percent 50
-  /* Small maps have room for smaller starting areas only. */
-  if TINY_MAP
-    base_size 1
-  else
-    base_size 2
-  endif
+  terrain_type GREENWORLD_BASE-85
+  land_percent 8
+  base_size 0
   other_zone_avoidance_distance 2
   border_fuzziness 30
-  clumping_factor 15
 }
 
 <TERRAIN_GENERATION>
-/* Archipelago sandbars. */
-create_terrain ARCHIPELAGO_BASE-78 {
-  base_terrain LUSH_BASE-77
-  land_percent 4
-  number_of_clumps 3
-  spacing_to_other_terrain_types 1
-  set_avoid_player_start_areas 1
-}
-
-/* Dry Desert clearings. */
-create_terrain DESERT_BASE-80 {
-  base_terrain LUSH_BASE-77
-  land_percent 3
-  number_of_clumps 3
-  spacing_to_other_terrain_types 1
-  set_avoid_player_start_areas 1
-}
-
-/* High ground behind cliffs, kept a tile from the water. */
-create_terrain LUSH_BASE-183 {
+/* Small glades deep in the forest. */
+create_terrain GREENWORLD_BASE-85 {
   base_terrain LUSH_BASE-77
   land_percent 5
-  number_of_clumps 4
+  number_of_clumps 9
   spacing_to_other_terrain_types 1
   set_avoid_player_start_areas 1
 }
 
-/* The Tile Brush's own stamps for Lush: hills, pools, islands and more.
-   Each fills a block of flat ground of the base it needs. */
-create_terrain LUSH_HILL-77_8X8 {
+/* Leaf-strewn swamp hollows under the trees. */
+create_terrain LUSH_SWAMP-77 {
   number_of_clumps 4
   set_scale_by_groups
   set_avoid_player_start_areas 1
 }
 
-create_terrain LUSH_SWAMP-77 {
-  number_of_clumps 3
-  set_scale_by_groups
-  set_avoid_player_start_areas 1
-}
-
+/* Ponds for the fish. */
 create_terrain LUSH_POND-77_16X16 {
   number_of_clumps 2
   set_scale_by_groups
   set_avoid_player_start_areas 1
 }
 
-create_terrain LUSH_ISLAND-27_16X16 {
-  number_of_clumps 1
+/* Age of Empires II raises the ground with create_elevation; here hills do. */
+create_terrain LUSH_HILL-77_8X8 {
+  number_of_clumps 4
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+create_terrain GREENWORLD_HILL-85_8X8 {
+  number_of_clumps 2
   set_scale_by_groups
   set_avoid_player_start_areas 1
 }
 
 <CONNECTION_GENERATION>
-/* Land bridges between the players' islands. */
+/* Paths cut through the forest from every player to every other. */
 create_connect_all_players_land {
-  replace_terrain LUSH_BASE-27 LUSH_BASE-77
-  terrain_size LUSH_BASE-27 0 0
+  replace_terrain LUSH_BASE-77 GREENWORLD_BASE-85
+  terrain_size LUSH_BASE-77 0 0
 }
 
 <OBJECTS_GENERATION>
 /* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
    square is 32 of them. Kinds such as TREES pick what suits the ground. */
 
-/* A start on each player's island. */
+/* A start in each player's clearing. */
 create_object START_POSITION {
   set_place_for_every_player
   max_distance_to_players 0
 }
 
-/* Metal near each start, and more out in the open. */
+/* Gold becomes metal: some near each start, more hidden in the forest. */
 create_object METAL_NODES {
   number_of_objects 3
   set_place_for_every_player
   min_distance_to_players 10
-  max_distance_to_players 28
+  max_distance_to_players 24
   temp_min_distance_group_placement 6
 }
 create_object METAL_NODES {
-  number_of_objects 2
+  number_of_objects 3
   set_scaling_to_map_size
   min_distance_to_players 40
   temp_min_distance_group_placement 24
@@ -1170,29 +1151,46 @@ create_object GEO_VENTS {
   max_distance_to_players 32
 }
 
-/* Jungle foliage. */
-create_object FOLIAGE {
-  number_of_objects 6
-  number_of_groups 2
-  group_variance 2
+/* The Black Forest itself: trees packed onto the forest floor. */
+create_object TREES {
+  number_of_objects 16
+  number_of_groups 70
+  group_placement_radius 5
   set_tight_grouping
   set_scaling_to_map_size
-  min_distance_to_players 20
-  avoid_cliff_zone 2
+  terrain_to_place_on LUSH_BASE-77
+  min_distance_to_players 14
 }
 
-/* Vines. */
+/* Undergrowth among the trees. */
+create_object FOLIAGE {
+  number_of_objects 6
+  number_of_groups 8
+  set_scaling_to_map_size
+  terrain_to_place_on LUSH_BASE-77
+  min_distance_to_players 14
+}
 create_object VINES {
-  number_of_objects 3
+  number_of_objects 4
   set_scaling_to_map_size
-  min_distance_to_players 8
+  terrain_to_place_on LUSH_BASE-77
+  min_distance_to_players 14
 }
 
-/* Palms on the sand. */
+/* A few straggler trees and berry-bush shrubs in each clearing. */
 create_object TREES {
-  number_of_objects 3
-  set_scaling_to_map_size
+  number_of_objects 4
+  set_place_for_every_player
   min_distance_to_players 8
+  max_distance_to_players 16
+}
+create_object SHRUBS {
+  number_of_objects 5
+  number_of_groups 1
+  group_placement_radius 2
+  set_place_for_every_player
+  min_distance_to_players 8
+  max_distance_to_players 14
 }
 
 /* Rocks. */
