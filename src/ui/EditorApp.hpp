@@ -820,6 +820,10 @@ private:
     int miniTexW_ = 0;
     int miniTexH_ = 0;
     float miniDisplayW_ = 0.0f;
+    // The minimap's size in percent, 100 to 150, set by dragging its corner. While the
+    // corner is dragged the picture is stretched, and drawn again at the new size after.
+    int minimapPercent_ = 100;
+    bool minimapResizing_ = false;
     float miniDisplayH_ = 0.0f;
     std::vector<std::uint8_t> miniImage_;
     GLuint heightTexture_ = 0;

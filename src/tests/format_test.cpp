@@ -1755,18 +1755,22 @@ void testSeaSettings() {
     saved.seaOpacity = 72;
     saved.seaColor = 0x12AB34;
     saved.randomMapFontSize = 20;
+    expect(saved.minimapPercent == 100, "the minimap starts at its smallest size");
+    saved.minimapPercent = 137;
     galaxy::saveEditorSettings(settingsPath, saved);
     const galaxy::EditorSettings loaded = galaxy::loadEditorSettings(settingsPath);
     expect(loaded.seaOpacity == 72, "sea opacity survives a save and load");
     expect(loaded.seaColor == 0x12AB34, "sea color survives a save and load");
     expect(loaded.randomMapFontSize == 20, "the script font size survives a save and load");
+    expect(loaded.minimapPercent == 137, "the minimap size survives a save and load");
     {
         std::ofstream out(settingsPath, std::ios::trunc);
-        out << "{ \"seaOpacity\": 400, \"seaColor\": -5 }";
+        out << "{ \"seaOpacity\": 400, \"seaColor\": -5, \"minimapPercent\": 300 }";
     }
     const galaxy::EditorSettings clamped = galaxy::loadEditorSettings(settingsPath);
     expect(clamped.seaOpacity == 100, "an out-of-range sea opacity is clamped");
     expect(clamped.seaColor == 0, "an out-of-range sea color is clamped");
+    expect(clamped.minimapPercent == 150, "the minimap is never more than half as big again");
     {
         std::ofstream out(settingsPath, std::ios::trunc);
         out << "{ \"previewSize\": 64 }";

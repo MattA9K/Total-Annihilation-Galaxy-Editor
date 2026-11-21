@@ -7561,6 +7561,7 @@ void EditorApp::loadEditorOptions() {
     seaOpacity_ = settings.seaOpacity;
     seaColor_ = settings.seaColor;
     randomMapFontSize_ = settings.randomMapFontSize;
+    minimapPercent_ = settings.minimapPercent;
     gameFolder_ = settings.gameFolder;
     gameFolderAsked_ = settings.gameFolderAsked;
     if (isKnownLanguage(settings.language)) {
@@ -7578,6 +7579,7 @@ void EditorApp::saveEditorOptions() const {
     settings.appearance = appearanceMode_;
     settings.seaOpacity = seaOpacity_;
     settings.randomMapFontSize = randomMapFontSize_;
+    settings.minimapPercent = minimapPercent_;
     settings.seaColor = seaColor_;
     settings.gameFolder = gameFolder_;
     settings.gameFolderAsked = gameFolderAsked_;
@@ -16709,18 +16711,22 @@ void EditorApp::ensureMinimap() {
     }
 
     const float scale = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f);
-    const float longEdge = 240.0f * scale;
+    const float longEdge = 240.0f * static_cast<float>(std::clamp(minimapPercent_, 100, 150)) / 100.0f * scale;
     int texW = 0;
     int texH = 0;
     if (mapW >= mapH) {
-        texW = std::clamp(static_cast<int>(std::lround(longEdge)), 32, 512);
+        texW = std::clamp(static_cast<int>(std::lround(longEdge)), 32, 1024);
         texH = std::max(1, static_cast<int>(std::lround(static_cast<float>(texW) * mapH / mapW)));
     } else {
-        texH = std::clamp(static_cast<int>(std::lround(longEdge)), 32, 512);
+        texH = std::clamp(static_cast<int>(std::lround(longEdge)), 32, 1024);
         texW = std::max(1, static_cast<int>(std::lround(static_cast<float>(texH) * mapW / mapH)));
     }
     miniDisplayW_ = static_cast<float>(texW) / scale;
     miniDisplayH_ = static_cast<float>(texH) / scale;
+    // While the corner is dragged the old picture is stretched to the new size.
+    if (minimapResizing_ && miniTexture_ != 0 && !miniDirty_) {
+        return;
+    }
     if (!miniDirty_ && miniTexture_ != 0 && texW == miniTexW_ && texH == miniTexH_) {
         return;
     }
@@ -16817,6 +16823,29 @@ void EditorApp::drawMinimap() {
 
     const ImVec2 imageSize(miniDisplayW_, miniDisplayH_);
     const ImVec2 imageMin = ImGui::GetCursorScreenPos();
+    // The corner grip resizes the minimap from its smallest size to half as big again. It
+    // comes before the picture so the picture's own click does not take the drag.
+    constexpr float kGrip = 14.0f;
+    const ImVec2 gripMin(imageMin.x + imageSize.x - kGrip, imageMin.y + imageSize.y - kGrip);
+    ImGui::SetCursorScreenPos(gripMin);
+    ImGui::InvisibleButton("minimap-resize", ImVec2(kGrip, kGrip));
+    const bool gripHot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+    if (ImGui::IsItemActive()) {
+        minimapResizing_ = true;
+        const float percent = static_cast<float>(std::clamp(minimapPercent_, 100, 150));
+        const float baseW = imageSize.x * 100.0f / percent;
+        const float baseH = imageSize.y * 100.0f / percent;
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const float wanted = std::max((mouse.x - imageMin.x) / baseW, (mouse.y - imageMin.y) / baseH);
+        minimapPercent_ = std::clamp(static_cast<int>(std::lround(wanted * 100.0f)), 100, 150);
+    } else if (minimapResizing_) {
+        minimapResizing_ = false;
+        saveEditorOptions();
+    }
+    if (gripHot) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);
+    }
+    ImGui::SetCursorScreenPos(imageMin);
     ImGui::InvisibleButton("minimap-image", imageSize);
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
@@ -16872,6 +16901,27 @@ void EditorApp::drawMinimap() {
             }
         }
         draw->PopClipRect();
+    }
+
+    {
+        // Three short diagonal lines in the corner show it can be dragged.
+        const ImU32 gripColor = gripHot ? IM_COL32(255, 255, 255, 230) : IM_COL32(255, 255, 255, 130);
+        for (int line = 1; line <= 3; ++line) {
+            const float reach = 3.5f * static_cast<float>(line);
+            draw->AddLine(ImVec2(imageMax.x - reach - 1.0f, imageMax.y - 1.0f), ImVec2(imageMax.x - 1.0f, imageMax.y - reach - 1.0f), gripColor, 1.0f);
+        }
+    }
+
+    // As it grows, the window is moved back inside the screen rather than running off it.
+    {
+        const ImVec2 pos = ImGui::GetWindowPos();
+        const ImVec2 size = ImGui::GetWindowSize();
+        const float right = viewport->WorkPos.x + viewport->WorkSize.x;
+        const float bottom = viewport->WorkPos.y + viewport->WorkSize.y;
+        const ImVec2 inside(std::max(viewport->WorkPos.x, std::min(pos.x, right - size.x)), std::max(viewport->WorkPos.y, std::min(pos.y, bottom - size.y)));
+        if (inside.x != pos.x || inside.y != pos.y) {
+            ImGui::SetWindowPos(inside);
+        }
     }
 
     ImGui::End();

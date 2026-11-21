@@ -18,6 +18,8 @@ struct EditorSettings {
     int seaColor = 0x2E7FDC;
     // Point size of the script in the Random Map Generator window. Command + and - change it.
     int randomMapFontSize = 13;
+    // The minimap window's size, in percent of its smallest: 100 to 150.
+    int minimapPercent = 100;
     // Folder where Total Annihilation is installed. Empty means it is not set.
     std::filesystem::path gameFolder;
     // True once the startup prompt for the folder has been answered, including
