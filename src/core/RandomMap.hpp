@@ -133,6 +133,11 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind);
 // "Mars", "Ice", "Metal", "Desert", "Archi", "Lush", "Acid" or "Crystal". Empty for
 // worlds the Tile Brush has no ground for, such as Zhon.
 std::string doodadLand(const RmsFeature& feature, DoodadKind kind);
+// False when a feature was drawn for only some Base tiles of its land and base, such
+// as "Base-1", is not one of them: ArchMetal1 to 3 suit Archipelago Base-78,
+// ArchMetalB1 to B3 Archipelago Base-194, and ArchMetalC1 to C3 Lava Base-86 and
+// Base-190. True for every other feature.
+bool featureSuitsBase(const RmsFeature& feature, std::string_view base);
 // True for features made for the sea floor, such as GreenAquaOre1, corals and kelp.
 // TDF files do not say so, so the name and category decide. These only go in water,
 // and every other feature only on dry land.
@@ -146,6 +151,8 @@ struct RmsObjectSettings {
     // liquid that features stay off.
     std::vector<std::string> terrainLands;
     std::vector<bool> terrainLiquid;
+    // Each terrain's Base tile name, such as "Base-78". May be empty.
+    std::vector<std::string> terrainBases;
     // The map in feature cells.
     int cellsWide = 0;
     int cellsHigh = 0;

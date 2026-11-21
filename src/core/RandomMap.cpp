@@ -1450,13 +1450,30 @@ private:
         }
         if (choice.followsLand) {
             const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
-            const bool own = !land.empty() && doodadLand(feature, choice.kind) == land;
-            const bool fallback = sharedFallback(choice.kind) && allWorlds(feature) && choice.lands.count(land) == 0;
+            const std::string base = slot < objects.terrainBases.size() ? objects.terrainBases[slot] : std::string();
+            const bool own = !land.empty() && doodadLand(feature, choice.kind) == land && featureSuitsBase(feature, base);
+            const bool fallback = sharedFallback(choice.kind) && allWorlds(feature) && !ownsGround(choice, slot);
             if (!own && !fallback) {
                 return false;
             }
         }
         return true;
+    }
+
+    // True when the choice has a feature of its own for this terrain's land and Base tile.
+    bool ownsGround(const ObjectChoice& choice, std::size_t slot) const {
+        const RmsObjectSettings& objects = *options_.objects;
+        const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
+        if (land.empty() || choice.lands.count(land) == 0) {
+            return false;
+        }
+        const std::string base = slot < objects.terrainBases.size() ? objects.terrainBases[slot] : std::string();
+        for (const RmsFeature* feature : choice.features) {
+            if (doodadLand(*feature, choice.kind) == land && featureSuitsBase(*feature, base)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Places one feature at this cell if any of the choice fits there.
@@ -1508,8 +1525,8 @@ private:
                 }
                 if (choice.followsLand) {
                     const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
-                    const bool own = !land.empty() && choice.lands.count(land) != 0;
-                    const bool fallback = sharedFallback(choice.kind) && anyAllWorlds && choice.lands.count(land) == 0;
+                    const bool own = !land.empty() && ownsGround(choice, slot);
+                    const bool fallback = sharedFallback(choice.kind) && anyAllWorlds && !own;
                     if (!own && !fallback) {
                         continue;
                     }
@@ -1850,9 +1867,9 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
         if (feature.metal <= 0 || !metalDeposit(feature)) {
             return false;
         }
-        // The third-party gwmetal and TAVMetal deposits look out of place, so they are
-        // never used. On GreenWorld's dry land only Cavedog's own RockMetal deposits are.
-        if (name.compare(0, 7, "gwmetal") == 0 || name.compare(0, 8, "tavmetal") == 0) {
+        // The third-party gwmetal, TAVMetal and GZMetal deposits look out of place, so they
+        // are never used. On GreenWorld's dry land only Cavedog's own RockMetal deposits are.
+        if (name.compare(0, 7, "gwmetal") == 0 || name.compare(0, 8, "tavmetal") == 0 || name.compare(0, 7, "gzmetal") == 0) {
             return false;
         }
         if (doodadLand(feature, kind) == "Green" && !underwaterFeature(feature)) {
@@ -1885,7 +1902,51 @@ bool underwaterFeature(const RmsFeature& feature) {
     return false;
 }
 
+namespace {
+
+// Metal deposits drawn to match particular Base tiles, by the start of their names.
+struct FeatureHome {
+    const char* prefix;
+    const char* land;
+    std::vector<const char*> bases;
+};
+
+const FeatureHome* featureHome(const RmsFeature& feature) {
+    static const std::vector<FeatureHome> homes = {
+        {"archmetalb", "Archi", {"base-194"}},
+        // ArchMetalC is filed under Archipelago but drawn for Lava.
+        {"archmetalc", "Lava", {"base-86", "base-190"}},
+        {"archmetal", "Archi", {"base-78"}},
+    };
+    const std::string name = lower(feature.name);
+    for (const FeatureHome& home : homes) {
+        const std::size_t length = std::string_view(home.prefix).size();
+        if (name.compare(0, length, home.prefix) == 0) {
+            // ArchMetal1 to 3, but not some longer name such as ArchMetalD1.
+            if (std::string_view(home.prefix) == "archmetal" && name.size() > length && !std::isdigit(static_cast<unsigned char>(name[length]))) {
+                return nullptr;
+            }
+            return &home;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+bool featureSuitsBase(const RmsFeature& feature, std::string_view base) {
+    const FeatureHome* home = featureHome(feature);
+    if (home == nullptr) {
+        return true;
+    }
+    const std::string wanted = lower(base);
+    return std::any_of(home->bases.begin(), home->bases.end(), [&](const char* each) { return wanted == each; });
+}
+
 std::string doodadLand(const RmsFeature& feature, DoodadKind kind) {
+    if (const FeatureHome* home = featureHome(feature)) {
+        return home->land;
+    }
     switch (kind) {
     case DoodadKind::IceChunks:
         return "Ice";

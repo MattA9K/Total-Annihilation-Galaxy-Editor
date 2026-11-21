@@ -6185,8 +6185,22 @@ void testStartsAndResources() {
     expect(!featureIsDoodad({"gwmetal2", "Greenland", "metal", 6, 3, 255, false}, DoodadKind::MetalNodes)
                && !featureIsDoodad({"TAVMetal1", "greenworld", "TAV", 3, 3, 223, false}, DoodadKind::MetalNodes)
                && !featureIsDoodad({"TAVMETAL2", "All Worlds", "TAV", 3, 3, 127, false}, DoodadKind::MetalNodes)
-               && !featureIsDoodad({"GreenRockOre1", "greenworld", "metal", 3, 3, 100, false}, DoodadKind::MetalNodes),
+               && !featureIsDoodad({"GreenRockOre1", "greenworld", "metal", 3, 3, 100, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"GZMetal01", "Archipelago", "GZ", 3, 3, 150, false}, DoodadKind::MetalNodes),
         "third-party metal deposits are left out, and only RockMetal goes on GreenWorld land");
+    {
+        const RmsFeature arch{"ArchMetal2", "archipelago", "metal", 3, 3, 116, false};
+        const RmsFeature archB{"ArchMetalB1", "archipelago", "metal", 3, 3, 150, false};
+        const RmsFeature archC{"ArchMetalC1", "archipelago", "metal", 3, 3, 127, false};
+        expect(doodadLand(arch, DoodadKind::MetalNodes) == "Archi" && featureSuitsBase(arch, "Base-78") && !featureSuitsBase(arch, "Base-194"),
+            "ArchMetal1 to 3 suit Archipelago Base-78 only");
+        expect(doodadLand(archB, DoodadKind::MetalNodes) == "Archi" && featureSuitsBase(archB, "Base-194") && !featureSuitsBase(archB, "Base-78"),
+            "ArchMetalB suits Archipelago Base-194 only");
+        expect(doodadLand(archC, DoodadKind::MetalNodes) == "Lava" && featureSuitsBase(archC, "Base-86") && featureSuitsBase(archC, "base-190")
+                   && !featureSuitsBase(archC, "Base-78"),
+            "ArchMetalC belongs to Lava Base-86 and Base-190");
+        expect(featureSuitsBase({"LavaMetal1", "lava", "metal", 3, 3, 100, false}, "Base-1"), "features without a home suit every Base tile");
+    }
 }
 
 void testStampBrushes() {

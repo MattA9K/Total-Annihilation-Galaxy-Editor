@@ -9506,6 +9506,7 @@ bool EditorApp::generateRandomMap() {
             for (const int level : levels) {
                 const RandomMapPaint& paint = tiles.paints()[static_cast<std::size_t>(level)];
                 objects.terrainLands.push_back(blendWorldName(paint.world));
+                objects.terrainBases.push_back(paint.name);
                 // Water, shallows, lava and the other seas are the low side of a coast.
                 bool liquid = false;
                 for (const BrushTransitionRule& rule : brushTransitionRules()) {
