@@ -724,6 +724,13 @@ private:
     // GreenWorld's hills, rough patches and islands as script stamps, measured once per tileset.
     std::vector<RandomMapStampBrush> randomMapStampBrushes_;
     std::string randomMapStampKey_;
+    // Auto Metal: MegaMetal4 on every 8 x 8 tile block of Metal ground.
+    void autoMetal();
+    // Every tile picture of the random map tileset's Metal sections, read once per tileset.
+    std::unordered_set<std::uint64_t> metalPictures_;
+    std::string metalPicturesKey_;
+    // What the Auto Metal alert says, such as "no Metal tiles". Empty when it is closed.
+    std::string autoMetalAlert_;
     // Every stamp button of every world's Tile Brush, with its pieces and the ground it
     // needs, read through the brush's own catalog so the two always agree.
     std::vector<RandomMapStampBrush> collectStampBrushes();

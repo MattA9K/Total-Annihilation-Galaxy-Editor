@@ -1,6 +1,8 @@
 #include "ui/EditorApp.hpp"
+#include "ui/ExampleScripts.hpp"
 
 #include "core/BlendColours.hpp"
+#include "core/AutoMetal.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/DocumentNames.hpp"
 #include "core/EditorSettings.hpp"
@@ -3542,6 +3544,16 @@ void EditorApp::drawToolbar() {
     }
     ImGui::EndDisabled();
     theme::toolbarSeparator();
+
+    ImGui::BeginDisabled(!map_ || savingMap());
+    if (theme::toolbarItem("auto-metal", ToolIcon::AutoMetal, text(Text::AutoMetal))) {
+        autoMetal();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("%s", text(Text::TipAutoMetal));
+    }
+    ImGui::EndDisabled();
+    next();
 
     ImGui::BeginDisabled(!map_ || !hasSelection() || featuresTab_);
     if (theme::toolbarItem("modify-height", ToolIcon::ModifyHeight, text(Text::ModifyHeight))) {
@@ -9031,189 +9043,6 @@ void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
 
 namespace {
 
-// The script a new Random Map Generator window starts with.
-constexpr const char* kExampleRandomMapScript = R"(/* Galaxy Editor random map script, in the syntax Age of Empires II uses.
-   Terrain names are the Tile Brush bases, such as GREENWORLD_BASE-85.
-   One tile here is one square of the map's game size: 16 x 16 map tiles. */
-
-<PLAYER_SETUP>
-random_placement
-
-<LAND_GENERATION>
-base_terrain GREENWORLD_BASE-0
-
-/* An island for each player, kept two tiles from the others. */
-create_player_lands {
-  terrain_type GREENWORLD_BASE-85
-  land_percent 50
-  /* Small maps have room for smaller starting areas only. */
-  if TINY_MAP
-    base_size 1
-  else
-    base_size 2
-  endif
-  other_zone_avoidance_distance 2
-  border_fuzziness 30
-  clumping_factor 15
-}
-
-<TERRAIN_GENERATION>
-/* High ground behind cliffs, kept a tile from the water. */
-create_terrain GREENWORLD_BASE-219 {
-  base_terrain GREENWORLD_BASE-85
-  land_percent 5
-  number_of_clumps 4
-  spacing_to_other_terrain_types 1
-  set_avoid_player_start_areas 1
-}
-
-/* Lava out at sea. Lava cannot touch water, so the brush rings it with grass. */
-create_terrain LAVA_BASE-86 {
-  base_terrain GREENWORLD_BASE-0
-  land_percent 3
-  number_of_clumps 2
-  spacing_to_other_terrain_types 2
-}
-
-/* Hills and rough ground on the islands, and small islands out at sea.
-   These are the Tile Brush's stamps: hills, pools, islands, craters and the
-   rest, for every tileset. Each is listed under its world's bases in the
-   Terrains list, and fills a block of flat ground of the base it needs, so
-   they go in after the land is painted. number_of_clumps is how many. */
-create_terrain GREENWORLD_HILL-85_8X8 {
-  number_of_clumps 4
-  set_scale_by_groups
-  set_avoid_player_start_areas 1
-}
-create_terrain GREENWORLD_HILL-85_16X16 {
-  number_of_clumps 1
-  set_scale_by_groups
-  spacing_to_other_terrain_types 1
-  set_avoid_player_start_areas 1
-}
-create_terrain GREENWORLD_ROUGH-85 {
-  number_of_clumps 3
-  set_scale_by_groups
-}
-create_terrain GREENWORLD_ISLAND_8X8 {
-  number_of_clumps 1
-  set_scale_by_groups
-  spacing_to_other_terrain_types 1
-}
-
-/* Small lava pools on the lava fields. */
-create_terrain LAVA_POOL-86_8X8 {
-  number_of_clumps 1
-  set_scale_by_groups
-}
-
-<CONNECTION_GENERATION>
-/* Shallow water between the players' islands. */
-create_connect_all_players_land {
-  replace_terrain GREENWORLD_BASE-0 GREENWORLD_BASE-68
-  terrain_size GREENWORLD_BASE-0 0 0
-}
-
-<OBJECTS_GENERATION>
-/* Doodads. Here one tile is one feature cell, the footprint of one tree:
-   16 x 16 pixels, so a game-size square is 32 tiles across.
-   A kind such as TREES picks features that suit the ground under each
-   spot: GreenWorld trees on grass, palms on Archipelago sand. A kind for
-   one world, such as ARCHIPELAGO_TREES or ZHON_PLANTS, and any feature
-   name, such as Tree1, work too. Doodads stay off water, lava and edges. */
-
-/* Player starts, one on each player's island. Without this block the
-   starts still go on the land origins; with it, the rules below decide.
-   TOWN_CENTER is the same as START_POSITION. */
-create_object START_POSITION {
-  set_place_for_every_player
-  max_distance_to_players 0
-}
-
-/* Metal: three deposits near each start, and more out in the open.
-   METAL_NODES picks the deposits of the ground under each one. */
-create_object METAL_NODES {
-  number_of_objects 3
-  set_place_for_every_player
-  min_distance_to_players 10
-  max_distance_to_players 28
-  temp_min_distance_group_placement 6
-}
-create_object METAL_NODES {
-  number_of_objects 2
-  set_scaling_to_map_size
-  min_distance_to_players 40
-  temp_min_distance_group_placement 24
-}
-
-/* Geothermal vents: one near each start, and a few to fight over. */
-create_object GEO_VENTS {
-  number_of_objects 1
-  set_place_for_every_player
-  min_distance_to_players 12
-  max_distance_to_players 32
-}
-create_object GEO_VENTS {
-  number_of_objects 1
-  set_scaling_to_map_size
-  min_distance_to_players 40
-  temp_min_distance_group_placement 40
-}
-
-/* Groves of trees, kept clear of where players start. */
-create_object TREES {
-  number_of_objects 6
-  number_of_groups 2
-  group_variance 2
-  set_tight_grouping
-  set_scaling_to_map_size
-  min_distance_to_players 20
-  avoid_cliff_zone 2
-}
-
-/* Lone trees and shrubs scattered over the grass. */
-create_object TREES {
-  number_of_objects 3
-  set_scaling_to_map_size
-  min_distance_to_players 10
-}
-create_object SHRUBS {
-  number_of_objects 4
-  set_scaling_to_map_size
-}
-
-/* Rocks in small clusters, spread apart. */
-create_object ROCKS {
-  number_of_objects 3
-  number_of_groups 1
-  set_scaling_to_map_size
-  group_placement_radius 3
-  min_distance_group_placement 12
-  min_distance_to_players 12
-}
-
-/* Spires and nodes on the lava. */
-create_object LAVA_SPIRES {
-  number_of_objects 1
-  set_scaling_to_map_size
-}
-create_object LAVA_NODES {
-  number_of_objects 1
-  set_scaling_to_map_size
-}
-
-/* More kinds for other grounds. Paint those lands above, then take a
-   block out of this comment:
-   create_object PLANTS { number_of_objects 4 set_scaling_to_map_size }
-   create_object FOLIAGE { number_of_objects 4 set_scaling_to_map_size }
-   create_object FRONDS { number_of_objects 4 set_scaling_to_map_size }
-   create_object VINES { number_of_objects 3 set_scaling_to_map_size }
-   create_object ICECHUNKS { number_of_objects 4 set_scaling_to_map_size }
-   create_object METAL_TOWERS { number_of_objects 1 set_scaling_to_map_size }
-   create_object PIPES { number_of_objects 2 set_scaling_to_map_size }
-   create_object CRYSTAL_SPIRES { number_of_objects 1 set_scaling_to_map_size }
-   create_object SPIRES { number_of_objects 1 set_scaling_to_map_size } */
-)";
 
 // What a map is without base_terrain, and a land without terrain_type. The game uses GRASS.
 constexpr const char* kRandomMapFallbackTerrain = "GREENWORLD_BASE-85";
@@ -9355,6 +9184,94 @@ void EditorApp::saveRandomMapScript() const {
         out << randomMapScript_;
     } catch (const std::exception&) {
     }
+}
+
+void EditorApp::autoMetal() {
+    if (!map_) {
+        return;
+    }
+    // Metal tiles are known by their pictures, read from the random map tileset's Metal sections.
+    const TilesetArchive* source = nullptr;
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        if (isRandomMapTileset(archive.path)) {
+            source = &archive;
+            break;
+        }
+    }
+    if (source == nullptr) {
+        autoMetalAlert_ = text(Text::RandomMapNoTileset);
+        return;
+    }
+    bool haveFeature = false;
+    for (const TilesetArchive& archive : tilesets_.archives()) {
+        for (const FeatureInfo& feature : archive.features) {
+            haveFeature = haveFeature || lowerText(feature.name) == lowerText(kAutoMetalFeature);
+        }
+    }
+    if (!haveFeature) {
+        autoMetalAlert_ = text(Text::AutoMetalMissing);
+        return;
+    }
+    const std::string key = source->path.string() + "\n" + std::to_string(source->sections.size());
+    if (key != metalPicturesKey_) {
+        metalPictures_.clear();
+        for (const TilesetSection& section : source->sections) {
+            const std::string world = lowerText(section.world);
+            const bool ground = world == "basetiles" || world == "basetilebrushstrokes" || world == "clifftiles" || world == "coasttiles"
+                || world == "coastdsl" || world == "shallowcoasttiles" || world == "shallowdeeptiles" || world == "slopes";
+            if (!ground || lowerText(section.category) != "metal") {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(section.archivePath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                for (const std::uint32_t image : stamp.indices) {
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 <= stamp.tileImages.size()) {
+                        metalPictures_.insert(hashBrushTile(stamp.tileImages.data() + bytes));
+                    }
+                }
+            } catch (const std::exception&) {
+            }
+        }
+        metalPicturesKey_ = key;
+    }
+    const LoadedMap& map = *map_;
+    const std::vector<std::pair<int, int>> cells = autoMetalCells(map.tileWidth, map.tileHeight, [&](int x, int y) {
+        const std::size_t index = static_cast<std::size_t>(y) * static_cast<std::size_t>(map.tileWidth) + static_cast<std::size_t>(x);
+        if (index >= map.indices.size()) {
+            return false;
+        }
+        const std::size_t bytes = static_cast<std::size_t>(map.indices[index]) * 1024;
+        return bytes + 1024 <= map.tileImages.size() && metalPictures_.count(hashBrushTile(map.tileImages.data() + bytes)) != 0;
+    });
+    if (cells.empty()) {
+        autoMetalAlert_ = text(Text::AutoMetalNone);
+        return;
+    }
+    std::vector<FeaturePlacement> placements;
+    placements.reserve(cells.size());
+    for (const auto& [x, y] : cells) {
+        placements.push_back(FeaturePlacement{x, y, kAutoMetalFeature});
+    }
+    int placed = 0;
+    int blocked = 0;
+    FeatureBatchChange change = addMapFeatures(*map_, placements, &placed, &blocked);
+    const std::string inTheWay = blocked > 0
+        ? ", " + std::to_string(blocked) + (blocked == 1 ? " block has" : " blocks have") + " another feature in its corner cell"
+        : std::string();
+    if (placed == 0) {
+        statusNote_ = "Every Metal block already has " + std::string(kAutoMetalFeature) + inTheWay;
+        return;
+    }
+    EditorCommand command;
+    command.featureBatch = std::move(change);
+    pushCommand(std::move(command), true);
+    selectedFeatures_.clear();
+    statusNote_ = "Auto Metal placed " + std::to_string(placed) + " " + kAutoMetalFeature + inTheWay;
 }
 
 bool EditorApp::stampBaseOf(const std::string& button, std::string& world, std::string& base) const {
@@ -9727,7 +9644,7 @@ void EditorApp::drawRandomMap() {
         if (in) {
             saved << in.rdbuf();
         }
-        randomMapScript_ = saved.str().empty() ? std::string(kExampleRandomMapScript) : saved.str();
+        randomMapScript_ = saved.str().empty() ? std::string(kExampleRandomMapScripts[0].text) : saved.str();
         std::mt19937 seedRng{std::random_device{}()};
         randomMapSeed_ = std::uniform_int_distribution<int>(1, 999983)(seedRng);
     }
@@ -9906,11 +9823,28 @@ void EditorApp::drawRandomMap() {
     const float exampleWidth = theme::pushButtonWidth(exampleLabel);
     const float generateWidth = theme::pushButtonWidth(generateLabel);
     if (ImGui::Button(exampleLabel, ImVec2(exampleWidth, 0.0f))) {
-        randomMapScript_ = kExampleRandomMapScript;
-        saveRandomMapScript();
+        ImGui::OpenPopup("random-map-examples");
     }
-    if (ImGui::IsItemHovered()) {
+    if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("random-map-examples")) {
         ImGui::SetTooltip("%s", text(Text::RandomMapExampleTip));
+    }
+    // One example for each base tileset. Choosing one replaces the script in the box.
+    if (ImGui::BeginPopup("random-map-examples")) {
+        float widest = 0.0f;
+        std::vector<std::string> labels;
+        for (const ExampleRandomMapScript& example : kExampleRandomMapScripts) {
+            labels.push_back(std::string(example.world) + "  \xE2\x80\x94  " + example.title);
+            widest = std::max(widest, theme::pushButtonWidth(labels.back().c_str()));
+        }
+        for (std::size_t i = 0; i < labels.size(); ++i) {
+            if (ImGui::Button(labels[i].c_str(), ImVec2(widest, 0.0f))) {
+                randomMapScript_ = kExampleRandomMapScripts[i].text;
+                saveRandomMapScript();
+                statusNote_ = std::string("Loaded the ") + kExampleRandomMapScripts[i].world + " example";
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
     }
     if (!map_) {
         ImGui::SameLine();
@@ -10518,6 +10452,20 @@ bool EditorApp::draw() {
         theme::alignRight(okWidth);
         if (theme::defaultButton(text(Text::Ok), ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             error_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    const std::string autoMetalTitle = withId(Text::AutoMetal, "Auto Metal");
+    if (!autoMetalAlert_.empty()) {
+        ImGui::OpenPopup(autoMetalTitle.c_str());
+    }
+    if (ImGui::BeginPopupModal(autoMetalTitle.c_str(), nullptr, theme::alertFlags())) {
+        theme::alertText(autoMetalAlert_.c_str());
+        const float okWidth = theme::pushButtonWidth(text(Text::Ok));
+        theme::alignRight(okWidth);
+        if (theme::defaultButton(text(Text::Ok), ImVec2(okWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            autoMetalAlert_.clear();
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

@@ -76,6 +76,7 @@ enum class ToolIcon {
     CopyHeights,
     Paste,
     ModifyHeight,
+    AutoMetal,
     Blend,
     HeightMap,
     View3D,

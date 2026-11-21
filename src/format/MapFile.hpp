@@ -191,6 +191,10 @@ struct FeatureBatchChange {
 // (void cells) stays open, and a placement outside the map or on open space is
 // skipped. skipped, when given, counts those.
 FeatureBatchChange replaceMapFeatures(LoadedMap& map, const std::vector<FeaturePlacement>& placements, int* skipped = nullptr);
+// Places these features and keeps every other one. A cell that already holds a
+// feature, or is open space, is left as it is. placed and blocked, when given,
+// count the features put down and the ones a feature already in the cell stopped.
+FeatureBatchChange addMapFeatures(LoadedMap& map, const std::vector<FeaturePlacement>& placements, int* placed = nullptr, int* blocked = nullptr);
 void revertFeatureBatch(LoadedMap& map, const FeatureBatchChange& change);
 void reapplyFeatureBatch(LoadedMap& map, const FeatureBatchChange& change);
 

@@ -1129,6 +1129,55 @@ FeatureBatchChange replaceMapFeatures(LoadedMap& map, const std::vector<FeatureP
     return change;
 }
 
+FeatureBatchChange addMapFeatures(LoadedMap& map, const std::vector<FeaturePlacement>& placements, int* placed, int* blocked) {
+    FeatureBatchChange change;
+    change.namesBefore = map.featureNames;
+    std::vector<std::string> names = map.featureNames;
+    int put = 0;
+    int stopped = 0;
+    for (const FeaturePlacement& placement : placements) {
+        std::size_t index = 0;
+        const std::string stored = trimmedFeatureName(placement.name);
+        if (stored.empty() || !featureCell(map, placement.x, placement.y, index)) {
+            continue;
+        }
+        const std::uint16_t current = map.featureIndices[index];
+        if (current == kVoidFeature) {
+            continue;
+        }
+        if (!isSpecialFeature(current)) {
+            // The cell already has a feature. The same one counts as placed already.
+            if (!(current < names.size() && names[current] == stored)) {
+                ++stopped;
+            }
+            continue;
+        }
+        std::size_t nameIndex = std::find(names.begin(), names.end(), stored) - names.begin();
+        if (nameIndex == names.size()) {
+            if (names.size() >= kMaxFeatureNames) {
+                ++stopped;
+                continue;
+            }
+            names.push_back(stored);
+        }
+        change.cells.push_back(static_cast<std::uint32_t>(index));
+        change.before.push_back(current);
+        change.after.push_back(static_cast<std::uint16_t>(nameIndex));
+        map.featureIndices[index] = static_cast<std::uint16_t>(nameIndex);
+        ++put;
+    }
+    change.namesAfter = names;
+    map.featureNames = std::move(names);
+    rebuildFeaturePlacements(map);
+    if (placed != nullptr) {
+        *placed = put;
+    }
+    if (blocked != nullptr) {
+        *blocked = stopped;
+    }
+    return change;
+}
+
 void revertFeatureBatch(LoadedMap& map, const FeatureBatchChange& change) {
     for (std::size_t i = 0; i < change.cells.size(); ++i) {
         if (change.cells[i] >= map.featureIndices.size()) {

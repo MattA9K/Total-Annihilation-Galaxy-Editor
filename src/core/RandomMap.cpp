@@ -1224,7 +1224,10 @@ private:
             }
             return true;
         };
-        const auto nearestTo = [&](int ox, int oy, const ObjectRules& round) {
+        const auto nearestTo = [&](int ox, int oy, ObjectRules round) {
+            // The nearest place with room, however far: max_distance_to_players 0 only
+            // means "on the origin if it fits".
+            round.maxPlayers = -1;
             const int reach = std::max(cellsWide_, cellsHigh_);
             for (int r = 0; r <= reach; ++r) {
                 std::vector<std::pair<int, int>> ring;
@@ -1483,6 +1486,48 @@ private:
     }
 
     // A random cell, near one player's origin when the round is for that player.
+    // The brush cells whose flat ground this choice can use: the right terrain, not a
+    // liquid unless terrain_to_place_on asks for one, and a land the features suit.
+    std::vector<int> usableGround(const ObjectChoice& choice, const ObjectRules& rules) const {
+        const RmsObjectSettings& objects = *options_.objects;
+        bool anyAllWorlds = false;
+        for (const RmsFeature* feature : choice.features) {
+            anyAllWorlds = anyAllWorlds || allWorlds(*feature);
+        }
+        std::vector<int> cells;
+        for (int ly = 0; ly < latticeY_; ++ly) {
+            for (int lx = 0; lx < latticeX_; ++lx) {
+                const int ground = flat_[static_cast<std::size_t>(ly) * static_cast<std::size_t>(latticeX_) + static_cast<std::size_t>(lx)];
+                if (ground < 0) {
+                    continue;
+                }
+                const std::size_t slot = static_cast<std::size_t>(ground);
+                const bool liquid = slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot];
+                if (rules.terrain >= 0 ? ground != rules.terrain : liquid) {
+                    continue;
+                }
+                if (choice.followsLand) {
+                    const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
+                    const bool own = !land.empty() && choice.lands.count(land) != 0;
+                    const bool fallback = sharedFallback(choice.kind) && anyAllWorlds && choice.lands.count(land) == 0;
+                    if (!own && !fallback) {
+                        continue;
+                    }
+                }
+                cells.push_back(ly * latticeX_ + lx);
+            }
+        }
+        return cells;
+    }
+
+    // A random feature cell inside one of these brush cells.
+    std::pair<int, int> cellIn(const std::vector<int>& ground) {
+        const int picked = ground[std::uniform_int_distribution<std::size_t>(0, ground.size() - 1)(rng_)];
+        const int x = (picked % latticeX_) * perNode_ + std::uniform_int_distribution<int>(0, perNode_ - 1)(rng_);
+        const int y = (picked / latticeX_) * perNode_ + std::uniform_int_distribution<int>(0, perNode_ - 1)(rng_);
+        return {std::min(x, cellsWide_ - 1), std::min(y, cellsHigh_ - 1)};
+    }
+
     std::pair<int, int> randomCell(const ObjectRules& rules) {
         int x0 = 0;
         int y0 = 0;
@@ -1536,6 +1581,16 @@ private:
             }
         }
 
+        const std::vector<int> ground = usableGround(choice, rules);
+        if (ground.empty()) {
+            note(command.line, "create_object " + name + " placed nothing: there is no ground on this map that it suits.");
+            return;
+        }
+        // A round for one player near their origin searches around that origin; every
+        // other search tries only the ground this choice can use.
+        const auto pickCell = [&](const ObjectRules& round) {
+            return round.player > 0 && round.maxPlayers >= 0 ? randomCell(round) : cellIn(ground);
+        };
         const bool grouped = has(command, "number_of_groups");
         double objectsPerGroup = std::max(0.0, numberAt(command, "number_of_objects", 1.0));
         double groups = grouped ? std::max(0.0, numberAt(command, "number_of_groups", 1.0)) : 1.0;
@@ -1569,13 +1624,16 @@ private:
                 // Separate objects, each anywhere it fits.
                 wanted += perGroup;
                 for (int object = 0; object < perGroup; ++object) {
-                    for (int attempt = 0; attempt < 400; ++attempt) {
-                        const auto [x, y] = randomCell(rules);
-                        if (placeAt(choice, rules, x, y, ++groupId, commandIndex)) {
-                            ++made;
-                            break;
-                        }
+                    bool found = false;
+                    for (int attempt = 0; attempt < 400 && !found; ++attempt) {
+                        const auto [x, y] = pickCell(rules);
+                        found = placeAt(choice, rules, x, y, ++groupId, commandIndex);
                     }
+                    if (!found) {
+                        // No room for this one, so there is none for the rest either.
+                        break;
+                    }
+                    ++made;
                 }
                 continue;
             }
@@ -1586,14 +1644,18 @@ private:
                 int centerX = -1;
                 int centerY = -1;
                 for (int attempt = 0; attempt < 2000 && centerX < 0; ++attempt) {
-                    const auto [x, y] = randomCell(rules);
+                    const auto [x, y] = pickCell(rules);
                     if (placeAt(choice, rules, x, y, groupId, commandIndex)) {
                         centerX = x;
                         centerY = y;
                     }
                 }
                 if (centerX < 0) {
-                    continue;
+                    // No room for this group, so there is none for the ones after it.
+                    for (int rest = group + 1; rest < groupCount; ++rest) {
+                        wanted += std::max(1, perGroup);
+                    }
+                    break;
                 }
                 int inGroup = 1;
                 std::vector<std::pair<int, int>> members = {{centerX, centerY}};

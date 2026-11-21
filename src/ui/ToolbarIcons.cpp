@@ -318,6 +318,24 @@ void drawHeightOffset(const Canvas& c, const Palette& p) {
     c.polygon({ImVec2(25.0f, 29.0f), ImVec2(20.8f, 23.0f), ImVec2(29.2f, 23.0f)}, p.blue, 0, 0.0f);
 }
 
+// A riveted steel plate with a glint of ore on it, and the sparkle that means "done for you".
+void drawAutoMetal(const Canvas& c, const Palette& p) {
+    c.rect(3.5f, 7.5f, 24.5f, 28.5f, p.steel, p.ink, 2.5f, 1.5f);
+    c.line(3.5f, 18.0f, 24.5f, 18.0f, p.inkFaint, 1.0f);
+    c.line(14.0f, 7.5f, 14.0f, 28.5f, p.inkFaint, 1.0f);
+    for (const float x : {6.8f, 21.2f}) {
+        for (const float y : {10.8f, 25.2f}) {
+            c.circle(x, y, 1.1f, p.ink, 0, 0.0f);
+        }
+    }
+    c.polygon({ImVec2(9.0f, 21.5f), ImVec2(12.0f, 16.5f), ImVec2(17.5f, 15.5f), ImVec2(20.0f, 20.5f), ImVec2(16.5f, 24.5f), ImVec2(11.0f, 24.5f)},
+              p.orange, p.ink, 1.2f);
+    // Four-pointed sparkle at the top right.
+    c.polygon({ImVec2(26.0f, 2.0f), ImVec2(27.4f, 6.6f), ImVec2(32.0f, 8.0f), ImVec2(27.4f, 9.4f), ImVec2(26.0f, 14.0f), ImVec2(24.6f, 9.4f),
+               ImVec2(20.0f, 8.0f), ImVec2(24.6f, 6.6f)},
+              p.blue, 0, 0.0f);
+}
+
 void drawDelete(const Canvas& c, const Palette& p) {
     c.rect(12.5f, 3.6f, 19.5f, 8.0f, 0, p.ink, 1.5f, 1.6f);
     c.polygon({ImVec2(7.8f, 11.0f), ImVec2(24.2f, 11.0f), ImVec2(22.0f, 29.0f), ImVec2(10.0f, 29.0f)}, p.red, p.ink, 1.5f);
@@ -421,6 +439,7 @@ void drawIcon(ToolIcon icon, const Canvas& canvas, const Canvas& flipped) {
     case ToolIcon::CopyHeights: drawCopyHeights(canvas, p); break;
     case ToolIcon::Paste: drawPaste(canvas, p); break;
     case ToolIcon::ModifyHeight: drawModifyHeight(canvas, p); break;
+    case ToolIcon::AutoMetal: drawAutoMetal(canvas, p); break;
     case ToolIcon::Blend: drawBlend(canvas, p); break;
     case ToolIcon::HeightMap: drawHeightMap(canvas, p); break;
     case ToolIcon::View3D: drawView3D(canvas, p); break;

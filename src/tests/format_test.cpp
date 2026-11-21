@@ -1,5 +1,6 @@
 #include "core/ArchiveDocument.hpp"
 #include "core/BlendColours.hpp"
+#include "core/AutoMetal.hpp"
 #include "core/BrushStrokes.hpp"
 #include "core/DocumentNames.hpp"
 #include "core/RandomMap.hpp"
@@ -6142,7 +6143,7 @@ void testStartsAndResources() {
         }
         expect(scrap == 5, "desert without metal of its own uses the all-worlds deposits");
         expect(!outcome.placesStarts, "no player lands and no START_POSITION leave the starts alone");
-        expect(hasMessage(outcome.messages, 5, "GEO_VENTS placed 0"), "no vent suits the desert, and no all-worlds vent exists here");
+        expect(hasMessage(outcome.messages, 5, "GEO_VENTS placed nothing"), "no vent suits the desert, and no all-worlds vent exists here");
     }
     {
         // START_POSITION without player lands spreads the players out.
@@ -6262,6 +6263,28 @@ void testStampBrushes() {
         "every stamp as many as asked, plateaus of both sizes included");
     expect(counts["r8"] == 8, "land_percent 2 of a 192 x 128 map is eight 8 x 8 rough patches: " + std::to_string(counts["r8"]));
     expect(hasMessage(notes, 5, "only goes on GREENWORLD_BASE-0"), "a base_terrain the stamp cannot use is pointed out");
+}
+
+void testAutoMetal() {
+    using namespace galaxy;
+    // A 20 x 16 tile map with Metal in the top-left 16 x 16 tile and one stray tile at 17, 9.
+    const auto isMetal = [](int x, int y) { return (x < 16 && y < 16) || (x == 17 && y == 9); };
+    const std::vector<std::pair<int, int>> cells = autoMetalCells(20, 16, isMetal);
+    const std::vector<std::pair<int, int>> expected = {{0, 0}, {16, 0}, {0, 16}, {16, 16}, {32, 16}};
+    expect(cells == expected, "a 16 x 16 Metal tile takes four MegaMetal4, and a block cut short by the edge still counts");
+    expect(autoMetalCells(64, 64, [](int, int) { return false; }).empty(), "a map with no Metal gets none");
+
+    LoadedMap map = createBlankMap(16, 16);
+    expect(placeMapFeature(map, 16, 16, "Rock") == FeatureEdit::Placed, "a rock in the way");
+    int placed = 0;
+    int blocked = 0;
+    const FeatureBatchChange change = addMapFeatures(map, {{0, 0, kAutoMetalFeature}, {16, 0, kAutoMetalFeature}, {16, 16, kAutoMetalFeature}}, &placed, &blocked);
+    expect(placed == 2 && blocked == 1 && map.features.size() == 3, "adding keeps the rock and does not cover its cell");
+    int again = 0;
+    addMapFeatures(map, {{0, 0, kAutoMetalFeature}}, &again, &blocked);
+    expect(again == 0 && blocked == 0, "running it twice adds nothing and is not blocked by its own metal");
+    revertFeatureBatch(map, change);
+    expect(map.features.size() == 1 && map.features[0].name == "Rock", "undo takes the metal back off");
 }
 
 void testBrushCanvas() {
@@ -6420,6 +6443,7 @@ int main() {
     testDoodads();
     testStartsAndResources();
     testStampBrushes();
+    testAutoMetal();
     testRandomMapTiles();
     testVanillaLimits();
     testBrushStrokeNames();
