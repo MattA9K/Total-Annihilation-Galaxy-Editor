@@ -85,6 +85,10 @@ struct RmsTerrainNames {
     // True for a Tile Brush stamp such as GREENWORLD_HILL-85_8X8. create_terrain with
     // one of these is set aside, and planStampBrushes places it once the map is painted.
     std::function<bool(std::string_view)> isStamp;
+    // The high ground a cliff raises from this terrain, in the same world, such as
+    // GREENWORLD_BASE-219 from GREENWORLD_BASE-85. -1 when there is none. Without it
+    // <CLIFF_GENERATION> is skipped.
+    std::function<int(int)> cliffAbove;
 };
 
 // A feature the game can place, such as Tree1, from the loaded archives' TDF files.
@@ -108,6 +112,7 @@ enum class DoodadKind {
     Shrubs,
     Foliage,
     Fronds,
+    Palms,
     Vines,
     IceChunks,
     LavaNodes,
@@ -139,7 +144,8 @@ std::string doodadLand(const RmsFeature& feature, DoodadKind kind);
 // Base-190. True for every other feature.
 bool featureSuitsBase(const RmsFeature& feature, std::string_view base);
 // The lands a feature of this kind goes on: its own, plus any it is lent to. Acid has
-// no rocks of its own, so Lush rocks, LushCrushed ones too, are its ROCKS.
+// no rocks of its own, so Lush rocks, LushCrushed ones too, are its ROCKS; Desert
+// has no trees, so Archipelago's trees and palms are its TREES and PALMS.
 std::vector<std::string> featureLands(const RmsFeature& feature, DoodadKind kind);
 bool featureSuitsLand(const RmsFeature& feature, DoodadKind kind, const std::string& land);
 // True for features made for the sea floor, such as GreenAquaOre1, corals and kelp.
@@ -156,6 +162,9 @@ inline constexpr int kMetalNodeMaxRise = 16;
 // Doodads such as trees stand on a blend between two grounds whose heights are this
 // close, such as Lush at 77 and GreenWorld at 85, but not across a cliff or a coast.
 inline constexpr int kBlendDoodadRise = 16;
+// At most this many trees stand on one map tile, a 2 x 2 block of feature cells, so
+// a forest is not packed tight: one tree to a tile.
+inline constexpr int kMaxTreesPerTile = 1;
 // How far, in feature cells, a metal node on a hill may move to reach flat ground.
 inline constexpr int kMetalNodeMoveRadius = 48;
 // The nearest place, out to radius feature cells from (x, y), for a w x h footprint
@@ -222,6 +231,10 @@ struct RandomMapOutcome {
     std::vector<RmsStart> starts;
     // create_terrain commands that name a Tile Brush stamp, as indexes into the script's commands.
     std::vector<std::size_t> stampCommands;
+    // create_elevation commands, placed as the hill stamps of their base_terrain.
+    std::vector<std::size_t> elevationCommands;
+    // Cliffs drawn by <CLIFF_GENERATION>.
+    int cliffs = 0;
 };
 
 // Runs the land, terrain, connection and object sections of a script. Elevation

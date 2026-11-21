@@ -5905,7 +5905,8 @@ void testRandomMapGenerator() {
         std::mt19937 rng(1);
         const RmsScript script = readScript("<ELEVATION_GENERATION>\ncreate_elevation 3 { }\n<TERRAIN_GENERATION>\ncreate_terrain MUD { }\n");
         const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
-        expect(hasMessage(outcome.messages, 1, "Elevation is not generated yet"), "elevation is pointed out");
+        expect(outcome.elevationCommands.size() == 1 && !hasMessage(outcome.messages, 1, "Elevation"),
+            "create_elevation is set aside for the hill stamps");
         expect(hasMessage(outcome.messages, 4, "\"MUD\" is not a terrain"), "an unknown terrain is named with its line");
     }
     const RmsScript fallback = readScript("<TERRAIN_GENERATION>\ncreate_terrain LAVA { base_terrain WATER }\n");
@@ -6081,7 +6082,7 @@ void testBlendDoodads() {
         const std::array<int, 4> corners = {canvas.at(lx, ly), canvas.at(lx + 1, ly), canvas.at(lx, ly + 1), canvas.at(lx + 1, ly + 1)};
         const bool flat = corners[0] == corners[1] && corners[0] == corners[2] && corners[0] == corners[3];
         if (feature.name == "LushMetal1") {
-            metalFlat = metalFlat && flat && corners[0] == 1;
+            metalFlat = metalFlat && flat && corners[0] != 0 && corners[0] != 3;
             continue;
         }
         if (flat) {
@@ -6099,6 +6100,50 @@ void testBlendDoodads() {
     expect(treesRight, "trees stand on the forest's own quarter of a blend, never by a cliff or water");
     expect(blendTrees > 0, "trees reach onto the blend at the forest's edge: " + std::to_string(blendTrees));
     expect(metalFlat, "metal nodes still keep to flat cells of one ground");
+}
+
+void testDesertTrees() {
+    using namespace galaxy;
+    const RmsFeature archiTree{"ArchiTree01", "archipelago", "trees", 1, 1, 0, false};
+    const RmsFeature palm{"Palm02", "archipelago", "trees", 1, 1, 0, false};
+    expect(featureSuitsLand(archiTree, DoodadKind::Trees, "Desert") && featureSuitsLand(palm, DoodadKind::Palms, "Desert")
+               && featureSuitsLand(archiTree, DoodadKind::Trees, "Archi") && !featureSuitsLand(archiTree, DoodadKind::Rocks, "Desert"),
+        "Archipelago trees and palms are Desert's TREES and PALMS too");
+    // A desert map: TREES finds Archipelago trees for it, and puts no more than one on a tile.
+    RmsObjectSettings objects;
+    objects.features = {archiTree, palm};
+    objects.terrainLands = {"", "Desert", "Lava", "Desert"};
+    objects.terrainLiquid = {true, false, false, false};
+    objects.cellsPerNode = 4;
+    objects.cellsWide = 8 * 4;
+    objects.cellsHigh = 8 * 4;
+    RandomMapOptions options;
+    options.objects = &objects;
+    PlainCanvas canvas(9, 9);
+    std::mt19937 rng(21);
+    const RmsScript script = readScript(
+        "<LAND_GENERATION>\nbase_terrain GRASS\n<OBJECTS_GENERATION>\n"
+        "create_object TREES { number_of_objects 120 number_of_groups 4 set_tight_grouping }\n");
+    const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
+    std::map<std::pair<int, int>, int> perTile;
+    for (const RmsPlacedFeature& feature : outcome.features) {
+        ++perTile[{feature.x / 2, feature.y / 2}];
+    }
+    int most = 0;
+    for (const auto& [tile, count] : perTile) {
+        most = std::max(most, count);
+    }
+    expect(outcome.features.size() > 80, "a desert gets its trees: " + std::to_string(outcome.features.size()));
+    expect(most <= kMaxTreesPerTile, "no map tile holds more than one tree: " + std::to_string(most));
+    std::set<std::pair<int, int>> cells;
+    for (const RmsPlacedFeature& feature : outcome.features) {
+        cells.insert({feature.x, feature.y});
+    }
+    bool apart = true;
+    for (const auto& [x, y] : cells) {
+        apart = apart && cells.count({x + 1, y}) == 0 && cells.count({x, y + 1}) == 0;
+    }
+    expect(apart, "no two trees stand side by side");
 }
 
 void testStartsAndResources() {
@@ -6266,6 +6311,11 @@ void testStartsAndResources() {
                    && !featureSuitsBase(archC, "Base-78"),
             "ArchMetalC belongs to Lava Base-86 and Base-190");
         expect(featureSuitsBase({"LavaMetal1", "lava", "metal", 3, 3, 100, false}, "Base-1"), "features without a home suit every Base tile");
+        const RmsFeature palm{"Palm03", "archipelago", "trees", 1, 1, 0, false};
+        expect(featureIsDoodad(palm, DoodadKind::Palms) && featureIsDoodad(palm, DoodadKind::Trees)
+                   && !featureIsDoodad({"ArchiTree01", "archipelago", "trees", 1, 1, 0, false}, DoodadKind::Palms)
+                   && !featureIsDoodad({"Palm03crisp", "archipelago", "trees", 1, 1, 0, false}, DoodadKind::Palms),
+            "PALMS are the palm trees, and not burnt ones");
         const RmsFeature lushRock{"LushRock03", "lush", "rocks", 2, 2, 25, false};
         const RmsFeature crushed{"LushCrushed205", "lush", "rocks", 3, 3, 25, false};
         expect(featureIsDoodad(lushRock, DoodadKind::Rocks) && featureIsDoodad(crushed, DoodadKind::Rocks)
@@ -6389,6 +6439,91 @@ void testStampBrushes() {
         "every stamp as many as asked, plateaus of both sizes included");
     expect(counts["r8"] == 8, "land_percent 2 of a 192 x 128 map is eight 8 x 8 rough patches: " + std::to_string(counts["r8"]));
     expect(hasMessage(notes, 5, "only goes on GREENWORLD_BASE-0"), "a base_terrain the stamp cannot use is pointed out");
+
+    {
+        // create_elevation places the hills of its base_terrain, 16 x 16 ones only from elevation 4 up.
+        BrushCanvas ground(13, 9, graph);
+        const RmsScript hills = readScript(
+            "<ELEVATION_GENERATION>\n"
+            "create_elevation 2 { base_terrain GREENWORLD_BASE-85 number_of_clumps 6 number_of_tiles 2000 }\n"
+            "create_elevation 7 { base_terrain GREENWORLD_BASE-85 number_of_clumps 6 }\n"
+            "create_elevation 3 { number_of_clumps 2 }\n"
+            "create_elevation 3 { base_terrain GREENWORLD_BASE-0 number_of_clumps 2 }\n");
+        RmsCanvas& plainGround = ground;
+        const RandomMapOutcome raised = runRandomMapScript(hills, plainGround, names, options, rng);
+        ground.fill(1);
+        expect(raised.elevationCommands.size() == 4, "every create_elevation is set aside");
+        std::vector<RmsMessage> hillNotes;
+        const std::vector<RandomMapStamp> placed = planStampBrushes(hills, raised, brushes, ground, names, 12 * 16, 8 * 16, rng, hillNotes);
+        int small = 0;
+        int big = 0;
+        bool hillsOnly = true;
+        for (const RandomMapStamp& stamp : placed) {
+            small += stamp.sectionPath == "h8" ? 1 : 0;
+            big += stamp.sectionPath == "h16" ? 1 : 0;
+            hillsOnly = hillsOnly && (stamp.sectionPath == "h8" || stamp.sectionPath == "h16");
+        }
+        expect(hillsOnly && small + big == 12 && big > 0, "elevation is the base's hills, and number_of_tiles does not multiply them: "
+                                                                + std::to_string(small) + " + " + std::to_string(big));
+        expect(hasMessage(hillNotes, 4, "needs base_terrain") && hasMessage(hillNotes, 5, "found no hills for GREENWORLD_BASE-0"),
+            "elevation without base_terrain, or on ground with no hills, says so");
+    }
+}
+
+void testCliffs() {
+    using namespace galaxy;
+    // GRASS rises by cliffs to LAVA, standing in for GreenWorld Base-85 and Base-219.
+    RmsTerrainNames names = plainNames();
+    names.cliffAbove = [](int terrain) { return terrain == 1 ? 2 : -1; };
+    RandomMapOptions options;
+    options.players = 2;
+    PlainCanvas canvas(20, 20);
+    std::mt19937 rng(3);
+    const RmsScript script = readScript(
+        "<LAND_GENERATION>\nbase_terrain WATER\n"
+        "create_land { terrain_type GRASS land_position 50 50 base_size 7 number_of_tiles 0 }\n"
+        "<CLIFF_GENERATION>\n"
+        "min_number_of_cliffs 2\nmax_number_of_cliffs 2\nmin_length_of_cliff 3\nmax_length_of_cliff 3\n"
+        "cliff_curliness 30\nmin_distance_cliffs 2\ncliff_type CT_ROCK\n");
+    const RandomMapOutcome outcome = runRandomMapScript(script, canvas, names, options, rng);
+    // Two cliffs scaled by a 20 x 20 map, four times the reference size.
+    expect(outcome.cliffs > 0 && outcome.cliffs <= 8, "cliffs are drawn: " + std::to_string(outcome.cliffs));
+    int high = 0;
+    bool clear = true;
+    bool noSaddle = true;
+    for (int y = 0; y < 20; ++y) {
+        for (int x = 0; x < 20; ++x) {
+            if (canvas.at(x, y) != 2) {
+                continue;
+            }
+            ++high;
+            // Each cliff node stands in grass, away from the water.
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const int there = canvas.at(x + dx, y + dy);
+                    clear = clear && there != 0;
+                }
+            }
+        }
+    }
+    for (int y = 0; y + 1 < 20; ++y) {
+        for (int x = 0; x + 1 < 20; ++x) {
+            const bool a = canvas.at(x, y) == 2;
+            const bool b = canvas.at(x + 1, y) == 2;
+            const bool c = canvas.at(x, y + 1) == 2;
+            const bool d = canvas.at(x + 1, y + 1) == 2;
+            noSaddle = noSaddle && !((a && d && !b && !c) || (b && c && !a && !d));
+        }
+    }
+    expect(high >= outcome.cliffs * 2 && high <= outcome.cliffs * 3, "each cliff is two or three nodes of high ground: " + std::to_string(high));
+    expect(clear, "cliffs keep off the coast");
+    expect(noSaddle, "no two cliff nodes touch only at a corner");
+    expect(hasMessage(outcome.messages, 11, "cliff_type is skipped"), "cliff_type is pointed out");
+
+    // Without a way to raise ground, the section is skipped with a note.
+    PlainCanvas flat(20, 20);
+    const RandomMapOutcome skipped = runRandomMapScript(script, flat, plainNames(), options, rng);
+    expect(skipped.cliffs == 0 && hasMessage(skipped.messages, 4, "Cliffs cannot be drawn here"), "no cliffs without high ground");
 }
 
 void testAutoMetal() {
@@ -6568,6 +6703,8 @@ int main() {
     testBrushCanvas();
     testDoodads();
     testBlendDoodads();
+    testCliffs();
+    testDesertTrees();
     testStartsAndResources();
     testStampBrushes();
     testAutoMetal();

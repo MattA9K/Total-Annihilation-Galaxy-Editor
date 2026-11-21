@@ -7,6 +7,7 @@
 #include <map>
 #include <queue>
 #include <set>
+#include <unordered_map>
 
 namespace galaxy {
 namespace {
@@ -128,7 +129,10 @@ public:
                 note(command.line, command.name + " changes how the game draws terrain, which Total Annihilation maps do not have. It was skipped.");
             }
         }
+        // The game's order: land, elevation, cliffs, terrain, connections, objects.
         landGeneration();
+        elevationGeneration();
+        cliffGeneration();
         terrainGeneration();
         connectionGeneration();
         objectGeneration();
@@ -139,10 +143,8 @@ private:
 
     void noteUnsupportedSections() {
         for (const auto& [section, line] : script_.sections) {
-            if (section == "ELEVATION_GENERATION") {
-                note(line, "Elevation is not generated yet. Paint high ground with a higher base, such as GREENWORLD_BASE-219.");
-            } else if (section == "CLIFF_GENERATION") {
-                note(line, "Cliffs are not generated yet. A higher base, such as GREENWORLD_BASE-219, gets cliff edges.");
+            if (section == "CLIFF_GENERATION" && !names_.cliffAbove) {
+                note(line, "Cliffs cannot be drawn here, so this section was skipped.");
             } else if (section == "OBJECTS_GENERATION" && options_.objects == nullptr) {
                 note(line, "Features cannot be placed here, so this section was skipped.");
             }
@@ -289,31 +291,38 @@ private:
         const int base = clampedBase(land);
         const double centerX = (width_ - 1) * 0.5;
         const double centerY = (height_ - 1) * 0.5;
+        // First try to keep this land's base, and the gap its zone keeps, clear of every
+        // land placed so far, player lands included; failing that, only of other non-player lands.
         std::vector<int> candidates;
-        for (int y = 0; y < height_; ++y) {
-            for (int x = 0; x < width_; ++x) {
-                if (x < base || y < base || x > width_ - 1 - base || y > height_ - 1 - base) {
-                    continue;
-                }
-                if (x < left || x > right || y < top || y > bottom) {
-                    continue;
-                }
-                // The game keeps random lands out of the corners unless generate_mode is 1.
-                if (land.generateMode == 0 && std::fabs(x - centerX) > width_ * 0.3 && std::fabs(y - centerY) > height_ * 0.3) {
-                    continue;
-                }
-                bool clear = true;
-                for (std::size_t other = 0; other < landIndex && clear; ++other) {
-                    const Land& placed = lands_[other];
-                    const int distance = chebyshev(x, y, placed.originX, placed.originY);
-                    if (distance < land.minDistance) {
-                        clear = false;
-                    } else if (placed.player == 0 && land.player == 0 && distance <= base + clampedBase(placed)) {
-                        clear = false;
+        for (int pass = 0; pass < 2 && candidates.empty(); ++pass) {
+            for (int y = 0; y < height_; ++y) {
+                for (int x = 0; x < width_; ++x) {
+                    if (x < base || y < base || x > width_ - 1 - base || y > height_ - 1 - base) {
+                        continue;
                     }
-                }
-                if (clear) {
-                    candidates.push_back(index(x, y));
+                    if (x < left || x > right || y < top || y > bottom) {
+                        continue;
+                    }
+                    // The game keeps random lands out of the corners unless generate_mode is 1.
+                    if (land.generateMode == 0 && std::fabs(x - centerX) > width_ * 0.3 && std::fabs(y - centerY) > height_ * 0.3) {
+                        continue;
+                    }
+                    bool clear = true;
+                    for (std::size_t other = 0; other < landIndex && clear; ++other) {
+                        const Land& placed = lands_[other];
+                        const int distance = chebyshev(x, y, placed.originX, placed.originY);
+                        const int gap = placed.zone == land.zone ? 0 : std::min(land.avoid, placed.avoid);
+                        if (distance < land.minDistance) {
+                            clear = false;
+                        } else if (pass == 0 && distance <= base + clampedBase(placed) + gap) {
+                            clear = false;
+                        } else if (placed.player == 0 && land.player == 0 && distance <= base + clampedBase(placed)) {
+                            clear = false;
+                        }
+                    }
+                    if (clear) {
+                        candidates.push_back(index(x, y));
+                    }
                 }
             }
         }
@@ -354,6 +363,35 @@ private:
         const int dx = std::max({left - x, x - right, 0});
         const int dy = std::max({top - y, y - bottom, 0});
         return std::max(dx, dy);
+    }
+
+    // True when a node of another zone's land lies within both lands' avoidance distance.
+    bool tooCloseToOtherZone(std::size_t landIndex, int x, int y) const {
+        const Land& land = lands_[landIndex];
+        if (land.avoid <= 0) {
+            return false;
+        }
+        for (int dy = -land.avoid; dy <= land.avoid; ++dy) {
+            for (int dx = -land.avoid; dx <= land.avoid; ++dx) {
+                const int nx = x + dx;
+                const int ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= width_ || ny >= height_) {
+                    continue;
+                }
+                const int other = owner_[static_cast<std::size_t>(index(nx, ny))];
+                if (other < 0 || other == static_cast<int>(landIndex)) {
+                    continue;
+                }
+                const Land& neighbour = lands_[static_cast<std::size_t>(other)];
+                if (neighbour.zone == land.zone || neighbour.avoid <= 0) {
+                    continue;
+                }
+                if (std::max(std::abs(dx), std::abs(dy)) <= std::min(land.avoid, neighbour.avoid)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     bool landMayTake(std::size_t landIndex, int node) {
@@ -548,6 +586,11 @@ private:
                     if (x < 0 || y < 0 || x >= width_ || y >= height_ || owner_[static_cast<std::size_t>(index(x, y))] >= 0) {
                         continue;
                     }
+                    // The base keeps the same distance from other zones as the land's growth does,
+                    // so two islands' bases never run together. The origin itself is always claimed.
+                    if ((dx != 0 || dy != 0) && tooCloseToOtherZone(i, x, y)) {
+                        continue;
+                    }
                     claim(i, index(x, y));
                     ++claimed;
                 }
@@ -627,6 +670,172 @@ private:
                 continue;
             }
             createTerrain(command, terrain);
+        }
+    }
+
+    // ------------------------------------------------------------- elevation
+
+    // create_elevation raises hills. Total Annihilation hills are the Tile Brush's own
+    // hill stamps, so each one is set aside for planStampBrushes, which places the
+    // hills of its base_terrain once the map is painted.
+    void elevationGeneration() {
+        for (std::size_t index = 0; index < script_.commands.size(); ++index) {
+            const RmsCommand& command = script_.commands[index];
+            if (command.section == "ELEVATION_GENERATION" && command.name == "create_elevation") {
+                outcome_.elevationCommands.push_back(index);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- cliffs
+
+    // <CLIFF_GENERATION> draws short ridges of high ground, such as GREENWORLD_BASE-219
+    // across GREENWORLD_BASE-85, so the Tile Brush gives each one cliff faces. Lengths
+    // and distances are script tiles, game-size squares, like every other distance.
+    // As in the game, cliffs come before terrain, which keeps its spacing from them,
+    // and connections go round them. They stay off player start areas and coasts.
+    void cliffGeneration() {
+        bool present = false;
+        for (const auto& [section, line] : script_.sections) {
+            present = present || section == "CLIFF_GENERATION";
+        }
+        if (!present || !names_.cliffAbove) {
+            return;
+        }
+        int minCount = 3;
+        int maxCount = 8;
+        int minLength = 2;
+        int maxLength = 4;
+        int curliness = 36;
+        int minDistance = 2;
+        int terrainDistance = 1;
+        int line = 0;
+        for (const RmsCommand& command : script_.commands) {
+            if (command.section != "CLIFF_GENERATION") {
+                continue;
+            }
+            line = line == 0 ? command.line : line;
+            const int value = command.args.empty() ? 0 : command.args[0].integer();
+            if (command.name == "min_number_of_cliffs") {
+                minCount = std::max(0, value);
+            } else if (command.name == "max_number_of_cliffs") {
+                maxCount = std::max(0, value);
+            } else if (command.name == "min_length_of_cliff") {
+                minLength = std::max(1, value);
+            } else if (command.name == "max_length_of_cliff") {
+                maxLength = std::max(1, value);
+            } else if (command.name == "cliff_curliness") {
+                curliness = std::clamp(value, 0, 100);
+            } else if (command.name == "min_distance_cliffs") {
+                minDistance = std::max(0, value);
+            } else if (command.name == "min_terrain_distance") {
+                terrainDistance = std::max(1, value);
+            } else if (command.name == "cliff_type") {
+                note(command.line, "cliff_type is skipped: each ground has its own cliffs in Total Annihilation.");
+            }
+        }
+        maxCount = std::max(minCount, maxCount);
+        maxLength = std::max(minLength, maxLength);
+        // Like the game, more cliffs on a bigger map.
+        const double ratio = std::max(1.0, count_ / kScaleReference);
+        const int wanted = static_cast<int>(std::lround(std::uniform_int_distribution<int>(minCount, maxCount)(rng_) * ratio));
+        if (wanted <= 0) {
+            return;
+        }
+        const std::vector<int> ground = snapshot();
+        const int avoidStarts = std::max(1, static_cast<int>(std::lround(std::max(width_, height_) / 9.0)));
+        cliff_.assign(static_cast<std::size_t>(count_), 0);
+        std::vector<char>& cliff = cliff_;
+        const auto fits = [&](int x, int y, int terrain) {
+            if (x < 1 || y < 1 || x >= width_ - 1 || y >= height_ - 1) {
+                return false;
+            }
+            for (const auto& [ox, oy] : playerOrigins_) {
+                if (chebyshev(x, y, ox, oy) <= avoidStarts) {
+                    return false;
+                }
+            }
+            const int reach = std::max(terrainDistance, minDistance);
+            for (int dy = -reach; dy <= reach; ++dy) {
+                for (int dx = -reach; dx <= reach; ++dx) {
+                    const int nx = x + dx;
+                    const int ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width_ || ny >= height_) {
+                        if (std::max(std::abs(dx), std::abs(dy)) <= terrainDistance) {
+                            return false;
+                        }
+                        continue;
+                    }
+                    const int distance = std::max(std::abs(dx), std::abs(dy));
+                    if (distance <= terrainDistance && ground[static_cast<std::size_t>(index(nx, ny))] != terrain) {
+                        return false;
+                    }
+                    if (distance <= minDistance && cliff[static_cast<std::size_t>(index(nx, ny))]) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+        static constexpr int kSteps[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+        int made = 0;
+        for (int attempt = 0; attempt < wanted * 40 && made < wanted; ++attempt) {
+            const int start = std::uniform_int_distribution<int>(0, count_ - 1)(rng_);
+            const int terrain = ground[static_cast<std::size_t>(start)];
+            const int high = terrain >= 0 ? names_.cliffAbove(terrain) : -1;
+            if (high < 0 || !fits(start % width_, start / width_, terrain)) {
+                continue;
+            }
+            const int length = std::uniform_int_distribution<int>(minLength, maxLength)(rng_);
+            std::vector<int> path = {start};
+            int direction = std::uniform_int_distribution<int>(0, 3)(rng_);
+            while (static_cast<int>(path.size()) < length) {
+                if (std::uniform_int_distribution<int>(0, 99)(rng_) < curliness) {
+                    direction = (direction + (std::uniform_int_distribution<int>(0, 1)(rng_) == 0 ? 1 : 3)) % 4;
+                }
+                const int x = path.back() % width_ + kSteps[direction][0];
+                const int y = path.back() / width_ + kSteps[direction][1];
+                if (!fits(x, y, terrain) || std::find(path.begin(), path.end(), index(x, y)) != path.end()) {
+                    break;
+                }
+                path.push_back(index(x, y));
+            }
+            if (static_cast<int>(path.size()) < std::min(minLength, 2)) {
+                continue;
+            }
+            // Two nodes that touch only at a corner leave a brush cell with no piece.
+            std::vector<char> mine(static_cast<std::size_t>(count_), 0);
+            for (const int node : path) {
+                mine[static_cast<std::size_t>(node)] = 1;
+            }
+            bool saddle = false;
+            for (const int node : path) {
+                const int x = node % width_;
+                const int y = node / width_;
+                for (int cy = y - 1; cy <= y && !saddle; ++cy) {
+                    for (int cx = x - 1; cx <= x && !saddle; ++cx) {
+                        const bool a = mine[static_cast<std::size_t>(index(cx, cy))];
+                        const bool b = mine[static_cast<std::size_t>(index(cx + 1, cy))];
+                        const bool c = mine[static_cast<std::size_t>(index(cx, cy + 1))];
+                        const bool d = mine[static_cast<std::size_t>(index(cx + 1, cy + 1))];
+                        saddle = (a && d && !b && !c) || (b && c && !a && !d);
+                    }
+                }
+            }
+            if (saddle) {
+                continue;
+            }
+            for (const int node : path) {
+                cliff[static_cast<std::size_t>(node)] = 1;
+                canvas_.paint(node % width_, node / width_, high);
+            }
+            ++made;
+        }
+        outcome_.cliffs = made;
+        if (made < wanted) {
+            note(line, "<CLIFF_GENERATION> drew " + std::to_string(made) + " of " + std::to_string(wanted)
+                           + (made == 0 ? " cliffs: it needs open ground that has high ground of its own, such as GREENWORLD_BASE-85."
+                                        : " cliffs: there was no more room."));
         }
     }
 
@@ -809,6 +1018,10 @@ private:
     std::vector<int> findPath(int from, int to, const std::vector<int>& ground, const std::map<int, double>& costs) const {
         const auto costOf = [&](int node) {
             const auto found = costs.find(ground[static_cast<std::size_t>(node)]);
+            // Cliffs are walls: a path goes round one unless the script prices it.
+            if (found == costs.end() && static_cast<std::size_t>(node) < cliff_.size() && cliff_[static_cast<std::size_t>(node)]) {
+                return 25.0;
+            }
             return found == costs.end() ? 1.0 : found->second;
         };
         if (costOf(from) <= 0.0 || costOf(to) <= 0.0) {
@@ -1009,6 +1222,8 @@ private:
     struct ObjectChoice {
         std::vector<const RmsFeature*> features;
         bool followsLand = false;
+        // True for a kind, such as TREES or LUSH_TREES, rather than one named feature.
+        bool byKind = false;
         DoodadKind kind = DoodadKind::Trees;
         // Grounds that have features of their own in this choice.
         std::set<std::string> lands;
@@ -1062,6 +1277,7 @@ private:
         for (const DoodadKindInfo& info : kinds) {
             if (wanted == info.name) {
                 choice.followsLand = true;
+                choice.byKind = true;
                 choice.kind = info.kind;
                 for (const RmsFeature& feature : objects.features) {
                     if (featureIsDoodad(feature, info.kind)) {
@@ -1080,6 +1296,7 @@ private:
                 continue;
             }
             const std::string world = wanted.substr(0, wanted.size() - suffix.size());
+            choice.byKind = true;
             choice.kind = info.kind;
             for (const RmsFeature& feature : objects.features) {
                 if (!featureIsDoodad(feature, info.kind)) {
@@ -1123,6 +1340,9 @@ private:
         cellsHigh_ = std::max(1, objects.cellsHigh);
         perNode_ = std::max(1, objects.cellsPerNode);
         occupied_.assign(static_cast<std::size_t>(cellsWide_) * static_cast<std::size_t>(cellsHigh_), 0);
+        tilesWide_ = (cellsWide_ + 1) / 2;
+        treesOnTile_.assign(static_cast<std::size_t>(tilesWide_) * static_cast<std::size_t>((cellsHigh_ + 1) / 2), 0);
+        treeCells_.assign(occupied_.size(), 0);
         // The ground under each brush cell: its paint when all four corners agree,
         // otherwise -1 for a coast, cliff or blend, where features stay off.
         const int latticeX = std::max(1, width_ - 1);
@@ -1349,9 +1569,10 @@ private:
         return canvas_.at(lx + qx, ly + qy);
     }
 
-    // Doodads may stand on blends; metal, vents and starts keep to one flat ground.
+    // Doodad kinds may stand on blends; metal, vents, starts and named features keep
+    // to one flat ground.
     static bool usesBlends(const ObjectChoice& choice) {
-        return choice.followsLand && choice.kind != DoodadKind::MetalNodes && choice.kind != DoodadKind::GeoVents;
+        return choice.byKind && choice.kind != DoodadKind::MetalNodes && choice.kind != DoodadKind::GeoVents;
     }
 
     // True when a coast, cliff or blend lies within distance feature cells.
@@ -1533,9 +1754,26 @@ private:
             if (!featureFits(feature, choice, rules, x, y)) {
                 continue;
             }
+            // Trees are spread out: no more than kMaxTreesPerTile on a map tile.
+            const bool tree = isTree(feature);
+            const std::size_t tile = static_cast<std::size_t>(y / 2) * static_cast<std::size_t>(tilesWide_) + static_cast<std::size_t>(x / 2);
+            if (tree && tile < treesOnTile_.size() && treesOnTile_[tile] >= kMaxTreesPerTile) {
+                continue;
+            }
+            // ...and no two trees stand side by side: only corner to corner.
+            if (tree && treeBeside(x, y, std::max(1, feature.footprintX), std::max(1, feature.footprintZ))) {
+                continue;
+            }
+            if (tree && tile < treesOnTile_.size()) {
+                ++treesOnTile_[tile];
+            }
             for (int dy = 0; dy < std::max(1, feature.footprintZ); ++dy) {
                 for (int dx = 0; dx < std::max(1, feature.footprintX); ++dx) {
-                    occupied_[static_cast<std::size_t>(y + dy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(x + dx)] = 1;
+                    const std::size_t cell = static_cast<std::size_t>(y + dy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(x + dx);
+                    occupied_[cell] = 1;
+                    if (tree) {
+                        treeCells_[cell] = 1;
+                    }
                 }
             }
             outcome_.features.push_back(RmsPlacedFeature{x, y, feature.name});
@@ -1543,6 +1781,35 @@ private:
             return true;
         }
         return false;
+    }
+
+    // True when a tree stands on a cell sharing a side with the w x h footprint at (x, y).
+    bool treeBeside(int x, int y, int w, int h) const {
+        const auto treeAt = [&](int cx, int cy) {
+            return cx >= 0 && cy >= 0 && cx < cellsWide_ && cy < cellsHigh_
+                && treeCells_[static_cast<std::size_t>(cy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(cx)] != 0;
+        };
+        for (int dx = 0; dx < w; ++dx) {
+            if (treeAt(x + dx, y - 1) || treeAt(x + dx, y + h)) {
+                return true;
+            }
+        }
+        for (int dy = 0; dy < h; ++dy) {
+            if (treeAt(x - 1, y + dy) || treeAt(x + w, y + dy)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool isTree(const RmsFeature& feature) {
+        const auto found = trees_.find(&feature);
+        if (found != trees_.end()) {
+            return found->second;
+        }
+        const bool tree = featureIsDoodad(feature, DoodadKind::Trees);
+        trees_.emplace(&feature, tree);
+        return tree;
     }
 
     // A random cell, near one player's origin when the round is for that player.
@@ -1769,6 +2036,12 @@ private:
     int latticeY_ = 1;
     std::vector<int> flat_;
     std::vector<char> occupied_;
+    // Trees standing on each map tile, two feature cells square, tilesWide_ to a row.
+    std::vector<unsigned char> treesOnTile_;
+    // 1 on each feature cell a tree stands on.
+    std::vector<unsigned char> treeCells_;
+    int tilesWide_ = 0;
+    std::unordered_map<const RmsFeature*, bool> trees_;
     std::vector<Placed> placed_;
 
     const RmsScript& script_;
@@ -1784,6 +2057,8 @@ private:
     int behaviorVersion_ = 0;
     std::vector<Land> lands_;
     std::vector<int> owner_;
+    // Nodes <CLIFF_GENERATION> raised, which connections go round.
+    std::vector<char> cliff_;
     std::vector<std::pair<int, int>> playerOrigins_;
 };
 
@@ -1817,6 +2092,7 @@ const std::vector<DoodadKindInfo>& doodadKinds() {
         {DoodadKind::Shrubs, "SHRUBS"},
         {DoodadKind::Foliage, "FOLIAGE"},
         {DoodadKind::Fronds, "FRONDS"},
+        {DoodadKind::Palms, "PALMS"},
         {DoodadKind::Vines, "VINES"},
         {DoodadKind::IceChunks, "ICECHUNKS"},
         {DoodadKind::LavaNodes, "LAVA_NODES"},
@@ -1904,6 +2180,8 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
         return contains(category, "shrub") || contains(name, "shrub") || contains(name, "bush");
     case DoodadKind::Foliage:
         return contains(category, "foliage");
+    case DoodadKind::Palms:
+        return name.compare(0, 4, "palm") == 0;
     case DoodadKind::Fronds:
         return contains(name, "frond");
     case DoodadKind::Vines:
@@ -2074,6 +2352,9 @@ std::vector<std::string> featureLands(const RmsFeature& feature, DoodadKind kind
     lands.push_back(land);
     if (kind == DoodadKind::Rocks && land == "Lush") {
         lands.push_back("Acid");
+    }
+    if ((kind == DoodadKind::Trees || kind == DoodadKind::Palms) && land == "Archi") {
+        lands.push_back("Desert");
     }
     return lands;
 }
@@ -2681,20 +2962,57 @@ std::vector<RandomMapStamp> planStampBrushes(const RmsScript& script, const Rand
         return true;
     };
     const double ratio = static_cast<double>(canvas.width()) * canvas.height() / kScaleReference;
+    // Each job is a command and the stamps it draws from: one named brush for
+    // create_terrain, or every hill of its base_terrain for create_elevation.
+    struct Job {
+        std::size_t command;
+        RandomMapStampBrush brush;
+        bool elevation;
+    };
+    std::vector<Job> jobs;
     for (const std::size_t index : outcome.stampCommands) {
-        const RmsCommand& command = script.commands[index];
-        const std::string wanted = upper(command.args[0].text);
-        const RandomMapStampBrush* brush = nullptr;
+        const std::string wanted = upper(script.commands[index].args[0].text);
         for (const RandomMapStampBrush& candidate : brushes) {
             if (candidate.name == wanted) {
-                brush = &candidate;
+                jobs.push_back(Job{index, candidate, false});
+                break;
             }
         }
-        if (brush == nullptr || brush->sections.empty()) {
+    }
+    for (const std::size_t index : outcome.elevationCommands) {
+        const RmsCommand& command = script.commands[index];
+        const RmsAttribute* attribute = command.find("base_terrain");
+        if (attribute == nullptr || attribute->args.empty()) {
+            messages.push_back(RmsMessage{command.line, "create_elevation needs base_terrain here, such as GREENWORLD_BASE-85: its hills are the ground's own."});
+            continue;
+        }
+        Job job{index, RandomMapStampBrush{"create_elevation", upper(attribute->args[0].text), {}}, true};
+        // Higher elevation in the game reaches higher; here it adds the big hills.
+        const int elevation = command.args.empty() ? 1 : command.args[0].integer();
+        for (const RandomMapStampBrush& candidate : brushes) {
+            if (candidate.base != job.brush.base || candidate.name.find("HILL") == std::string::npos) {
+                continue;
+            }
+            for (const RandomMapStampSection& section : candidate.sections) {
+                if (elevation >= 4 || std::max(section.width, section.height) <= 8) {
+                    job.brush.sections.push_back(section);
+                }
+            }
+        }
+        if (job.brush.sections.empty()) {
+            messages.push_back(RmsMessage{command.line, "create_elevation found no hills for " + job.brush.base + "."});
+            continue;
+        }
+        jobs.push_back(std::move(job));
+    }
+    for (const Job& job : jobs) {
+        const RmsCommand& command = script.commands[job.command];
+        const RandomMapStampBrush* brush = &job.brush;
+        if (brush->sections.empty()) {
             continue;
         }
         const int base = names.find ? names.find(brush->base) : -1;
-        if (const RmsAttribute* attribute = command.find("base_terrain"); attribute != nullptr && !attribute->args.empty()
+        if (const RmsAttribute* attribute = command.find("base_terrain"); !job.elevation && attribute != nullptr && !attribute->args.empty()
             && upper(attribute->args[0].text) != brush->base) {
             messages.push_back(RmsMessage{attribute->line, brush->name + " only goes on " + brush->base + ", so base_terrain was skipped."});
         }
@@ -2707,7 +3025,9 @@ std::vector<RandomMapStamp> planStampBrushes(const RmsScript& script, const Rand
         double count = std::max(0.0, numberAt(command, "number_of_clumps", 1.0));
         const int percentAt = lastIndexOf(command, "land_percent");
         const int tilesAt = lastIndexOf(command, "number_of_tiles");
-        if (percentAt > tilesAt) {
+        if (job.elevation) {
+            // A hill stamp has its own size, so only number_of_clumps counts.
+        } else if (percentAt > tilesAt) {
             count = std::clamp(numberAt(command, "land_percent", 0.0), 0.0, 100.0) / 100.0 * tileWidth * tileHeight / area;
         } else if (tilesAt >= 0) {
             // Script tiles are game-size squares, 16 x 16 map tiles each.
@@ -2719,9 +3039,12 @@ std::vector<RandomMapStamp> planStampBrushes(const RmsScript& script, const Rand
         const int wantedCount = std::max(0, static_cast<int>(std::lround(count)));
         const int spacing = std::max(0, static_cast<int>(numberAt(command, "spacing_to_other_terrain_types", 0.0)));
         int avoidStarts = -1;
+        const int startArea = std::max(1, static_cast<int>(std::lround(std::max(canvas.width(), canvas.height()) / 9.0)));
         if (const RmsAttribute* attribute = command.find("set_avoid_player_start_areas")) {
-            avoidStarts = attribute->args.empty() ? std::max(1, static_cast<int>(std::lround(std::max(canvas.width(), canvas.height()) / 9.0)))
-                                                  : std::max(0, attribute->args[0].integer());
+            avoidStarts = attribute->args.empty() ? startArea : std::max(0, attribute->args[0].integer());
+        } else if (job.elevation) {
+            // Hills keep out of the players' start areas, where they would be in the way of building.
+            avoidStarts = startArea;
         }
         for (const char* skipped : {"clumping_factor", "height_limits", "spacing_to_specific_terrain", "set_flat_terrain_only"}) {
             if (const RmsAttribute* attribute = command.find(skipped)) {
@@ -2822,7 +3145,7 @@ std::vector<RandomMapStamp> planStampBrushes(const RmsScript& script, const Rand
             }
         }
         if (placed < wantedCount) {
-            messages.push_back(RmsMessage{command.line, "create_terrain " + brush->name + " placed " + std::to_string(placed) + " of "
+            messages.push_back(RmsMessage{command.line, (job.elevation ? "create_elevation" : "create_terrain " + brush->name) + " placed " + std::to_string(placed) + " of "
                                                             + std::to_string(wantedCount)
                                                             + (placed == 0 ? ": it needs flat " + brush->base + " and found none." : ": there was no more room.")});
         }

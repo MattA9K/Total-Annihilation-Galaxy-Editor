@@ -9488,6 +9488,28 @@ bool EditorApp::generateRandomMap() {
         };
         names.fallback = std::max(0, names.find(kRandomMapFallbackTerrain));
         names.isStamp = [&](std::string_view name) { return stampNamed(name) != nullptr; };
+        // A cliff rises to the nearest higher base of the same world that the Tile
+        // Brush joins with cliff faces: GreenWorld Base-85 to Base-219, Lava Base-86 to Base-190.
+        names.cliffAbove = [&](int terrain) {
+            if (terrain < 0 || static_cast<std::size_t>(terrain) >= levels.size()) {
+                return -1;
+            }
+            const RandomMapPaint& low = tiles.paints()[static_cast<std::size_t>(levels[static_cast<std::size_t>(terrain)])];
+            int best = -1;
+            for (std::size_t i = 0; i < levels.size(); ++i) {
+                const RandomMapPaint& high = tiles.paints()[static_cast<std::size_t>(levels[i])];
+                if (lowerText(high.world) != lowerText(low.world) || high.height <= low.height) {
+                    continue;
+                }
+                const bool cliff = std::any_of(brushTransitionRules().begin(), brushTransitionRules().end(), [&](const BrushTransitionRule& rule) {
+                    return rule.style == TransitionStyle::Cliff && rule.lowerHeight == low.height && rule.upperHeight == high.height;
+                });
+                if (cliff && (best < 0 || high.height < tiles.paints()[static_cast<std::size_t>(levels[static_cast<std::size_t>(best)])].height)) {
+                    best = static_cast<int>(i);
+                }
+            }
+            return best;
+        };
         // Features come from every loaded archive: the game's own and TA_Features_2013.ccx.
         // Where two archives define one name, the first one loaded wins, as in the Features tab.
         RmsObjectSettings objects;
