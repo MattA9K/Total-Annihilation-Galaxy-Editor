@@ -460,6 +460,8 @@ private:
     float panY_ = 0.0f;
     bool showFeatures_ = true;
     bool showFeatureBorders_ = true;
+    // The white name drawn beside each feature on the map.
+    bool showFeatureLabels_ = true;
     bool showStarts_ = true;
     int sidebarTab_ = 0;
     bool startLocationsTab_ = false;

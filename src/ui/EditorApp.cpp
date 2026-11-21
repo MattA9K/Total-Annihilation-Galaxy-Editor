@@ -6370,7 +6370,7 @@ void EditorApp::drawMap() {
                 if (picture != nullptr && picture->texture != 0) {
                     draw->AddImage(textureId(picture->texture), minCorner, maxCorner);
                 }
-                if (zoom_ > 0.45f) {
+                if (showFeatureLabels_ && zoom_ > 0.45f) {
                     const std::string label = featureLabel(feature.name);
                     draw->AddText(ImVec2(minCorner.x + 1.0f, minCorner.y + 1.0f), IM_COL32(0, 0, 0, 220), label.c_str());
                     draw->AddText(minCorner, IM_COL32(255, 255, 255, 230), label.c_str());
@@ -6383,7 +6383,7 @@ void EditorApp::drawMap() {
             }
             const float radius = std::max(4.0f, 6.0f * zoom_);
             draw->AddCircleFilled(at, radius, featureColor(feature.name));
-            if (zoom_ > 0.35f) {
+            if (showFeatureLabels_ && zoom_ > 0.35f) {
                 const std::string label = featureLabel(feature.name);
                 draw->AddText(ImVec2(at.x + radius + 2.0f, at.y - 7.0f), IM_COL32(255, 255, 255, 230), label.c_str());
             }
@@ -10711,6 +10711,7 @@ bool EditorApp::draw() {
             }
             ImGui::MenuItem(text(Text::FeatureMarkers), nullptr, &showFeatures_);
             ImGui::MenuItem(text(Text::ShowFeatureBorders), nullptr, &showFeatureBorders_);
+            ImGui::MenuItem(text(Text::ShowFeatureLabels), nullptr, &showFeatureLabels_);
             ImGui::MenuItem(text(Text::StartPositions), nullptr, &showStarts_);
             ImGui::MenuItem(text(Text::Minimap), nullptr, &showMinimap_);
             if (ImGui::MenuItem(showSidebar_ ? text(Text::HideSidebar) : text(Text::ShowSidebar), theme::shortcut("0").c_str())) {

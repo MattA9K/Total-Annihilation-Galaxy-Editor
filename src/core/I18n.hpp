@@ -64,6 +64,7 @@ enum class Text : int {
     ShowHeightMap,
     FeatureMarkers,
     ShowFeatureBorders,
+    ShowFeatureLabels,
     StartPositions,
     Minimap,
     TileBrush,
