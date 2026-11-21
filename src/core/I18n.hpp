@@ -196,6 +196,10 @@ enum class Text : int {
     RandomMapDone,
     RandomMapLine,
     RandomMapDoodads,
+    AutoMetal,
+    TipAutoMetal,
+    AutoMetalNone,
+    AutoMetalMissing,
     Count
 };
 
