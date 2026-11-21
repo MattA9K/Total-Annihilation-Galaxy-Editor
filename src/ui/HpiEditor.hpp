@@ -1,10 +1,12 @@
 #pragma once
 
 #include "core/ArchiveDocument.hpp"
+#include "core/TextPreview.hpp"
 
 #include <imgui.h>
 
 #include <filesystem>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -47,6 +49,20 @@ private:
     enum class NameFor { Rename, NewFolder };
     enum class Operation { Import, Move, Export };
     enum class View { Icons, List };
+
+    // What the list view shows beside itself for the one selected file.
+    enum class PreviewKind { None, Text, Image, Unreadable };
+    struct Preview {
+        std::string path;
+        std::uint64_t generation = 0;
+        PreviewKind kind = PreviewKind::None;
+        std::uint64_t size = 0;
+        DisplayText text;
+        int width = 0;
+        int height = 0;
+        int bitsPerPixel = 0;
+        unsigned int texture = 0;  // an OpenGL texture name, 0 when there is none
+    };
 
     struct PendingOperation {
         Operation kind = Operation::Import;
@@ -107,6 +123,11 @@ private:
     void drawList(float width, float height);
     void drawIcons(float width, float height);
     void drawEmpty();
+    // Reads the selected file when the selection or the archive changed. Returns the item
+    // to preview, or nothing when the selection is not one file that can be shown.
+    std::optional<ArchiveItem> updatePreview();
+    void clearPreview();
+    void drawPreview(const ArchiveItem& item, float width, float height);
     void drawPathBar();
     void drawStatus();
     void drawMenus();
@@ -150,6 +171,9 @@ private:
     int sortColumn_ = 0;
     bool sortAscending_ = true;
     char search_[256] = {};
+
+    Preview preview_;
+    bool previewHovered_ = false;
 
     std::vector<std::string> dragPaths_;
     bool openItemMenu_ = false;

@@ -11,12 +11,14 @@
 #include "core/OrbitCamera.hpp"
 #include "core/RiverBrush.hpp"
 #include "core/SlopeBrush.hpp"
+#include "core/TextPreview.hpp"
 #include "core/TilesetLibrary.hpp"
 #include "core/UpdateCheck.hpp"
 #include "core/Version.hpp"
 #include "format/GafImage.hpp"
 #include "format/HpiArchive.hpp"
 #include "format/MapFile.hpp"
+#include "format/PcxImage.hpp"
 #include "format/SctSection.hpp"
 #include "format/TaPalette.hpp"
 
@@ -2142,6 +2144,169 @@ void testFavorites() {
     expect(openTilesetArchive(path).archive().find("sections/Mine/Rivers/Rivers02.sct") != nullptr, "a refused batch leaves every tile");
 
     std::filesystem::remove(path, ignored);
+}
+
+// A PCX header for a picture of width x height with the given layout.
+std::vector<std::uint8_t> pcxHeader(int width, int height, int bits, int planes, int bytesPerLine, bool encoded) {
+    std::vector<std::uint8_t> file(128, 0);
+    file[0] = 0x0A;
+    file[1] = 5;
+    file[2] = encoded ? 1 : 0;
+    file[3] = static_cast<std::uint8_t>(bits);
+    file[8] = static_cast<std::uint8_t>((width - 1) & 0xFF);
+    file[9] = static_cast<std::uint8_t>((width - 1) >> 8);
+    file[10] = static_cast<std::uint8_t>((height - 1) & 0xFF);
+    file[11] = static_cast<std::uint8_t>((height - 1) >> 8);
+    file[65] = static_cast<std::uint8_t>(planes);
+    file[66] = static_cast<std::uint8_t>(bytesPerLine & 0xFF);
+    file[67] = static_cast<std::uint8_t>(bytesPerLine >> 8);
+    return file;
+}
+
+void testPcxImages() {
+    using namespace galaxy;
+    const auto pixel = [](const PcxImage& image, int x, int y) {
+        const std::uint8_t* p = image.rgba.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(image.width) + static_cast<std::size_t>(x)) * 4;
+        return std::array<int, 4>{p[0], p[1], p[2], p[3]};
+    };
+
+    // 8-bit paletted, run-length encoded, 3 x 2 with a padded line of 4 bytes, palette at the end.
+    {
+        std::vector<std::uint8_t> file = pcxHeader(3, 2, 8, 1, 4, true);
+        // Row 0: a run of three 1s, then the pad byte 0. Row 1: 2, 0xC5 (a literal needs a run of
+        // one), 7, pad. The run of 1s crosses nothing; the pad bytes are part of each line.
+        const std::uint8_t pixels[] = {0xC3, 1, 0, 2, 0xC1, 0xC5, 7, 0};
+        file.insert(file.end(), std::begin(pixels), std::end(pixels));
+        file.push_back(0x0C);
+        for (int i = 0; i < 256; ++i) {
+            file.push_back(static_cast<std::uint8_t>(i));
+            file.push_back(static_cast<std::uint8_t>(255 - i));
+            file.push_back(static_cast<std::uint8_t>(i * 3));
+        }
+        const auto image = decodePcx(file.data(), file.size());
+        expect(image.has_value(), "pcx: an 8-bit paletted picture is read");
+        if (image) {
+            expect(image->width == 3 && image->height == 2 && image->bitsPerPixel == 8, "pcx: size and depth");
+            expect(image->rgba.size() == 3 * 2 * 4, "pcx: one RGBA pixel per picture pixel");
+            expect((pixel(*image, 0, 0) == std::array<int, 4>{1, 254, 3, 255}), "pcx: run colour from the palette");
+            expect((pixel(*image, 2, 0) == std::array<int, 4>{1, 254, 3, 255}), "pcx: run covers the row");
+            expect((pixel(*image, 0, 1) == std::array<int, 4>{2, 253, 6, 255}), "pcx: literal byte");
+            expect((pixel(*image, 1, 1) == std::array<int, 4>{0xC5, 255 - 0xC5, (0xC5 * 3) & 0xFF, 255}), "pcx: a high byte written as a run of one");
+            expect((pixel(*image, 2, 1) == std::array<int, 4>{7, 248, 21, 255}), "pcx: last pixel");
+        }
+
+        // A run that is cut off by the palette is not a picture.
+        std::vector<std::uint8_t> cut = pcxHeader(3, 2, 8, 1, 4, true);
+        cut.insert(cut.end(), {0xC3, 1, 0});
+        cut.insert(cut.end(), file.end() - 769, file.end());
+        expect(!decodePcx(cut.data(), cut.size()).has_value(), "pcx: too few pixels is refused");
+    }
+
+    // A run may carry on into the next line, which some writers do.
+    {
+        std::vector<std::uint8_t> file = pcxHeader(2, 2, 8, 1, 2, true);
+        file.insert(file.end(), {0xC4, 9});
+        const auto image = decodePcx(file.data(), file.size());
+        expect(image.has_value(), "pcx: a run across lines");
+        if (image) expect((pixel(*image, 1, 1) == std::array<int, 4>{9, 9, 9, 255}), "pcx: no palette shows grey indices");
+    }
+
+    // 24-bit colour, not encoded, one plane per colour on each line.
+    {
+        std::vector<std::uint8_t> file = pcxHeader(2, 1, 8, 3, 2, false);
+        file.insert(file.end(), {10, 20, 30, 40, 50, 60});
+        const auto image = decodePcx(file.data(), file.size());
+        expect(image.has_value() && image->bitsPerPixel == 24, "pcx: 24-bit colour");
+        if (image) {
+            expect((pixel(*image, 0, 0) == std::array<int, 4>{10, 30, 50, 255}), "pcx: 24-bit first pixel");
+            expect((pixel(*image, 1, 0) == std::array<int, 4>{20, 40, 60, 255}), "pcx: 24-bit second pixel");
+        }
+    }
+
+    // 16 colours in four bit planes, palette in the header.
+    {
+        std::vector<std::uint8_t> file = pcxHeader(2, 1, 1, 4, 1, false);
+        file[16 + 5 * 3] = 200;  // colour 5 is red
+        file[16 + 10 * 3 + 2] = 100;  // colour 10 is blue
+        // Pixel 0 is 5 (planes 0 and 2), pixel 1 is 10 (planes 1 and 3).
+        file.insert(file.end(), {0x80, 0x40, 0x80, 0x40});
+        const auto image = decodePcx(file.data(), file.size());
+        expect(image.has_value() && image->bitsPerPixel == 4, "pcx: 16 colours");
+        if (image) {
+            expect((pixel(*image, 0, 0) == std::array<int, 4>{200, 0, 0, 255}), "pcx: planar colour 5");
+            expect((pixel(*image, 1, 0) == std::array<int, 4>{0, 0, 100, 255}), "pcx: planar colour 10");
+        }
+    }
+
+    {
+        std::vector<std::uint8_t> file = pcxHeader(2, 2, 8, 1, 2, false);
+        file.insert(file.end(), {1, 2, 3, 4});
+        file[0] = 0x0B;
+        expect(!decodePcx(file.data(), file.size()).has_value(), "pcx: wrong magic is refused");
+        expect(!decodePcx(file.data(), 50).has_value(), "pcx: a short header is refused");
+        file[0] = 0x0A;
+        file[66] = 1;
+        expect(!decodePcx(file.data(), file.size()).has_value(), "pcx: lines too short for the width are refused");
+    }
+
+    // Every PCX in the game's first archive, when it is there.
+    const std::filesystem::path totala = std::filesystem::path(GALAXY_SOURCE_DIR) / "build" / "totala1.hpi";
+    std::error_code missing;
+    if (std::filesystem::exists(totala, missing)) {
+        const ArchiveDocument document = ArchiveDocument::open(totala);
+        int read = 0;
+        int failed = 0;
+        for (const std::string& path : document.filePathsUnder("")) {
+            std::string lower = path;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".pcx") != 0) continue;
+            const std::vector<std::uint8_t> bytes = document.read(path);
+            const auto image = decodePcx(bytes.data(), bytes.size());
+            // palettes/GUIPAL.PCX is a bare palette with a .pcx name, so it must be refused.
+            if (bytes.empty() || bytes[0] != 0x0A) {
+                if (image) ++failed;
+                continue;
+            }
+            if (image && image->width > 0 && image->rgba.size() == static_cast<std::size_t>(image->width) * static_cast<std::size_t>(image->height) * 4) {
+                ++read;
+            } else {
+                ++failed;
+                std::cerr << "pcx: could not read " << path << '\n';
+            }
+        }
+        expect(read > 0 && failed == 0, "pcx: every picture in totala1.hpi is read (" + std::to_string(read) + " read, " + std::to_string(failed) + " not)");
+    }
+}
+
+void testTextPreview() {
+    using namespace galaxy;
+    expect(hasTextExtension("ARMCV.FBI") && hasTextExtension("units/armcv.fbi"), "text: fbi");
+    expect(hasTextExtension("features/all worlds/rocks.TDF") && hasTextExtension("readme.txt"), "text: tdf and txt");
+    expect(!hasTextExtension("armcv.pcx") && !hasTextExtension("fbi") && !hasTextExtension(".fbi"), "text: not text names");
+    expect(hasBinaryExtension("x.PCX") && hasBinaryExtension("a/b.gaf") && !hasBinaryExtension("a.fbi") && !hasBinaryExtension("noext"), "text: binary names");
+
+    const std::string fbi = "[UNITINFO]\r\n\t{\r\n\tName=V\xC8hicule;\r\n\t}\r\n\x1A";
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(fbi.data());
+    expect(looksLikeText(bytes, fbi.size()), "text: an FBI looks like text");
+    expect(looksLikeText(nullptr, 0), "text: empty is text");
+    const std::uint8_t binary[] = {'A', 'B', 0, 'C'};
+    expect(!looksLikeText(binary, sizeof(binary)), "text: a NUL byte is binary");
+    std::vector<std::uint8_t> noisy(100, 'a');
+    for (int i = 0; i < 10; ++i) noisy[static_cast<std::size_t>(i) * 10] = 0x01;
+    expect(!looksLikeText(noisy.data(), noisy.size()), "text: many control characters are binary");
+
+    const DisplayText shown = displayText(bytes, fbi.size());
+    expect(shown.text == "[UNITINFO]\n    {\n    Name=V\xC3\x88hicule;\n    }\n", "text: line ends, tabs, Latin-1 and the end-of-file mark: " + shown.text);
+    expect(shown.lines == 4 && !shown.truncated, "text: four lines");
+
+    const std::string utf8 = "a\tb\xC3\xA9\tc\rd";
+    const DisplayText mixed = displayText(reinterpret_cast<const std::uint8_t*>(utf8.data()), utf8.size());
+    expect(mixed.text == "a   b\xC3\xA9  c\nd", "text: UTF-8 kept, tab stops count characters: " + mixed.text);
+    expect(mixed.lines == 2, "text: a lone CR ends a line");
+
+    const std::string longer = "0123456789\n0123456789\n";
+    const DisplayText cut = displayText(reinterpret_cast<const std::uint8_t*>(longer.data()), longer.size(), 5);
+    expect(cut.text == "01234" && cut.truncated && cut.lines == 2, "text: limit cuts the text, lines count the whole file");
 }
 
 void testArchiveDocument() {
@@ -6718,6 +6883,8 @@ int main() {
     testSlopes();
     testFavorites();
     testArchiveDocument();
+    testPcxImages();
+    testTextPreview();
     testBlankMap();
     testMapPng();
     testArchiveFooterAndStarts();

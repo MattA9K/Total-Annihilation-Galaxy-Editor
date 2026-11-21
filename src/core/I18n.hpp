@@ -200,6 +200,16 @@ enum class Text : int {
     TipAutoMetal,
     AutoMetalNone,
     AutoMetalMissing,
+    FilePreviewInformation,
+    FilePreviewSize,
+    FilePreviewWhere,
+    FilePreviewLines,
+    FilePreviewDimensions,
+    FilePreviewTextKind,
+    FilePreviewPcxKind,
+    FilePreviewBytes,
+    FilePreviewUnreadable,
+    FilePreviewTruncated,
     Count
 };
 

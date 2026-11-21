@@ -2,11 +2,23 @@
 
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
+#include "format/PcxImage.hpp"
 #include "platform/FileDialog.hpp"
 #include "ui/Theme.hpp"
 
+#if defined(__APPLE__)
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl3.h>
+#else
+#include <GL/gl.h>
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+#endif
+
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <stdexcept>
 
@@ -346,6 +358,7 @@ void HpiEditor::note(const std::string& text) {
 // ---------------------------------------------------------- archive lifecycle
 
 void HpiEditor::discardDocument() {
+    clearPreview();
     document_ = ArchiveDocument();
     hasDocument_ = false;
     folder_.clear();
@@ -1183,7 +1196,18 @@ void HpiEditor::drawContent() {
         rebuildListing();
     }
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    if (view_ == View::List) {
+    previewHovered_ = false;
+    const std::optional<ArchiveItem> previewed = updatePreview();
+    if (view_ == View::List && previewed) {
+        // Like Finder's preview column: the list on the left, the selected file on the right.
+        const float u = U();
+        const float previewWidth = std::floor(std::min(std::max(avail.x * 0.42f, 280.0f * u), std::min(560.0f * u, avail.x * 0.6f)));
+        const float listWidth = std::max(1.0f, avail.x - previewWidth);
+        const ImVec2 start = ImGui::GetCursorPos();
+        drawList(listWidth, avail.y);
+        ImGui::SetCursorPos(ImVec2(start.x + listWidth, start.y));
+        drawPreview(*previewed, avail.x - listWidth, avail.y);
+    } else if (view_ == View::List) {
         drawList(avail.x, avail.y);
     } else {
         drawIcons(avail.x, avail.y);
@@ -1201,7 +1225,8 @@ void HpiEditor::drawContent() {
     }
 
     // Clicks on bare space clear the selection or open the folder's own menu.
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !ImGui::IsAnyItemHovered() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !previewHovered_ && !ImGui::IsAnyItemHovered()
+        && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             selection_.clear();
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -1315,6 +1340,206 @@ void HpiEditor::drawList(float width, float height) {
     }
     ImGui::EndTable();
     ImGui::PopStyleVar();
+}
+
+// ------------------------------------------------------------------- preview
+
+void HpiEditor::clearPreview() {
+    if (preview_.texture != 0) {
+        const GLuint texture = preview_.texture;
+        glDeleteTextures(1, &texture);
+    }
+    preview_ = Preview();
+}
+
+std::optional<ArchiveItem> HpiEditor::updatePreview() {
+    std::optional<ArchiveItem> item;
+    if (hasDocument_ && view_ == View::List && selection_.size() == 1) item = document_.find(*selection_.begin());
+    if (!item || item->directory) {
+        if (!preview_.path.empty()) clearPreview();
+        return std::nullopt;
+    }
+    if (preview_.path != item->path || preview_.generation != document_.generation()) {
+        clearPreview();
+        preview_.path = item->path;
+        preview_.generation = document_.generation();
+        preview_.size = item->size;
+        const KindInfo kind = kindOf(*item);
+        const bool pcx = kind.label == "PCX";
+        const bool textName = hasTextExtension(item->name);
+        // Files with no telling extension are read to see whether they are text, when small.
+        constexpr std::uint64_t kLargestGuess = 4ull * 1000 * 1000;
+        constexpr std::uint64_t kLargestPicture = 64ull * 1000 * 1000;
+        const bool guess = !pcx && !textName && !hasBinaryExtension(item->name) && item->size <= kLargestGuess;
+        if ((pcx && item->size <= kLargestPicture) || textName || guess) {
+            std::vector<std::uint8_t> bytes;
+            bool read = true;
+            try {
+                bytes = document_.read(item->path);
+            } catch (const std::exception&) {
+                read = false;
+            }
+            if (!read) {
+                preview_.kind = PreviewKind::Unreadable;
+            } else if (pcx) {
+                const std::optional<PcxImage> image = decodePcx(bytes.data(), bytes.size());
+                if (image) {
+                    GLuint texture = 0;
+                    glGenTextures(1, &texture);
+                    glBindTexture(GL_TEXTURE_2D, texture);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image->width, image->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image->rgba.data());
+                    preview_.texture = texture;
+                    preview_.width = image->width;
+                    preview_.height = image->height;
+                    preview_.bitsPerPixel = image->bitsPerPixel;
+                    preview_.kind = PreviewKind::Image;
+                } else {
+                    preview_.kind = PreviewKind::Unreadable;
+                }
+            } else if (looksLikeText(bytes.data(), bytes.size())) {
+                preview_.text = displayText(bytes.data(), bytes.size(), 500 * 1000);
+                preview_.kind = PreviewKind::Text;
+            } else if (textName) {
+                preview_.kind = PreviewKind::Unreadable;
+            }
+        }
+    }
+    if (preview_.kind == PreviewKind::None) return std::nullopt;
+    return item;
+}
+
+void HpiEditor::drawPreview(const ArchiveItem& item, float width, float height) {
+    const float u = U();
+    const float pad = std::floor(14.0f * u);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad, pad));
+    ImGui::BeginChild("##hpi-preview", ImVec2(width, height), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 windowMin = ImGui::GetWindowPos();
+    draw->AddLine(windowMin, ImVec2(windowMin.x, windowMin.y + height), ImGui::GetColorU32(ImGuiCol_Border));
+
+    const float inner = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    ImGui::PushFont(theme::boldFont());
+    const float boldLine = ImGui::GetTextLineHeight();
+    ImGui::PopFont();
+    ImGui::PushFont(theme::smallFont());
+    const float smallLine = ImGui::GetTextLineHeight();
+    ImGui::PopFont();
+    const float rowHeight = smallLine + std::floor(9.0f * u);
+    const int rows = 3;
+    const bool truncated = preview_.kind == PreviewKind::Text && preview_.text.truncated;
+    const float infoHeight = std::floor(12.0f * u) + boldLine + std::floor(2.0f * u) + smallLine + std::floor(18.0f * u) + boldLine
+        + std::floor(6.0f * u) + rowHeight * static_cast<float>(rows) + std::floor(10.0f * u) + (truncated ? smallLine + std::floor(6.0f * u) : 0.0f);
+    const float boxHeight = std::floor(std::max(80.0f * u, ImGui::GetContentRegionAvail().y - infoHeight));
+    const ImVec2 boxMin = ImGui::GetCursorScreenPos();
+    const ImVec2 boxMax(boxMin.x + inner, boxMin.y + boxHeight);
+    const theme::CodeColors& colors = theme::codeColors();
+    const float rounding = std::floor(6.0f * u);
+
+    if (preview_.kind == PreviewKind::Text) {
+        ImGui::PushID(preview_.path.c_str());
+        ImGui::PushFont(theme::codeFont(11));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, colors.background);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, colors.background);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, colors.background);
+        ImGui::PushStyleColor(ImGuiCol_Text, colors.plain);
+        ImGui::PushStyleColor(ImGuiCol_TextSelectedBg, colors.selection);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, rounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(std::floor(8.0f * u), std::floor(6.0f * u)));
+        std::string& shown = preview_.text.text;
+        ImGui::InputTextMultiline("##text", shown.data(), shown.size() + 1, ImVec2(inner, boxHeight), ImGuiInputTextFlags_ReadOnly);
+        ImGui::PopStyleVar(3);
+        ImGui::PopStyleColor(5);
+        ImGui::PopFont();
+        ImGui::PopID();
+        if (truncated) {
+            ImGui::PushFont(theme::smallFont());
+            ImGui::Dummy(ImVec2(1.0f, std::floor(2.0f * u)));
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+            ImGui::TextUnformatted(fitEnd(formatText(Text::FilePreviewTruncated, {humanSize(preview_.text.text.size())}), inner).c_str());
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+        }
+    } else {
+        draw->AddRectFilled(boxMin, boxMax, theme::dark() ? rgba(0, 0, 0, 60) : rgba(0, 0, 0, 14), rounding);
+        draw->AddRect(boxMin, boxMax, ImGui::GetColorU32(ImGuiCol_Border), rounding);
+        if (preview_.kind == PreviewKind::Image && preview_.texture != 0) {
+            // Shrunk to fit, or enlarged by whole steps (at most 4x) so small pictures stay crisp.
+            const float margin = std::floor(8.0f * u);
+            const float fit = std::min((inner - margin * 2.0f) / static_cast<float>(preview_.width), (boxHeight - margin * 2.0f) / static_cast<float>(preview_.height));
+            float scale = std::max(0.0f, fit);
+            if (scale > 1.0f) scale = std::min(4.0f, std::floor(scale));
+            const ImVec2 size(std::floor(static_cast<float>(preview_.width) * scale), std::floor(static_cast<float>(preview_.height) * scale));
+            const ImVec2 at(std::floor(boxMin.x + (inner - size.x) * 0.5f), std::floor(boxMin.y + (boxHeight - size.y) * 0.5f));
+            draw->AddImage(static_cast<ImTextureID>(static_cast<intptr_t>(preview_.texture)), at, ImVec2(at.x + size.x, at.y + size.y));
+        } else {
+            ImGui::PushFont(theme::smallFont());
+            const std::string message = fitEnd(text(Text::FilePreviewUnreadable), inner - 16.0f * u);
+            const ImVec2 size = ImGui::CalcTextSize(message.c_str());
+            draw->AddText(ImVec2(boxMin.x + std::floor((inner - size.x) * 0.5f), boxMin.y + std::floor((boxHeight - size.y) * 0.5f)), secondaryText(), message.c_str());
+            ImGui::PopFont();
+        }
+        ImGui::Dummy(ImVec2(inner, boxHeight));
+    }
+
+    // Name and kind, then Finder's Information rows.
+    ImGui::Dummy(ImVec2(1.0f, std::floor(12.0f * u) - ImGui::GetStyle().ItemSpacing.y));
+    ImGui::PushFont(theme::boldFont());
+    ImGui::TextUnformatted(fitEnd(item.name, inner).c_str());
+    ImGui::PopFont();
+    const char* kindName = preview_.kind == PreviewKind::Text ? text(Text::FilePreviewTextKind)
+                         : preview_.kind == PreviewKind::Image ? text(Text::FilePreviewPcxKind)
+                                                               : nullptr;
+    const std::string kindLine = (kindName != nullptr ? std::string(kindName) : kindOf(item).name) + " - " + humanSize(preview_.size);
+    ImGui::PushFont(theme::smallFont());
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::secondaryTextColor());
+    ImGui::TextUnformatted(fitEnd(kindLine, inner).c_str());
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+
+    ImGui::Dummy(ImVec2(1.0f, std::floor(18.0f * u) - ImGui::GetStyle().ItemSpacing.y * 2.0f));
+    ImGui::PushFont(theme::boldFont());
+    ImGui::TextUnformatted(text(Text::FilePreviewInformation));
+    ImGui::PopFont();
+
+    const std::string folder = archiveParentPath(item.path);
+    std::string third[2];
+    if (preview_.kind == PreviewKind::Image) {
+        third[0] = text(Text::FilePreviewDimensions);
+        third[1] = std::to_string(preview_.width) + " \xC3\x97 " + std::to_string(preview_.height);
+    } else if (preview_.kind == PreviewKind::Text) {
+        third[0] = text(Text::FilePreviewLines);
+        third[1] = std::to_string(preview_.text.lines);
+    }
+    const std::string rowsText[rows][2] = {
+        {text(Text::FilePreviewSize), formatText(Text::FilePreviewBytes, {std::to_string(preview_.size)})},
+        {text(Text::FilePreviewWhere), folder.empty() ? document_.displayName() : document_.displayName() + "/" + folder},
+        {third[0], third[1]},
+    };
+    ImGui::PushFont(theme::smallFont());
+    float y = ImGui::GetCursorScreenPos().y + std::floor(4.0f * u);
+    const float x = ImGui::GetCursorScreenPos().x;
+    for (const auto& row : rowsText) {
+        if (row[0].empty()) continue;
+        draw->AddLine(ImVec2(x, y), ImVec2(x + inner, y), ImGui::GetColorU32(ImGuiCol_Separator));
+        const float textY = y + std::floor((rowHeight - smallLine) * 0.5f);
+        const float labelWidth = ImGui::CalcTextSize(row[0].c_str()).x;
+        draw->AddText(ImVec2(x, textY), secondaryText(), row[0].c_str());
+        const float valueRoom = std::max(1.0f, inner - labelWidth - 12.0f * u);
+        const std::string value = fitEnd(row[1], valueRoom);
+        draw->AddText(ImVec2(x + inner - ImGui::CalcTextSize(value.c_str()).x, textY), ImGui::GetColorU32(ImGuiCol_Text), value.c_str());
+        y += rowHeight;
+    }
+    ImGui::PopFont();
+
+    previewHovered_ = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+    ImGui::EndChild();
 }
 
 void HpiEditor::drawIcons(float width, float) {

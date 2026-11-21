@@ -95,6 +95,8 @@ add_library(galaxy_format STATIC
     src/format/MapFile.cpp
     src/format/SctSection.cpp
     src/format/GafImage.cpp
+    src/format/PcxImage.cpp
+    src/core/TextPreview.cpp
     src/core/TilesetLibrary.cpp
     src/core/ArchiveDocument.cpp
     src/core/FavoritesArchive.cpp
