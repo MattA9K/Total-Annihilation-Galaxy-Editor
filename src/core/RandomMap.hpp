@@ -138,6 +138,10 @@ std::string doodadLand(const RmsFeature& feature, DoodadKind kind);
 // ArchMetalB1 to B3 Archipelago Base-194, and ArchMetalC1 to C3 Lava Base-86 and
 // Base-190. True for every other feature.
 bool featureSuitsBase(const RmsFeature& feature, std::string_view base);
+// The lands a feature of this kind goes on: its own, plus any it is lent to. Acid has
+// no rocks of its own, so Lush rocks, LushCrushed ones too, are its ROCKS.
+std::vector<std::string> featureLands(const RmsFeature& feature, DoodadKind kind);
+bool featureSuitsLand(const RmsFeature& feature, DoodadKind kind, const std::string& land);
 // True for features made for the sea floor, such as GreenAquaOre1, corals and kelp.
 // TDF files do not say so, so the name and category decide. These only go in water,
 // and every other feature only on dry land.

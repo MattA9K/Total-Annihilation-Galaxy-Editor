@@ -5937,7 +5937,7 @@ void testDoodads() {
         const RmsFeature spire{"LavaSpire002", "lava", "spires", 2, 2};
         const RmsFeature scar{"Scar01", "greenworld", "scars", 2, 2};
         const RmsFeature vine{"specvine01", "lush", "spec foliage", 1, 1};
-        const RmsFeature crystal{"Crysvar1", "ground zero", "Crystals", 2, 2};
+        const RmsFeature crystal{"CrystalSpire01", "crystal", "spires", 2, 2};
         expect(featureIsDoodad(tree, DoodadKind::Trees) && featureIsDoodad(palm, DoodadKind::Trees), "trees and palms are TREES");
         expect(!featureIsDoodad(dead, DoodadKind::Trees) && !featureIsDoodad(crisp, DoodadKind::Trees), "dead and burnt trees are left out");
         expect(featureIsDoodad(chunk, DoodadKind::IceChunks) && featureIsDoodad(chunk, DoodadKind::Rocks), "ice chunks are ICECHUNKS and the ice's ROCKS");
@@ -6188,6 +6188,14 @@ void testStartsAndResources() {
                && !featureIsDoodad({"GreenRockOre1", "greenworld", "metal", 3, 3, 100, false}, DoodadKind::MetalNodes)
                && !featureIsDoodad({"GZMetal01", "Archipelago", "GZ", 3, 3, 150, false}, DoodadKind::MetalNodes),
         "third-party metal deposits are left out, and only RockMetal goes on GreenWorld land");
+    expect(featureIsDoodad({"DryMetal01", "Desert", "metal", 3, 3, 112, false}, DoodadKind::MetalNodes)
+               && featureIsDoodad({"DryMetal03", "Desert", "metal", 3, 3, 223, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"DVMetal1", "deathvalley", "DeathValley", 3, 3, 223, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"ClayMetal4", "claydesert", "ClayDesert", 3, 3, 161, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"DryMetalB02", "Desert", "metal", 3, 3, 100, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"DVAquaOre1", "deathvalley", "DeathValley", 3, 3, 100, false}, DoodadKind::MetalNodes)
+               && featureIsDoodad({"wetaquaore1", "WetDesert", "metal", 3, 3, 100, false}, DoodadKind::MetalNodes),
+        "only DryMetal01 to 03 are Desert metal nodes");
     {
         const RmsFeature arch{"ArchMetal2", "archipelago", "metal", 3, 3, 116, false};
         const RmsFeature archB{"ArchMetalB1", "archipelago", "metal", 3, 3, 150, false};
@@ -6200,6 +6208,22 @@ void testStartsAndResources() {
                    && !featureSuitsBase(archC, "Base-78"),
             "ArchMetalC belongs to Lava Base-86 and Base-190");
         expect(featureSuitsBase({"LavaMetal1", "lava", "metal", 3, 3, 100, false}, "Base-1"), "features without a home suit every Base tile");
+        const RmsFeature lushRock{"LushRock03", "lush", "rocks", 2, 2, 25, false};
+        const RmsFeature crushed{"LushCrushed205", "lush", "rocks", 3, 3, 25, false};
+        expect(featureIsDoodad(lushRock, DoodadKind::Rocks) && featureIsDoodad(crushed, DoodadKind::Rocks)
+                   && featureSuitsLand(lushRock, DoodadKind::Rocks, "Acid") && featureSuitsLand(crushed, DoodadKind::Rocks, "Acid")
+                   && featureSuitsLand(lushRock, DoodadKind::Rocks, "Lush"),
+            "Lush rocks, crushed ones too, are Acid's ROCKS as well as Lush's");
+        for (const char* crystal : {"CrysBIGvar1", "CrysBIGvar2", "Crysvar1", "Crysvar2"}) {
+            const RmsFeature feature{crystal, "ground zero", "Crystals", 2, 2, 50, false};
+            bool any = false;
+            for (const DoodadKindInfo& info : doodadKinds()) {
+                any = any || featureIsDoodad(feature, info.kind);
+            }
+            expect(!any, "Ground Zero crystals are in no doodad kind");
+        }
+        expect(!featureSuitsLand(lushRock, DoodadKind::Rocks, "Green") && !featureSuitsLand({"LushTree1", "lush", "trees", 1, 1, 0, false}, DoodadKind::Trees, "Acid"),
+            "only rocks are lent, and only to Acid");
     }
 }
 

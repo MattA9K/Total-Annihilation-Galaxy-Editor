@@ -1066,8 +1066,7 @@ private:
                 for (const RmsFeature& feature : objects.features) {
                     if (featureIsDoodad(feature, info.kind)) {
                         choice.features.push_back(&feature);
-                        const std::string land = doodadLand(feature, info.kind);
-                        if (!land.empty()) {
+                        for (const std::string& land : featureLands(feature, info.kind)) {
                             choice.lands.insert(land);
                         }
                     }
@@ -1086,8 +1085,9 @@ private:
                 if (!featureIsDoodad(feature, info.kind)) {
                     continue;
                 }
-                const std::string land = doodadLand(feature, info.kind);
-                if (scriptWorld(feature.world) == world || (!land.empty() && landScriptName(land) == world)) {
+                const std::vector<std::string> lands = featureLands(feature, info.kind);
+                if (scriptWorld(feature.world) == world
+                    || std::any_of(lands.begin(), lands.end(), [&](const std::string& land) { return landScriptName(land) == world; })) {
                     choice.features.push_back(&feature);
                 }
             }
@@ -1451,7 +1451,7 @@ private:
         if (choice.followsLand) {
             const std::string land = slot < objects.terrainLands.size() ? objects.terrainLands[slot] : std::string();
             const std::string base = slot < objects.terrainBases.size() ? objects.terrainBases[slot] : std::string();
-            const bool own = !land.empty() && doodadLand(feature, choice.kind) == land && featureSuitsBase(feature, base);
+            const bool own = featureSuitsLand(feature, choice.kind, land) && featureSuitsBase(feature, base);
             const bool fallback = sharedFallback(choice.kind) && allWorlds(feature) && !ownsGround(choice, slot);
             if (!own && !fallback) {
                 return false;
@@ -1469,7 +1469,7 @@ private:
         }
         const std::string base = slot < objects.terrainBases.size() ? objects.terrainBases[slot] : std::string();
         for (const RmsFeature* feature : choice.features) {
-            if (doodadLand(*feature, choice.kind) == land && featureSuitsBase(*feature, base)) {
+            if (featureSuitsLand(*feature, choice.kind, land) && featureSuitsBase(*feature, base)) {
                 return true;
             }
         }
@@ -1797,6 +1797,10 @@ bool leftOutOfKinds(const RmsFeature& feature) {
         }
     }
     const std::string name = lower(feature.name);
+    // Ground Zero's CrysBIGvar and Crysvar crystals are never used.
+    if (name.compare(0, 10, "crysbigvar") == 0 || name.compare(0, 7, "crysvar") == 0) {
+        return true;
+    }
     return endsWith(name, "crisp") || endsWith(name, "dead") || contains(name, "dead0");
 }
 
@@ -1874,6 +1878,15 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
         }
         if (doodadLand(feature, kind) == "Green" && !underwaterFeature(feature)) {
             return name.compare(0, 9, "rockmetal") == 0;
+        }
+        // On Desert dry land only DryMetal01 to 03, and no Death Valley or Clay Desert
+        // deposits at all, even under water.
+        if (doodadLand(feature, kind) == "Desert") {
+            const std::string world = lower(feature.world);
+            if (world == "deathvalley" || world == "claydesert") {
+                return false;
+            }
+            return underwaterFeature(feature) || name.compare(0, 9, "drymetal0") == 0;
         }
         return true;
     }
@@ -1995,6 +2008,27 @@ std::string doodadLand(const RmsFeature& feature, DoodadKind kind) {
         return "Crystal";
     }
     return {};
+}
+
+std::vector<std::string> featureLands(const RmsFeature& feature, DoodadKind kind) {
+    std::vector<std::string> lands;
+    const std::string land = doodadLand(feature, kind);
+    if (land.empty()) {
+        return lands;
+    }
+    lands.push_back(land);
+    if (kind == DoodadKind::Rocks && land == "Lush") {
+        lands.push_back("Acid");
+    }
+    return lands;
+}
+
+bool featureSuitsLand(const RmsFeature& feature, DoodadKind kind, const std::string& land) {
+    if (land.empty()) {
+        return false;
+    }
+    const std::vector<std::string> lands = featureLands(feature, kind);
+    return std::find(lands.begin(), lands.end(), land) != lands.end();
 }
 
 // ------------------------------------------------------------------- canvases
