@@ -14,6 +14,17 @@
 
 namespace galaxy {
 
+// GreenWorld water is bright blue; Mars water is a dark violet. Blue minus red averages about 187
+// on GreenWorld Base-0 tiles and about 54 on Mars Base-0 tiles.
+inline bool greenMarsWaterTileIsGreen(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[2]) - static_cast<int>(color[0]);
+    }
+    return score >= 120 * 1024;
+}
+
 // Grass in the green-acid blend is much greener than the acid ground.
 inline bool greenAcidTileIsGrass(const std::uint8_t* bytes) {
     int score = 0;
@@ -225,6 +236,7 @@ struct BlendColourPair {
 
 inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"GreenWorld / Acid", "GreenWorld/Base-85", "Acid/Base-85", greenAcidTileIsGrass},
+    {"GreenWorld / Mars water", "GreenWorld/Base-0", "Mars/Base-0", greenMarsWaterTileIsGreen},
     {"GreenWorld / Crystal", "GreenWorld/Base-85", "Crystal/Base-85", greenAcidTileIsGrass},
     {"Lush / Archipelago", "Lush/Base-77", "Archipelago/Base-78", archiLushTileIsLush},
     {"Lush / Acid", "Lush/Base-77", "Acid/Base-85", archiLushTileIsLush},

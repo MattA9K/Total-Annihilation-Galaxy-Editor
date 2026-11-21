@@ -3207,6 +3207,59 @@ void testBrushCells() {
     BrushTestLattice marsOnGreen(5, 5, 1, greenMars);
     marsOnGreen.paint(2, 2, 1, 2);
     expect(marsOnGreen.piece(2, 2) == "Base-85" && marsOnGreen.piece(2, 1) == "Blend-GreenMars-B" && marsOnGreen.piece(1, 2) == "Blend-GreenMars-R" && marsOnGreen.piece(1, 1) == "Blend-GreenMars-BR" && !marsOnGreen.steep(), "Mars painted on GreenWorld is ringed by GreenWorld Mars blend pieces");
+
+    // Mars Base-0 and GreenWorld Base-0 meet with Blend-WaterGreenMars, which marks the Mars water.
+    // The Mars brush holds GreenWorld's water and land but none of GreenWorld's coast pieces.
+    const BrushGraph marsWater(std::vector<int>{0, 0, 85, 85, 255}, {"Mars", "Green", "Mars", "Green", "Mars"}, false, "Mars");
+    expect(marsWater.style(0, 1) == TransitionStyle::WorldBlend && marsWater.style(0, 2) == TransitionStyle::Coast
+            && marsWater.style(1, 3) == TransitionStyle::None && marsWater.style(2, 3) == TransitionStyle::WorldBlend
+            && marsWater.style(1, 2) == TransitionStyle::None && marsWater.distance(1, 2) == 2 && marsWater.stepToward(1, 2) == 0,
+        "Mars water joins GreenWorld water, and Mars land reaches GreenWorld water through Mars water");
+    expect(brushPieceName(marsWater, {0, 0, 1, 1}) == "Blend-WaterGreenMars-T" && brushPieceName(marsWater, {1, 1, 1, 0}) == "Blend-WaterGreenMars-BR"
+            && brushPieceName(marsWater, {0, 0, 0, 1}) == "Blend-WaterGreenMars-Low-BR",
+        "the water blend marks the Mars water");
+    expect(transitionVariation("Blend-WaterGreenMars-T-01", "Blend-GreenMars-T") < 0 && transitionVariation("Blend-GreenMars-T-01", "Blend-WaterGreenMars-T") < 0,
+        "the water blend and the land blend keep their own pieces");
+    const BrushGraph anyBrush(std::vector<int>{0, 0, 85, 85}, {"Mars", "Green", "Mars", "Green"});
+    expect(anyBrush.style(1, 3) == TransitionStyle::Coast, "without a brush land, GreenWorld keeps its own coast");
+    const BrushGraph greenWater(std::vector<int>{0, 0, 68, 85, 85, 219}, {"Green", "Mars", "Green", "Green", "Mars", "Green"}, false, "Green");
+    expect(greenWater.style(0, 1) == TransitionStyle::WorldBlend && greenWater.style(1, 2) == TransitionStyle::None && greenWater.style(1, 4) == TransitionStyle::None
+            && greenWater.style(0, 3) == TransitionStyle::Coast && greenWater.style(3, 4) == TransitionStyle::WorldBlend,
+        "the GreenWorld brush blends into Mars water, and Mars water meets no GreenWorld shallows");
+    BrushTestLattice marsIsland(7, 7, 1, marsWater);
+    marsIsland.paint(3, 3, 1, 2);
+    bool waterRing = false;
+    for (int cy = 0; cy < 7; ++cy) {
+        for (int cx = 0; cx < 7; ++cx) {
+            waterRing = waterRing || marsIsland.piece(cx, cy).starts_with("Blend-WaterGreenMars-");
+        }
+    }
+    expect(marsIsland.piece(3, 3) == "Base-85" && marsIsland.piece(3, 2) == "Coast-Water-T" && waterRing && marsIsland.piece(0, 0) == "Base-0"
+            && marsIsland.read(0, 0) == 1 && marsIsland.read(3, 2) == 0 && !marsIsland.steep(),
+        "a Mars island in GreenWorld water sits in Mars water that fades into the GreenWorld sea");
+    // A GreenWorld shore: water left of x = 3, land from x = 3.
+    const auto greenWaterShore = [&] {
+        BrushTestLattice shore(9, 7, 3, marsWater);
+        for (auto& row : shore.levels) {
+            for (int x = 0; x < 3; ++x) {
+                row[static_cast<std::size_t>(x)] = 1;
+            }
+        }
+        return shore;
+    };
+    {
+        BrushTestLattice shore = greenWaterShore();
+        const BrushPlan onCoast = planBrush(shore.cellsX, shore.cellsY, 3, 3, 1, 2, shore.graph, [&](int x, int y) { return shore.read(x, y); });
+        expect(brushPlanMovesForeignCoast(onCoast, shore.graph, "Mars", shore.cellsX, shore.cellsY, [&](int x, int y) { return shore.read(x, y); }),
+            "Mars Base-85 on a GreenWorld coast is refused");
+        const BrushPlan inland = planBrush(shore.cellsX, shore.cellsY, 6, 3, 1, 2, shore.graph, [&](int x, int y) { return shore.read(x, y); });
+        expect(!brushPlanMovesForeignCoast(inland, shore.graph, "Mars", shore.cellsX, shore.cellsY, [&](int x, int y) { return shore.read(x, y); }),
+            "Mars Base-85 inland on GreenWorld still blends");
+        const BrushPlan offshore = planBrush(shore.cellsX, shore.cellsY, 0, 3, 1, 0, shore.graph, [&](int x, int y) { return shore.read(x, y); });
+        expect(brushPlanMovesForeignCoast(offshore, shore.graph, "Mars", shore.cellsX, shore.cellsY, [&](int x, int y) { return shore.read(x, y); })
+                == (offshore.nodes.end() != std::find_if(offshore.nodes.begin(), offshore.nodes.end(), [](const BrushNode& node) { return node.x >= 2; })),
+            "Mars water beside a GreenWorld coast is refused only when it moves that coast");
+    }
     BrushTestLattice greenOnIce(5, 5, 0, iceGreen);
     greenOnIce.paint(2, 2, 1, 1);
     expect(greenOnIce.piece(2, 2) == "Base-85" && greenOnIce.piece(2, 1) == "Blend-IceGreen-T" && greenOnIce.piece(1, 2) == "Blend-IceGreen-L" && greenOnIce.piece(1, 1) == "Blend-IceGreen-Low-BR" && !greenOnIce.steep(), "GreenWorld painted on Ice is ringed by ice green blend pieces");

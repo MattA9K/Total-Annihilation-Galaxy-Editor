@@ -11219,7 +11219,8 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
         levelHeights.push_back(trailingNumber(paint->name));
         levelWorlds.push_back(blendWorldName(paint->category));
     }
-    const BrushGraph graph(levelHeights, levelWorlds);
+    const std::string ownWorld = blendWorldName(brushWorld_);
+    const BrushGraph graph(levelHeights, levelWorlds, false, ownWorld);
     int armedLevel = -1;
     for (std::size_t i = 0; i < levels.size(); ++i) {
         if (lowerText(levels[i]->name) == lowerText(brushName_) && brushCategoryMatches(levels[i]->category, brushWorld_)) {
@@ -11430,6 +11431,12 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
             BrushPlan plan = cornerBrush
                 ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readNode)
                 : planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readNode);
+            // Water blends are for islands: a stroke that would move another land's coast, such as a Mars
+            // Base-85 stroke over a GreenWorld shore, is refused, so the two coasts never meet.
+            if (brushPlanMovesForeignCoast(plan, graph, ownWorld, cellsX, cellsY, readNode)) {
+                statusNote_ = brushWorld_ + " can't be painted over another land's coast. Water blends are for islands.";
+                return BrushOutcome::Done;
+            }
             // Each band stays one size along its length, so no band jumps where 8 x 8 pieces meet 16 x 16 ones.
             if (cell == kFineCellTiles && bandLists) {
                 matchedCells = matchBandSizes(plan, cellsX, cellsY, blockX, blockY, cornerBrush ? 0 : blockCells, readNode, pieceSizes);
@@ -13135,6 +13142,8 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Lush", "Base-77"});
             wanted.push_back(PartnerWant{"Desert", "Base-80"});
             wanted.push_back(PartnerWant{"Crystal", "Base-85"});
+            // GreenWorld water fades into Mars water, so a GreenWorld island can sit in a Mars sea.
+            wanted.push_back(PartnerWant{"Mars", "Base-0"});
         }
         if (lowerText(brushWorld_) == "mars") {
             wanted.push_back(PartnerWant{"Ice", "Base-85"});
@@ -13145,6 +13154,8 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Crystal", "Base-85"});
             wanted.push_back(PartnerWant{"Metal", "Base-85"});
             wanted.push_back(PartnerWant{"Desert", "Base-80"});
+            // Mars water fades into GreenWorld water, so a Mars island can sit in a GreenWorld sea.
+            wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
         }
     } else if (lowerText(brushWorld_) == "crystal") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
@@ -14470,6 +14481,7 @@ void EditorApp::ensureBrushPaints() {
     rememberTwoWayColour("blend-icemetal-", paintWorldAt("Ice", 85), paintWorldAt("Metal", 85), iceMarsTileIsIce);
     rememberTwoWayRim("blend-crystalmetal-", paintWorldAt("Metal", 85), paintWorldAt("Crystal", 85), crystalMetalTileIsMetal);
     rememberTwoWayColour("blend-desertmetal-", paintWorldAt("Desert", 80), paintWorldAt("Metal", 85), desertLavaTileIsDesert);
+    rememberTwoWayColour("blend-watergreenmars-", paintWorldAt("Green", 0), paintWorldAt("Mars", 0), greenMarsWaterTileIsGreen);
     // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
     // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.
     if (iceLavaIce != nullptr && iceLavaLava != nullptr) {
