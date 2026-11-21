@@ -1846,8 +1846,20 @@ bool featureIsDoodad(const RmsFeature& feature, DoodadKind kind) {
         return name.compare(0, 4, "crys") == 0 || contains(category, "crystal");
     case DoodadKind::Spires:
         return contains(category, "spire") || contains(name, "spire");
-    case DoodadKind::MetalNodes:
-        return feature.metal > 0 && metalDeposit(feature);
+    case DoodadKind::MetalNodes: {
+        if (feature.metal <= 0 || !metalDeposit(feature)) {
+            return false;
+        }
+        // The third-party gwmetal and TAVMetal deposits look out of place, so they are
+        // never used. On GreenWorld's dry land only Cavedog's own RockMetal deposits are.
+        if (name.compare(0, 7, "gwmetal") == 0 || name.compare(0, 8, "tavmetal") == 0) {
+            return false;
+        }
+        if (doodadLand(feature, kind) == "Green" && !underwaterFeature(feature)) {
+            return name.compare(0, 9, "rockmetal") == 0;
+        }
+        return true;
+    }
     case DoodadKind::GeoVents:
         return feature.geothermal;
     }

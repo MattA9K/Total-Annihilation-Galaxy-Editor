@@ -6179,6 +6179,14 @@ void testStartsAndResources() {
     expect(featureIsDoodad(vent, DoodadKind::GeoVents) && doodadLand(vent, DoodadKind::GeoVents) == "Lava", "a lava vent is a GEO_VENT for lava");
     expect(featureIsDoodad(ore, DoodadKind::MetalNodes) && !featureIsDoodad(ore, DoodadKind::Rocks), "ore is a METAL_NODE, not a rock");
     expect(!featureIsDoodad(hidden, DoodadKind::MetalNodes), "invisible metal is not a metal node");
+    expect(featureIsDoodad({"RockMetal1", "greenworld", "rocks", 3, 3, 127, false}, DoodadKind::MetalNodes)
+               && featureIsDoodad({"RockMetal3", "greenworld", "metal", 3, 3, 127, false}, DoodadKind::MetalNodes),
+        "Cavedog's RockMetal deposits are GreenWorld metal nodes");
+    expect(!featureIsDoodad({"gwmetal2", "Greenland", "metal", 6, 3, 255, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"TAVMetal1", "greenworld", "TAV", 3, 3, 223, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"TAVMETAL2", "All Worlds", "TAV", 3, 3, 127, false}, DoodadKind::MetalNodes)
+               && !featureIsDoodad({"GreenRockOre1", "greenworld", "metal", 3, 3, 100, false}, DoodadKind::MetalNodes),
+        "third-party metal deposits are left out, and only RockMetal goes on GreenWorld land");
 }
 
 void testStampBrushes() {
