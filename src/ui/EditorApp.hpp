@@ -686,7 +686,7 @@ private:
     HpiEditor hpiEditor_;
     bool hpiQuitApproved_ = false;
     bool mapDirty_ = false;
-    int autosaveMinutes_ = 10;
+    int autosaveMinutes_ = 60;
     int autosaveBackups_ = 5;
     std::chrono::steady_clock::time_point autosaveArmedAt_{};
     std::string error_;

@@ -124,7 +124,15 @@ namespace galaxy {
 // Lava, Acid and Metal share a cell the same way, and every name has Acid and Metal in it.
 // Lava, Crystal and Metal share a cell the same way, and every name has Crystal and Metal in it.
 // Mars Base-0 joins GreenWorld Base-0 with pieces named Blend-WaterGreenMars, and the mask marks
-// the Mars water, so an island of one land sits in its own water fading into the other land's sea.
+// the Mars water, and Crystal Base-0 joins it with Blend-WaterGreenCrystal, marking the Crystal
+// water. Acid Base-0 joins it with Blend-WaterGreenAcid, Archipelago and Desert Base-0 with Blend-WaterGreenDesert, and Lush Base-27 with
+// Blend-WaterGreenLush, whose heights rise from 0 to 27. Archipelago and Desert water joins Acid,
+// Lush, Crystal and Mars water with Blend-WaterDesertAcid, -Lush, -Crystal and -Mars, marking the
+// other water. Mars water joins Lush, Crystal and Acid water with Blend-WaterMarsLush, -Crystal and
+// -Acid, marking the other water. Lush water joins Crystal and Acid water with Blend-WaterLushCrystal
+// and -Acid, marking the lower water. Crystal water joins Acid water with Blend-WaterCrystalAcid,
+// marking the Acid water. Ice and Metal Base-0 are the same blue
+// water and use the same pieces, so an island of one land sits in its own water fading into the other land's sea.
 // The two coasts never meet: brushPlanMovesForeignCoast refuses a stroke that would.
 inline constexpr int kBrushCellTiles = 16;
 // The 4 x 4 and 8 x 8 brushes lay their corners every 8 tiles and use 8 x 8 tile pieces, so a
@@ -288,8 +296,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 34>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 34> rules = {{
+inline const std::array<BrushTransitionRule, 35>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 35> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -330,8 +338,14 @@ inline const std::array<BrushTransitionRule, 34>& brushTransitionRules() {
         {77, 85, TransitionStyle::WorldBlend},
         // The graph applies this only to Lush beside Desert.
         {77, 80, TransitionStyle::WorldBlend},
-        // Water beside water. The graph applies this only to Mars Base-0 beside GreenWorld Base-0.
+        // Water beside water. The graph applies this only to Mars, Crystal, Acid, Archipelago or Desert
+        // Base-0 beside the blue water of GreenWorld, Ice or Metal Base-0, to Mars, Crystal or Acid
+        // Base-0 beside the Archipelago and Desert water, to Crystal or Acid Base-0 beside Mars Base-0,
+        // and to Crystal Base-0 beside Acid Base-0.
         {0, 0, TransitionStyle::WorldBlend},
+        // The graph applies this only to the blue water, the Archipelago and Desert water, Mars, Crystal
+        // or Acid water beside Lush Base-27, whose water stands higher.
+        {0, 27, TransitionStyle::WorldBlend},
     }};
     return rules;
 }
@@ -442,6 +456,34 @@ inline std::string transitionPieceName(TransitionStyle style, int mask, std::str
     }
 }
 
+// GreenWorld, Ice and Metal draw the same blue water, and Archipelago and Desert share one water
+// too. Two lands of one water family read and blend as one water.
+inline bool blueWaterWorld(std::string_view world) {
+    return world == "Green" || world == "Ice" || world == "Metal";
+}
+// Archipelago and Desert water, which the two lands share.
+inline bool sandWaterWorld(std::string_view world) {
+    return world == "Archi" || world == "Desert";
+}
+inline bool sameWaterFamily(std::string_view a, std::string_view b) {
+    return a == b || (blueWaterWorld(a) && blueWaterWorld(b)) || (sandWaterWorld(a) && sandWaterWorld(b));
+}
+// The waters that fade into the blue water with a Blend-WaterGreen piece. Lush's Base-27 water
+// does too, through its own rule, since it stands higher.
+inline bool waterBlendsWithBlue(std::string_view world) {
+    return world == "Mars" || world == "Crystal" || world == "Archi" || world == "Desert" || world == "Acid";
+}
+// The waters that fade into Mars water with a Blend-WaterMars piece. Lush's Base-27 water does
+// too, through its own rule.
+inline bool waterBlendsWithMars(std::string_view world) {
+    return world == "Crystal" || world == "Acid";
+}
+// The waters that fade into the Archipelago and Desert water with a Blend-WaterDesert piece. Lush's
+// Base-27 water does too, through its own rule.
+inline bool waterBlendsWithSand(std::string_view world) {
+    return world == "Mars" || world == "Crystal" || world == "Acid";
+}
+
 // The paints from lowest to highest and which of them are joined by pieces. A
 // paint is called a level here, numbered by its place in that order.
 class BrushGraph {
@@ -501,7 +543,14 @@ public:
                         }
                         // Water only meets another land's water through a water blend.
                         const bool foreignWater = rule.lowerHeight == 0 && differentWorld && rule.style != TransitionStyle::WorldBlend;
-                        const bool same0 = rule.lowerHeight == 0 && rule.upperHeight == 0 && namedPair("Green", "Mars");
+                        const bool same0 = rule.lowerHeight == 0 && rule.upperHeight == 0 && named
+                            && (((blueWaterWorld(wa) != blueWaterWorld(wb)) && (blueWaterWorld(wa) ? waterBlendsWithBlue(wb) : waterBlendsWithBlue(wa)))
+                                || ((sandWaterWorld(wa) != sandWaterWorld(wb)) && (sandWaterWorld(wa) ? waterBlendsWithSand(wb) : waterBlendsWithSand(wa)))
+                                || ((wa == "Mars") != (wb == "Mars") && (wa == "Mars" ? waterBlendsWithMars(wb) : waterBlendsWithMars(wa)))
+                                || namedPair("Crystal", "Acid"));
+                        // Ordered by height: the blue, sand or Mars water is the Base-0 side and Lush the Base-27 side.
+                        const bool lushWater = rule.lowerHeight == 0 && rule.upperHeight == 27
+                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid") && wb == "Lush";
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
@@ -532,6 +581,7 @@ public:
                         if (foreignLand || foreignShallow || foreignIceCoast || foreignDesertCoast || foreignIceCliff || foreignWater
                             || (rule.lowerHeight == rule.upperHeight && !same85 && !same0)
                             || (rule.lowerHeight == 0 && rule.upperHeight == 0 && !same0)
+                            || (rule.lowerHeight == 0 && rule.upperHeight == 27 && !lushWater)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 78 && !archiLush)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 86 && !lushLava)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lush85)
@@ -2935,12 +2985,40 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         // blends do not share a file.
         int marked = sorted[1];
         std::string family;
-        if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 0 && graph.height(sorted[1]) == 0
-            && ((graph.world(sorted[0]) == "Green" && graph.world(sorted[1]) == "Mars")
-                || (graph.world(sorted[0]) == "Mars" && graph.world(sorted[1]) == "Green"))) {
-            // The mask marks the Mars water. Blend-WaterGreenMars-T has Mars water along the top.
-            marked = graph.world(sorted[0]) == "Mars" ? sorted[0] : sorted[1];
-            family = "WaterGreenMars";
+        if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && blueWaterWorld(graph.world(sorted[0])) != blueWaterWorld(graph.world(sorted[1]))) {
+            // The mask marks the other water. Blend-WaterGreenMars-T has Mars water along the top, and
+            // Blend-WaterGreenCrystal, -Desert and -Lush mark theirs. GreenWorld, Ice and Metal draw the
+            // same blue water, so all three use these pieces, and Archipelago and Desert draw the same
+            // water too, so both use Blend-WaterGreenDesert.
+            marked = blueWaterWorld(graph.world(sorted[0])) ? sorted[1] : sorted[0];
+            const std::string_view other = graph.world(marked);
+            family = "WaterGreen" + std::string(other == "Archi" ? "Desert" : other);
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && sandWaterWorld(graph.world(sorted[0])) != sandWaterWorld(graph.world(sorted[1]))) {
+            // Archipelago and Desert water beside Acid, Lush, Crystal or Mars water. The mask marks the other
+            // water: Blend-WaterDesertMars-T has Mars water along the top.
+            marked = sandWaterWorld(graph.world(sorted[0])) ? sorted[1] : sorted[0];
+            family = "WaterDesert" + std::string(graph.world(marked));
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && (graph.world(sorted[0]) == "Mars") != (graph.world(sorted[1]) == "Mars")) {
+            // Mars water beside Lush, Crystal or Acid water. The mask marks the other water:
+            // Blend-WaterMarsAcid-T has Acid water along the top.
+            marked = graph.world(sorted[0]) == "Mars" ? sorted[1] : sorted[0];
+            family = "WaterMars" + std::string(graph.world(marked));
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && (graph.world(sorted[0]) == "Lush") != (graph.world(sorted[1]) == "Lush")) {
+            // Lush Base-27 water beside Crystal or Acid Base-0 water. The mask marks the lower water:
+            // Blend-WaterLushAcid-T has Acid water along the top, and the ground falls from 27 to 0 toward it.
+            marked = graph.world(sorted[0]) == "Lush" ? sorted[1] : sorted[0];
+            family = "WaterLush" + std::string(graph.world(marked));
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 0 && graph.height(sorted[1]) == 0
+            && ((graph.world(sorted[0]) == "Crystal" && graph.world(sorted[1]) == "Acid")
+                || (graph.world(sorted[0]) == "Acid" && graph.world(sorted[1]) == "Crystal"))) {
+            // Crystal water beside Acid water. The mask marks the Acid water: Blend-WaterCrystalAcid-T has
+            // Acid water along the top.
+            marked = graph.world(sorted[0]) == "Acid" ? sorted[0] : sorted[1];
+            family = "WaterCrystalAcid";
         } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) == 78 && graph.height(sorted[1]) == 86) {
             marked = sorted[0];
             family = "ArchiLava";
@@ -3824,7 +3902,10 @@ inline bool brushCliffLevel(const BrushGraph& graph, int level) {
 // GreenWorld Base-0 under a Mars stroke. Water blends are made for islands: Mars land in its own
 // water fading into the GreenWorld sea. A Mars coast meeting a GreenWorld coast has no pieces, so
 // the Tile Brush refuses that stroke. A corner of another land counts when a cell around it holds
-// a corner of the same land at another height before the stroke.
+// a corner of the same land at another height before the stroke. GreenWorld, Ice and Metal draw
+// the same blue water, so the brush may read an Ice shore's water as GreenWorld Base-0; that water
+// counts as Ice's own unless it is the brush's own land. Archipelago and Desert water are the same.
+
 inline bool brushPlanMovesForeignCoast(const BrushPlan& plan, const BrushGraph& graph, std::string_view brushWorld, int cellsX, int cellsY,
     const BrushNodeReader& readNode) {
     if (brushWorld.empty() || !readNode) {
@@ -3847,7 +3928,9 @@ inline bool brushPlanMovesForeignCoast(const BrushPlan& plan, const BrushGraph& 
                 }
                 for (const auto& [x, y] : {std::pair{cx, cy}, std::pair{cx + 1, cy}, std::pair{cx, cy + 1}, std::pair{cx + 1, cy + 1}}) {
                     const int level = before(x, y);
-                    if (level != old && graph.world(level) == world && graph.height(level) != graph.height(old)) {
+                    const bool water = graph.height(level) < 68 || graph.height(old) < 68;
+                    const bool sameShore = graph.world(level) == world || (water && sameWaterFamily(graph.world(level), world));
+                    if (level != old && graph.world(level) != brushWorld && sameShore && graph.height(level) != graph.height(old)) {
                         return true;
                     }
                 }

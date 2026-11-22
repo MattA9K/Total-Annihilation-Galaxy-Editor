@@ -11375,6 +11375,15 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                                                     other = i;
                                                 }
                                             }
+                                            // A shore's water held under another land of its water family, such as an
+                                            // Archipelago shore beside the Desert water the GreenWorld brush holds.
+                                            for (int i = 0; other < 0 && namedPartner && i < graph.size(); ++i) {
+                                                const BrushPaint* level = levels[static_cast<std::size_t>(i)];
+                                                if (lowerText(level->name) == lowerText(found->second.partnerName) && levelHeights[static_cast<std::size_t>(i)] < 68
+                                                    && sameWaterFamily(blendWorldName(level->category), blendWorldName(found->second.partnerCategory))) {
+                                                    other = i;
+                                                }
+                                            }
                                             const int sx = tx * 2 + (tx < nodeX * cell ? 1 : 0);
                                             const int sy = ty * 2 + (ty < nodeY * cell ? 1 : 0);
                                             const std::size_t heightIndex = static_cast<std::size_t>(sy) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(sx);
@@ -13144,6 +13153,11 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Crystal", "Base-85"});
             // GreenWorld water fades into Mars water, so a GreenWorld island can sit in a Mars sea.
             wanted.push_back(PartnerWant{"Mars", "Base-0"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+            // Archipelago and Desert share one water, read as Desert's; Lush water stands at Base-27.
+            wanted.push_back(PartnerWant{"Desert", "Base-0"});
+            wanted.push_back(PartnerWant{"Lush", "Base-27"});
+            wanted.push_back(PartnerWant{"Acid", "Base-0"});
         }
         if (lowerText(brushWorld_) == "mars") {
             wanted.push_back(PartnerWant{"Ice", "Base-85"});
@@ -13156,6 +13170,12 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Desert", "Base-80"});
             // Mars water fades into GreenWorld water, so a Mars island can sit in a GreenWorld sea.
             wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
+            // Archipelago and Desert share one water, read as Desert's, which fades into this water too.
+            wanted.push_back(PartnerWant{"Desert", "Base-0"});
+            // Lush, Crystal and Acid water fade into Mars water too.
+            wanted.push_back(PartnerWant{"Lush", "Base-27"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+            wanted.push_back(PartnerWant{"Acid", "Base-0"});
         }
     } else if (lowerText(brushWorld_) == "crystal") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
@@ -13167,6 +13187,16 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
         wanted.push_back(PartnerWant{"Metal", "Base-85"});
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
+        // Crystal water fades into the blue water GreenWorld, Ice and Metal share.
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
+        // Archipelago and Desert share one water, read as Desert's, which fades into this water too.
+        wanted.push_back(PartnerWant{"Desert", "Base-0"});
+        // This water fades into Mars water too.
+        wanted.push_back(PartnerWant{"Mars", "Base-0"});
+        // This water fades into Lush water too.
+        wanted.push_back(PartnerWant{"Lush", "Base-27"});
+        // Crystal and Acid water fade into each other.
+        wanted.push_back(PartnerWant{"Acid", "Base-0"});
     } else if (lowerText(brushWorld_) == "metal") {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
@@ -13177,6 +13207,13 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
         wanted.push_back(PartnerWant{"Crystal", "Base-85"});
         wanted.push_back(PartnerWant{"Desert", "Base-80"});
+        // Metal's blue water fades into Mars and Crystal water, as GreenWorld's does.
+        wanted.push_back(PartnerWant{"Mars", "Base-0"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+        // Archipelago and Desert share one water, read as Desert's; Lush water stands at Base-27.
+        wanted.push_back(PartnerWant{"Desert", "Base-0"});
+        wanted.push_back(PartnerWant{"Lush", "Base-27"});
+        wanted.push_back(PartnerWant{"Acid", "Base-0"});
     } else if (lowerText(brushWorld_) == "ice") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
@@ -13187,7 +13224,21 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Acid", "Base-85"});
         wanted.push_back(PartnerWant{"Crystal", "Base-85"});
         wanted.push_back(PartnerWant{"Metal", "Base-85"});
+        // Ice's blue water fades into Mars and Crystal water, as GreenWorld's does.
+        wanted.push_back(PartnerWant{"Mars", "Base-0"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+        // Archipelago and Desert share one water, read as Desert's; Lush water stands at Base-27.
+        wanted.push_back(PartnerWant{"Desert", "Base-0"});
+        wanted.push_back(PartnerWant{"Lush", "Base-27"});
+        wanted.push_back(PartnerWant{"Acid", "Base-0"});
     } else if (lowerText(brushWorld_) == "archipelago") {
+        // Archipelago water fades into the blue water GreenWorld, Ice and Metal share.
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
+        // Acid, Lush, Crystal and Mars water fade into this water too.
+        wanted.push_back(PartnerWant{"Acid", "Base-0"});
+        wanted.push_back(PartnerWant{"Lush", "Base-27"});
+        wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+        wanted.push_back(PartnerWant{"Mars", "Base-0"});
         wanted.push_back(PartnerWant{"Ice", "Base-85"});
         wanted.push_back(PartnerWant{"Crystal", "Base-85"});
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
@@ -13198,6 +13249,15 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"Metal", "Base-85"});
     } else if (lowerText(brushWorld_) == "lush") {
+        // Lush's Base-27 water fades down into the blue water GreenWorld, Ice and Metal share.
+        wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
+        // Archipelago and Desert share one water, read as Desert's, which fades into this water too.
+        wanted.push_back(PartnerWant{"Desert", "Base-0"});
+        // This water fades into Mars water too.
+        wanted.push_back(PartnerWant{"Mars", "Base-0"});
+        // Crystal and Acid water fade into Lush water too.
+        wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+        wanted.push_back(PartnerWant{"Acid", "Base-0"});
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Mars", "Base-85"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
@@ -13209,7 +13269,26 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Desert", "Base-80"});
     } else if (lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid") {
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        if (lowerText(brushWorld_) == "desert") {
+            // Desert water fades into the blue water GreenWorld, Ice and Metal share.
+            wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
+            // Acid, Lush, Crystal and Mars water fade into this water too.
+            wanted.push_back(PartnerWant{"Acid", "Base-0"});
+            wanted.push_back(PartnerWant{"Lush", "Base-27"});
+            wanted.push_back(PartnerWant{"Crystal", "Base-0"});
+            wanted.push_back(PartnerWant{"Mars", "Base-0"});
+        }
         if (lowerText(brushWorld_) == "acid") {
+            // Acid water fades into the blue water GreenWorld, Ice and Metal share.
+            wanted.push_back(PartnerWant{"GreenWorld", "Base-0"});
+            // Archipelago and Desert share one water, read as Desert's, which fades into this water too.
+            wanted.push_back(PartnerWant{"Desert", "Base-0"});
+            // This water fades into Mars water too.
+            wanted.push_back(PartnerWant{"Mars", "Base-0"});
+            // This water fades into Lush water too.
+            wanted.push_back(PartnerWant{"Lush", "Base-27"});
+            // Crystal and Acid water fade into each other.
+            wanted.push_back(PartnerWant{"Crystal", "Base-0"});
             wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
             wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
             wanted.push_back(PartnerWant{"Crystal", "Base-85"});
@@ -13542,6 +13621,36 @@ void EditorApp::ensureBrushPaints() {
                 }
                 if (base || stroke) {
                     rememberPath(section.archivePath, paint->category, paint->name, false, {}, {});
+                }
+            }
+        }
+        // GreenWorld, Ice and Metal draw the same blue water, though Metal has a few tiles of its own,
+        // and Archipelago and Desert share one water too. A brush that holds one water of a family
+        // reads the others as that one, so Metal water beside a Mars island is not read as Mars water
+        // by its height.
+        for (const auto& isFamily : {std::function<bool(const std::string&)>([](const std::string& world) { return blueWaterWorld(world); }),
+                 std::function<bool(const std::string&)>([](const std::string& world) { return world == "Archi" || world == "Desert"; })}) {
+            const BrushPaint* blueWater = nullptr;
+            for (const BrushPaint* paint : pictured) {
+                if (trailingNumber(paint->name) == 0 && isFamily(blendWorldName(paint->category))) {
+                    blueWater = paint;
+                    break;
+                }
+            }
+            if (blueWater != nullptr) {
+                for (const TilesetSection& section : source->sections) {
+                    const std::string family = blendWorldName(section.category);
+                    if (!isFamily(family) || family == blendWorldName(blueWater->category) || !isBaseBrushTile(section.world, section.name)
+                        || trailingNumber(section.name) != 0) {
+                        continue;
+                    }
+                    bool held = false;
+                    for (const BrushPaint* paint : pictured) {
+                        held = held || (blendWorldName(paint->category) == family && trailingNumber(paint->name) == 0);
+                    }
+                    if (!held) {
+                        rememberPath(section.archivePath, blueWater->category, blueWater->name, false, {}, {});
+                    }
                 }
             }
         }
@@ -14481,7 +14590,32 @@ void EditorApp::ensureBrushPaints() {
     rememberTwoWayColour("blend-icemetal-", paintWorldAt("Ice", 85), paintWorldAt("Metal", 85), iceMarsTileIsIce);
     rememberTwoWayRim("blend-crystalmetal-", paintWorldAt("Metal", 85), paintWorldAt("Crystal", 85), crystalMetalTileIsMetal);
     rememberTwoWayColour("blend-desertmetal-", paintWorldAt("Desert", 80), paintWorldAt("Metal", 85), desertLavaTileIsDesert);
-    rememberTwoWayColour("blend-watergreenmars-", paintWorldAt("Green", 0), paintWorldAt("Mars", 0), greenMarsWaterTileIsGreen);
+    {
+        // GreenWorld, Ice and Metal share the blue water; the brush holds one of them.
+        const BrushPaint* blueWater = paintWorldAt("Green", 0);
+        blueWater = blueWater != nullptr ? blueWater : paintWorldAt("Ice", 0);
+        blueWater = blueWater != nullptr ? blueWater : paintWorldAt("Metal", 0);
+        rememberTwoWayColour("blend-watergreenmars-", blueWater, paintWorldAt("Mars", 0), greenMarsWaterTileIsGreen);
+        rememberTwoWayColour("blend-watergreencrystal-", blueWater, paintWorldAt("Crystal", 0), greenMarsWaterTileIsGreen);
+        const BrushPaint* sandWater = paintWorldAt("Desert", 0) != nullptr ? paintWorldAt("Desert", 0) : paintWorldAt("Archi", 0);
+        rememberTwoWayColour("blend-watergreendesert-", blueWater, sandWater, greenMarsWaterTileIsGreen);
+        rememberTwoWayColour("blend-watergreenlush-", blueWater, paintWorldAt("Lush", 27), greenMarsWaterTileIsGreen);
+        rememberTwoWayColour("blend-watergreenacid-", blueWater, paintWorldAt("Acid", 0), greenMarsWaterTileIsGreen);
+        // Archipelago and Desert water is greener than Acid, Lush, Crystal and Mars water.
+        rememberTwoWayColour("blend-waterdesertacid-", sandWater, paintWorldAt("Acid", 0), desertWaterTileIsDesert);
+        rememberTwoWayColour("blend-waterdesertlush-", sandWater, paintWorldAt("Lush", 27), desertWaterTileIsDesert);
+        rememberTwoWayColour("blend-waterdesertcrystal-", sandWater, paintWorldAt("Crystal", 0), desertWaterTileIsDesert);
+        rememberTwoWayColour("blend-waterdesertmars-", sandWater, paintWorldAt("Mars", 0), desertWaterTileIsDesert);
+        // Mars water is redder than Lush, Crystal and Acid water.
+        rememberTwoWayColour("blend-watermarslush-", paintWorldAt("Mars", 0), paintWorldAt("Lush", 27), marsWaterTileIsMars);
+        rememberTwoWayColour("blend-watermarscrystal-", paintWorldAt("Mars", 0), paintWorldAt("Crystal", 0), marsWaterTileIsMars);
+        rememberTwoWayColour("blend-watermarsacid-", paintWorldAt("Mars", 0), paintWorldAt("Acid", 0), marsWaterTileIsMars);
+        // Lush water is bluer than Crystal and Acid water.
+        rememberTwoWayColour("blend-waterlushcrystal-", paintWorldAt("Lush", 27), paintWorldAt("Crystal", 0), lushWaterTileIsLush);
+        rememberTwoWayColour("blend-waterlushacid-", paintWorldAt("Lush", 27), paintWorldAt("Acid", 0), lushWaterTileIsLush);
+        // Acid water is greener than Crystal water.
+        rememberTwoWayColour("blend-watercrystalacid-", paintWorldAt("Acid", 0), paintWorldAt("Crystal", 0), acidWaterTileIsAcid);
+    }
     // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
     // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.
     if (iceLavaIce != nullptr && iceLavaLava != nullptr) {
@@ -16865,6 +16999,25 @@ void EditorApp::ensureBrushPaints() {
             for (const BrushPaint& partner : brushPartners_) {
                 if (lowerText(partner.category) == lowerText(category) && lowerText(partner.name) == lowerText(name)) {
                     return true;
+                }
+            }
+            // A water of the same family as one the brush holds, such as Archipelago Base-0 beside the
+            // Desert Base-0 the Mars brush holds, or Metal Base-0 beside GreenWorld's. The two draw the
+            // same water, and the few tiles of its own one has are that water too, not foreign ground.
+            if (trailingNumber(name) == 0) {
+                const std::string family = blendWorldName(category);
+                const auto sameWater = [&](const BrushPaint& paint) {
+                    return trailingNumber(paint.name) == 0 && sameWaterFamily(blendWorldName(paint.category), family);
+                };
+                for (const BrushPaint& paint : brushPaints_) {
+                    if (paint.kind == BrushKind::Base && sameWater(paint)) {
+                        return true;
+                    }
+                }
+                for (const BrushPaint& partner : brushPartners_) {
+                    if (sameWater(partner)) {
+                        return true;
+                    }
                 }
             }
             return false;

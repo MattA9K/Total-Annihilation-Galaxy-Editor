@@ -1610,7 +1610,7 @@ void testEditorSettings() {
     std::filesystem::remove(path);
     const galaxy::EditorSettings missing = galaxy::loadEditorSettings(path);
     expect(missing.previewSize == 128 && missing.heightGridSize == 32, "missing settings use defaults");
-    expect(missing.sidebarFontPercent == 100 && missing.autosaveMinutes == 10 && missing.autosaveBackups == 5, "missing autosave defaults");
+    expect(missing.sidebarFontPercent == 100 && missing.autosaveMinutes == 60 && missing.autosaveBackups == 5, "missing autosave defaults");
 
     galaxy::EditorSettings settings;
     settings.previewSize = 96;
@@ -1638,7 +1638,7 @@ void testEditorSettings() {
         broken << "{ not json";
     }
     const galaxy::EditorSettings fallback = galaxy::loadEditorSettings(path);
-    expect(fallback.previewSize == 128 && fallback.autosaveMinutes == 10, "broken settings use defaults");
+    expect(fallback.previewSize == 128 && fallback.autosaveMinutes == 60, "broken settings use defaults");
     std::filesystem::remove(path);
     expect(!galaxy::editorSettingsPath().empty(), "settings path is set");
 }
@@ -3226,6 +3226,144 @@ void testBrushCells() {
     expect(greenWater.style(0, 1) == TransitionStyle::WorldBlend && greenWater.style(1, 2) == TransitionStyle::None && greenWater.style(1, 4) == TransitionStyle::None
             && greenWater.style(0, 3) == TransitionStyle::Coast && greenWater.style(3, 4) == TransitionStyle::WorldBlend,
         "the GreenWorld brush blends into Mars water, and Mars water meets no GreenWorld shallows");
+    // Ice and Metal draw GreenWorld's blue water, so their Base-0 meets Mars Base-0 with the same pieces.
+    const BrushGraph iceWater(std::vector<int>{0, 0, 85, 85, 170}, {"Ice", "Mars", "Ice", "Mars", "Ice"}, false, "Ice");
+    const BrushGraph metalWater(std::vector<int>{0, 0, 68, 85, 85}, {"Metal", "Mars", "Metal", "Metal", "Mars"}, false, "Metal");
+    expect(iceWater.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(iceWater, {1, 1, 0, 0}) == "Blend-WaterGreenMars-T"
+            && metalWater.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(metalWater, {0, 1, 0, 1}) == "Blend-WaterGreenMars-R"
+            && metalWater.style(1, 2) == TransitionStyle::None,
+        "Ice and Metal water fade into Mars water through the GreenWorld water pieces");
+    {
+        // An Ice shore under the Mars brush: its water reads as GreenWorld Base-0, the same picture.
+        const BrushGraph marsByIce(std::vector<int>{0, 0, 85, 85}, {"Mars", "Green", "Mars", "Ice"}, false, "Mars");
+        BrushTestLattice shore(9, 7, 3, marsByIce);
+        for (auto& row : shore.levels) {
+            for (int x = 0; x < 3; ++x) {
+                row[static_cast<std::size_t>(x)] = 1;
+            }
+        }
+        const auto read = [&](int x, int y) { return shore.read(x, y); };
+        expect(brushPlanMovesForeignCoast(planBrush(9, 7, 3, 3, 1, 2, marsByIce, read), marsByIce, "Mars", 9, 7, read)
+                && !brushPlanMovesForeignCoast(planBrush(9, 7, 6, 3, 1, 2, marsByIce, read), marsByIce, "Mars", 9, 7, read),
+            "Mars Base-85 on an Ice coast is refused, and inland it still blends");
+        // The Ice brush over a GreenWorld shore keeps its old behaviour: the water there is its own.
+        const BrushGraph iceByGreen(std::vector<int>{0, 0, 85, 85}, {"Ice", "Mars", "Ice", "Green"}, false, "Ice");
+        BrushTestLattice greenCoast(9, 7, 3, iceByGreen);
+        for (auto& row : greenCoast.levels) {
+            for (int x = 0; x < 3; ++x) {
+                row[static_cast<std::size_t>(x)] = 0;
+            }
+        }
+        const auto readGreen = [&](int x, int y) { return greenCoast.read(x, y); };
+        expect(!brushPlanMovesForeignCoast(planBrush(9, 7, 3, 3, 1, 2, iceByGreen, readGreen), iceByGreen, "Ice", 9, 7, readGreen),
+            "Ice on a GreenWorld coast is not refused, since the water is the same");
+    }
+    // Crystal water meets the same blue water with Blend-WaterGreenCrystal, which marks the Crystal water.
+    const BrushGraph crystalWater(std::vector<int>{0, 0, 85, 85}, {"Crystal", "Green", "Crystal", "Green"}, false, "Crystal");
+    const BrushGraph greenBrushWaters(std::vector<int>{0, 0, 0, 85}, {"Green", "Mars", "Crystal", "Green"}, false, "Green");
+    expect(crystalWater.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(crystalWater, {0, 0, 1, 1}) == "Blend-WaterGreenCrystal-T"
+            && brushPieceName(crystalWater, {1, 1, 1, 0}) == "Blend-WaterGreenCrystal-BR" && crystalWater.style(1, 3) == TransitionStyle::None
+            && greenBrushWaters.style(0, 2) == TransitionStyle::WorldBlend && brushPieceName(greenBrushWaters, {2, 0, 2, 0}) == "Blend-WaterGreenCrystal-L"
+            && greenBrushWaters.style(1, 2) == TransitionStyle::WorldBlend,
+        "Crystal water fades into the blue water and into Mars water");
+    BrushTestLattice crystalIsland(7, 7, 1, crystalWater);
+    crystalIsland.paint(3, 3, 1, 2);
+    expect(crystalIsland.piece(3, 3) == "Base-85" && crystalIsland.read(3, 2) == 0 && crystalIsland.read(0, 0) == 1 && !crystalIsland.steep(),
+        "a Crystal island in GreenWorld water sits in Crystal water that fades into the sea");
+    // Archipelago and Desert share one water, which fades into the blue water with Blend-WaterGreenDesert.
+    // Lush water stands at Base-27 and fades down into it with Blend-WaterGreenLush.
+    const BrushGraph sandWater(std::vector<int>{0, 0, 68, 78, 85}, {"Archi", "Green", "Archi", "Archi", "Green"}, false, "Archi");
+    const BrushGraph lushWater(std::vector<int>{0, 27, 77, 85}, {"Green", "Lush", "Lush", "Green"}, false, "Lush");
+    const BrushGraph blueBrush(std::vector<int>{0, 0, 27, 68, 77, 80, 85}, {"Green", "Desert", "Lush", "Green", "Lush", "Desert", "Green"}, false, "Green");
+    expect(sandWater.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(sandWater, {0, 0, 1, 1}) == "Blend-WaterGreenDesert-T"
+            && sandWater.style(1, 2) == TransitionStyle::None && sandWater.style(1, 3) == TransitionStyle::None,
+        "Archipelago water fades into the blue water through the Desert water pieces");
+    expect(lushWater.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(lushWater, {1, 1, 0, 0}) == "Blend-WaterGreenLush-T"
+            && brushPieceName(lushWater, {0, 1, 0, 1}) == "Blend-WaterGreenLush-R" && lushWater.style(1, 2) == TransitionStyle::Coast
+            && lushWater.style(0, 3) == TransitionStyle::None && lushWater.distance(0, 2) == 2,
+        "Lush Base-27 water fades down into the blue Base-0 water");
+    expect(blueBrush.style(0, 1) == TransitionStyle::WorldBlend && blueBrush.style(0, 2) == TransitionStyle::WorldBlend
+            && blueBrush.style(1, 2) == TransitionStyle::WorldBlend && blueBrush.style(1, 5) == TransitionStyle::None && blueBrush.style(2, 4) == TransitionStyle::None
+            && blueBrush.style(2, 3) == TransitionStyle::None && brushPieceName(blueBrush, {0, 2, 0, 2}) == "Blend-WaterGreenLush-R",
+        "the GreenWorld brush blends into Desert and Lush water, which blend with each other, but holds none of their coasts");
+    BrushTestLattice lushIsland(7, 7, 0, lushWater);
+    lushIsland.paint(3, 3, 1, 2);
+    expect(lushIsland.piece(3, 3) == "Base-77" && lushIsland.read(3, 2) == 1 && lushIsland.read(0, 0) == 0 && !lushIsland.steep(),
+        "a Lush island in GreenWorld water sits in Lush water that fades down into the sea");
+    {
+        // An Archipelago shore under the GreenWorld brush, whose water the brush reads as Desert water.
+        const BrushGraph blueByArchi(std::vector<int>{0, 0, 78, 85}, {"Green", "Desert", "Archi", "Green"}, false, "Green");
+        BrushTestLattice shore(9, 7, 2, blueByArchi);
+        for (auto& row : shore.levels) {
+            for (int x = 0; x < 3; ++x) {
+                row[static_cast<std::size_t>(x)] = 1;
+            }
+        }
+        const auto read = [&](int x, int y) { return shore.read(x, y); };
+        expect(brushPlanMovesForeignCoast(planBrush(9, 7, 3, 3, 1, 3, blueByArchi, read), blueByArchi, "Green", 9, 7, read),
+            "GreenWorld Base-85 on an Archipelago coast is refused");
+        const BrushGraph landBlend(std::vector<int>{0, 0, 78, 80, 85}, {"Green", "Desert", "Archi", "Desert", "Green"}, false, "Green");
+        BrushTestLattice lands(9, 7, 2, landBlend);
+        for (auto& row : lands.levels) {
+            for (int x = 0; x < 3; ++x) {
+                row[static_cast<std::size_t>(x)] = 3;
+            }
+        }
+        const auto readLands = [&](int x, int y) { return lands.read(x, y); };
+        expect(!brushPlanMovesForeignCoast(planBrush(9, 7, 3, 3, 1, 4, landBlend, readLands), landBlend, "Green", 9, 7, readLands),
+            "an Archipelago and Desert land blend is not a coast");
+    }
+    // Acid water fades into the blue water with Blend-WaterGreenAcid, which marks the Acid water.
+    const BrushGraph acidWater(std::vector<int>{0, 0, 85, 85}, {"Acid", "Green", "Acid", "Green"}, false, "Acid");
+    expect(acidWater.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(acidWater, {0, 0, 1, 1}) == "Blend-WaterGreenAcid-T"
+            && acidWater.style(1, 3) == TransitionStyle::None && acidWater.style(2, 3) == TransitionStyle::WorldBlend,
+        "Acid water fades into the blue water");
+    BrushTestLattice acidIsland(7, 7, 1, acidWater);
+    acidIsland.paint(3, 3, 1, 2);
+    expect(acidIsland.piece(3, 3) == "Base-85" && acidIsland.read(3, 2) == 0 && acidIsland.read(0, 0) == 1 && !acidIsland.steep(),
+        "an Acid island in GreenWorld water sits in Acid water that fades into the sea");
+    // Archipelago and Desert water fades into Acid, Lush, Crystal and Mars water with Blend-WaterDesert
+    // pieces, which mark the other water. Lush's Base-27 water still stands higher.
+    const BrushGraph desertWaters(std::vector<int>{0, 0, 0, 0, 0, 27, 80}, {"Desert", "Acid", "Crystal", "Mars", "Green", "Lush", "Desert"}, false, "Desert");
+    expect(desertWaters.style(0, 1) == TransitionStyle::WorldBlend && desertWaters.style(0, 2) == TransitionStyle::WorldBlend
+            && desertWaters.style(0, 3) == TransitionStyle::WorldBlend && desertWaters.style(0, 5) == TransitionStyle::WorldBlend
+            && desertWaters.style(0, 4) == TransitionStyle::WorldBlend && desertWaters.style(1, 3) == TransitionStyle::WorldBlend
+            && desertWaters.style(1, 2) == TransitionStyle::WorldBlend,
+        "Desert water fades into Acid, Crystal, Mars, Lush and the blue water, and Acid water into Mars and Crystal water");
+    expect(brushPieceName(desertWaters, {1, 1, 0, 0}) == "Blend-WaterDesertAcid-T" && brushPieceName(desertWaters, {0, 5, 0, 5}) == "Blend-WaterDesertLush-R"
+            && brushPieceName(desertWaters, {0, 0, 0, 2}) == "Blend-WaterDesertCrystal-BR" && brushPieceName(desertWaters, {3, 3, 3, 0}) == "Blend-WaterDesertMars-Low-BR"
+            && brushPieceName(desertWaters, {4, 4, 0, 0}) == "Blend-WaterGreenDesert-B",
+        "the Desert water blends mark the other water");
+    const BrushGraph marsByArchi(std::vector<int>{0, 0, 85}, {"Archi", "Mars", "Mars"}, false, "Mars");
+    BrushTestLattice marsInArchiSea(7, 7, 0, marsByArchi);
+    marsInArchiSea.paint(3, 3, 1, 2);
+    expect(brushPieceName(marsByArchi, {1, 1, 0, 0}) == "Blend-WaterDesertMars-T" && marsInArchiSea.piece(3, 3) == "Base-85"
+            && marsInArchiSea.read(3, 2) == 1 && marsInArchiSea.read(0, 0) == 0 && !marsInArchiSea.steep(),
+        "a Mars island in an Archipelago sea sits in Mars water that fades into it");
+    // Mars water fades into Lush, Crystal and Acid water with Blend-WaterMars pieces, which mark the other water.
+    const BrushGraph marsWaters(std::vector<int>{0, 0, 0, 0, 27, 85}, {"Mars", "Crystal", "Acid", "Green", "Lush", "Mars"}, false, "Mars");
+    expect(marsWaters.style(0, 1) == TransitionStyle::WorldBlend && marsWaters.style(0, 2) == TransitionStyle::WorldBlend
+            && marsWaters.style(0, 4) == TransitionStyle::WorldBlend && marsWaters.style(1, 2) == TransitionStyle::WorldBlend
+            && brushPieceName(marsWaters, {1, 1, 0, 0}) == "Blend-WaterMarsCrystal-T" && brushPieceName(marsWaters, {0, 2, 0, 2}) == "Blend-WaterMarsAcid-R"
+            && brushPieceName(marsWaters, {4, 4, 4, 0}) == "Blend-WaterMarsLush-Low-BR" && brushPieceName(marsWaters, {0, 0, 3, 3}) == "Blend-WaterGreenMars-T",
+        "Mars water fades into Lush, Crystal and Acid water");
+    const BrushGraph crystalByMars(std::vector<int>{0, 0, 85}, {"Mars", "Crystal", "Crystal"}, false, "Crystal");
+    BrushTestLattice crystalInMarsSea(7, 7, 0, crystalByMars);
+    crystalInMarsSea.paint(3, 3, 1, 2);
+    expect(crystalInMarsSea.piece(3, 3) == "Base-85" && crystalInMarsSea.read(3, 2) == 1 && crystalInMarsSea.read(0, 0) == 0 && !crystalInMarsSea.steep(),
+        "a Crystal island in a Mars sea sits in Crystal water that fades into it");
+    // Lush Base-27 water falls into Crystal and Acid Base-0 water with Blend-WaterLush pieces, which mark the lower water.
+    const BrushGraph lushWaters(std::vector<int>{0, 0, 27, 77}, {"Crystal", "Acid", "Lush", "Lush"}, false, "Lush");
+    expect(lushWaters.style(0, 2) == TransitionStyle::WorldBlend && lushWaters.style(1, 2) == TransitionStyle::WorldBlend
+            && lushWaters.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(lushWaters, {0, 0, 2, 2}) == "Blend-WaterLushCrystal-T"
+            && brushPieceName(lushWaters, {2, 1, 2, 1}) == "Blend-WaterLushAcid-R" && brushPieceName(lushWaters, {1, 1, 0, 0}) == "Blend-WaterCrystalAcid-T"
+            && brushPieceName(lushWaters, {0, 0, 0, 1}) == "Blend-WaterCrystalAcid-BR",
+        "Lush water falls into Crystal and Acid water, and Crystal water fades into Acid water");
+    const BrushGraph acidByLush(std::vector<int>{0, 27, 85}, {"Acid", "Lush", "Acid"}, false, "Acid");
+    BrushTestLattice acidInLushSea(7, 7, 1, acidByLush);
+    acidInLushSea.paint(3, 3, 1, 2);
+    expect(acidInLushSea.piece(3, 3) == "Base-85" && acidInLushSea.read(3, 2) == 0 && acidInLushSea.read(0, 0) == 1 && !acidInLushSea.steep(),
+        "an Acid island in a Lush sea sits in Acid water that rises into it");
     BrushTestLattice marsIsland(7, 7, 1, marsWater);
     marsIsland.paint(3, 3, 1, 2);
     bool waterRing = false;

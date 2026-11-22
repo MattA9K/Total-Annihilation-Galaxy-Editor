@@ -9,7 +9,7 @@ struct EditorSettings {
     int previewSize = 128;
     int heightGridSize = 32;
     int sidebarFontPercent = 100;
-    int autosaveMinutes = 10;
+    int autosaveMinutes = 60;
     int autosaveBackups = 5;
     // 0 follows the system, 1 is light, 2 is dark.
     int appearance = 0;

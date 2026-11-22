@@ -14,8 +14,10 @@
 
 namespace galaxy {
 
-// GreenWorld water is bright blue; Mars water is a dark violet. Blue minus red averages about 187
-// on GreenWorld Base-0 tiles and about 54 on Mars Base-0 tiles.
+// GreenWorld water is bright blue; Mars water is a dark violet and Crystal water near black. Blue
+// minus red averages about 187 on GreenWorld Base-0 tiles, about 54 on Mars Base-0 tiles and about
+// 21 on Crystal Base-0 tiles, 93 on Archipelago and Desert Base-0, 76 on Lush Base-27 and 31 on Acid Base-0. Ice and
+// Metal Base-0 draw GreenWorld's blue water.
 inline bool greenMarsWaterTileIsGreen(const std::uint8_t* bytes) {
     int score = 0;
     for (int i = 0; i < 1024; ++i) {
@@ -23,6 +25,45 @@ inline bool greenMarsWaterTileIsGreen(const std::uint8_t* bytes) {
         score += static_cast<int>(color[2]) - static_cast<int>(color[0]);
     }
     return score >= 120 * 1024;
+}
+
+// Archipelago and Desert water is greener than the waters it fades into. Its tiles average about
+// 80 green, Lush Base-27 about 51, Acid Base-0 48, Mars Base-0 40 and Crystal Base-0 23.
+inline bool desertWaterTileIsDesert(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        score += kTaPalette[bytes[i]][1];
+    }
+    return score >= 65 * 1024;
+}
+
+// Mars water is redder than the waters it fades into. Its tiles average about 50 red, Crystal
+// Base-0 about 22, Lush Base-27 12 and Acid Base-0 3.
+inline bool marsWaterTileIsMars(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        score += kTaPalette[bytes[i]][0];
+    }
+    return score >= 36 * 1024;
+}
+
+// Lush water is bluer than Crystal and Acid water. Its tiles average about 88 blue, Crystal Base-0
+// about 44 and Acid Base-0 34.
+inline bool lushWaterTileIsLush(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        score += kTaPalette[bytes[i]][2];
+    }
+    return score >= 66 * 1024;
+}
+
+// Acid water is greener than Crystal water. Its tiles average about 48 green and Crystal Base-0 23.
+inline bool acidWaterTileIsAcid(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        score += kTaPalette[bytes[i]][1];
+    }
+    return score >= 35 * 1024;
 }
 
 // Grass in the green-acid blend is much greener than the acid ground.
@@ -237,6 +278,37 @@ struct BlendColourPair {
 inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"GreenWorld / Acid", "GreenWorld/Base-85", "Acid/Base-85", greenAcidTileIsGrass},
     {"GreenWorld / Mars water", "GreenWorld/Base-0", "Mars/Base-0", greenMarsWaterTileIsGreen},
+    {"Ice / Mars water", "Ice/Base-0", "Mars/Base-0", greenMarsWaterTileIsGreen},
+    {"Metal / Mars water", "Metal/Base-0", "Mars/Base-0", greenMarsWaterTileIsGreen},
+    {"GreenWorld / Crystal water", "GreenWorld/Base-0", "Crystal/Base-0", greenMarsWaterTileIsGreen},
+    {"Ice / Crystal water", "Ice/Base-0", "Crystal/Base-0", greenMarsWaterTileIsGreen},
+    {"Metal / Crystal water", "Metal/Base-0", "Crystal/Base-0", greenMarsWaterTileIsGreen},
+    {"GreenWorld / Desert water", "GreenWorld/Base-0", "Desert/Base-0", greenMarsWaterTileIsGreen},
+    {"Ice / Desert water", "Ice/Base-0", "Desert/Base-0", greenMarsWaterTileIsGreen},
+    {"Metal / Desert water", "Metal/Base-0", "Desert/Base-0", greenMarsWaterTileIsGreen},
+    {"GreenWorld / Archipelago water", "GreenWorld/Base-0", "Archipelago/Base-0", greenMarsWaterTileIsGreen},
+    {"Ice / Archipelago water", "Ice/Base-0", "Archipelago/Base-0", greenMarsWaterTileIsGreen},
+    {"Metal / Archipelago water", "Metal/Base-0", "Archipelago/Base-0", greenMarsWaterTileIsGreen},
+    {"GreenWorld / Lush water", "GreenWorld/Base-0", "Lush/Base-27", greenMarsWaterTileIsGreen},
+    {"Ice / Lush water", "Ice/Base-0", "Lush/Base-27", greenMarsWaterTileIsGreen},
+    {"Metal / Lush water", "Metal/Base-0", "Lush/Base-27", greenMarsWaterTileIsGreen},
+    {"GreenWorld / Acid water", "GreenWorld/Base-0", "Acid/Base-0", greenMarsWaterTileIsGreen},
+    {"Ice / Acid water", "Ice/Base-0", "Acid/Base-0", greenMarsWaterTileIsGreen},
+    {"Metal / Acid water", "Metal/Base-0", "Acid/Base-0", greenMarsWaterTileIsGreen},
+    {"Desert / Acid/Base-0 water", "Desert/Base-0", "Acid/Base-0", desertWaterTileIsDesert},
+    {"Archipelago / Acid/Base-0 water", "Archipelago/Base-0", "Acid/Base-0", desertWaterTileIsDesert},
+    {"Desert / Lush/Base-27 water", "Desert/Base-0", "Lush/Base-27", desertWaterTileIsDesert},
+    {"Archipelago / Lush/Base-27 water", "Archipelago/Base-0", "Lush/Base-27", desertWaterTileIsDesert},
+    {"Desert / Crystal/Base-0 water", "Desert/Base-0", "Crystal/Base-0", desertWaterTileIsDesert},
+    {"Archipelago / Crystal/Base-0 water", "Archipelago/Base-0", "Crystal/Base-0", desertWaterTileIsDesert},
+    {"Desert / Mars/Base-0 water", "Desert/Base-0", "Mars/Base-0", desertWaterTileIsDesert},
+    {"Archipelago / Mars/Base-0 water", "Archipelago/Base-0", "Mars/Base-0", desertWaterTileIsDesert},
+    {"Mars / Lush/Base-27 water", "Mars/Base-0", "Lush/Base-27", marsWaterTileIsMars},
+    {"Mars / Crystal/Base-0 water", "Mars/Base-0", "Crystal/Base-0", marsWaterTileIsMars},
+    {"Mars / Acid/Base-0 water", "Mars/Base-0", "Acid/Base-0", marsWaterTileIsMars},
+    {"Lush / Crystal water", "Lush/Base-27", "Crystal/Base-0", lushWaterTileIsLush},
+    {"Lush / Acid water", "Lush/Base-27", "Acid/Base-0", lushWaterTileIsLush},
+    {"Acid / Crystal water", "Acid/Base-0", "Crystal/Base-0", acidWaterTileIsAcid},
     {"GreenWorld / Crystal", "GreenWorld/Base-85", "Crystal/Base-85", greenAcidTileIsGrass},
     {"Lush / Archipelago", "Lush/Base-77", "Archipelago/Base-78", archiLushTileIsLush},
     {"Lush / Acid", "Lush/Base-77", "Acid/Base-85", archiLushTileIsLush},
