@@ -10970,8 +10970,11 @@ void EditorApp::paintBrushStroke(int tileX, int tileY) {
     if (!movedToFine) {
         // A 4 x 4 or 8 x 8 stroke that reached a cliff. Painted 16 x 16 instead, it would land off its
         // outline and leave its edges against the 8 x 8 work around it, so the map is left alone.
-        statusNote_ = coarseOnlyPiece_ + " only comes in 16 x 16, so a 4 x 4 or 8 x 8 stroke cannot reach it. "
-            "Paint here with the 16 x 16 brush";
+        const bool coast = coarseOnlyPiece_.rfind("Coast-", 0) == 0 || coarseOnlyPiece_.rfind("ShallowCoast-", 0) == 0
+            || coarseOnlyPiece_.rfind("ShallowDeep-", 0) == 0 || coarseOnlyPiece_.rfind("DSL-", 0) == 0;
+        statusNote_ = coast && !kFineCoastsEnabled
+            ? "This stroke reaches a coast, and coasts are painted with the 16 x 16 brush for now. Paint here with the 16 x 16 brush"
+            : coarseOnlyPiece_ + " only comes in 16 x 16, so a 4 x 4 or 8 x 8 stroke cannot reach it. Paint here with the 16 x 16 brush";
         error_.clear();
         return;
     }
@@ -12717,7 +12720,7 @@ void EditorApp::ensureBrushPaints() {
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
         || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
-        || lowerText(brushWorld_) == "metal";
+        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         std::string sectionKind;
@@ -12837,7 +12840,8 @@ void EditorApp::ensureBrushPaints() {
             river.key = riverKeyOf(section.name);
             river.sectionPath = section.archivePath;
             riverSections_.push_back(std::move(river));
-        } else if (isTransitionWorld(section.world)) {
+        } else if (isTransitionWorld(section.world) && !(sectionTiles == kFineCellTiles && !kFineCoastsEnabled && brushCoastFolder(sectionKind))) {
+            // 8 x 8 coast pieces are skipped while kFineCoastsEnabled is off.
             BrushPiece cliff;
             cliff.name = section.name;
             cliff.category = section.category;
@@ -13308,6 +13312,27 @@ void EditorApp::ensureBrushPaints() {
             wanted.push_back(PartnerWant{"Metal", "Base-85"});
             wanted.push_back(PartnerWant{"Lush", "Base-77"});
         }
+    }
+    // Quagmire Base-85 blends into the Base-85 ground of GreenWorld, Mars, Acid, Crystal, Ice and Metal,
+    // and those lands blend into it.
+    static constexpr const char* kQuagmirePartners[] = {"GreenWorld", "Mars", "Acid", "Crystal", "Ice", "Metal"};
+    if (lowerText(brushWorld_) == "quagmire") {
+        for (const char* partner : kQuagmirePartners) {
+            wanted.push_back(PartnerWant{partner, "Base-85"});
+        }
+    } else if (std::any_of(std::begin(kQuagmirePartners), std::end(kQuagmirePartners),
+                   [&](const char* partner) { return lowerText(brushWorld_) == lowerText(partner); })) {
+        wanted.push_back(PartnerWant{"Quagmire", "Base-85"});
+    }
+    // Quagmire water fades into every other land's water: Archipelago and Desert share one water, read as
+    // Desert's, GreenWorld's stands for the blue water it shares with Ice and Metal, and Lush's stands at Base-27.
+    if (lowerText(brushWorld_) == "quagmire") {
+        for (const PartnerWant water : {PartnerWant{"GreenWorld", "Base-0"}, PartnerWant{"Desert", "Base-0"}, PartnerWant{"Mars", "Base-0"},
+                 PartnerWant{"Crystal", "Base-0"}, PartnerWant{"Acid", "Base-0"}, PartnerWant{"Lush", "Base-27"}}) {
+            wanted.push_back(water);
+        }
+    } else if (lowerText(brushWorld_) != "lava") {
+        wanted.push_back(PartnerWant{"Quagmire", "Base-0"});
     }
     for (const PartnerWant& want : wanted) {
         for (const TilesetSection& section : source->sections) {
@@ -14615,6 +14640,30 @@ void EditorApp::ensureBrushPaints() {
         rememberTwoWayColour("blend-waterlushacid-", paintWorldAt("Lush", 27), paintWorldAt("Acid", 0), lushWaterTileIsLush);
         // Acid water is greener than Crystal water.
         rememberTwoWayColour("blend-watercrystalacid-", paintWorldAt("Acid", 0), paintWorldAt("Crystal", 0), acidWaterTileIsAcid);
+    }
+    {
+        // Quagmire's blends into the Base-85 lands and into every other water. The brush holds one land
+        // of a water family, so the blue and the Archipelago and Desert water are found as any of theirs.
+        const BrushPaint* quagmireLand = paintWorldAt("Quag", 85);
+        for (const char* partner : {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal"}) {
+            const std::string prefix = "blend-quag" + lowerText(partner) + "-";
+            rememberTwoWayColour(prefix.c_str(), quagmireLand, paintWorldAt(partner, 85), quagmireTileIsQuagmire);
+        }
+        const auto waterOf = [&](std::initializer_list<const char*> family, int height) -> const BrushPaint* {
+            for (const char* world : family) {
+                if (const BrushPaint* paint = paintWorldAt(world, height); paint != nullptr) {
+                    return paint;
+                }
+            }
+            return nullptr;
+        };
+        const BrushPaint* quagmireWater = paintWorldAt("Quag", 0);
+        rememberTwoWayColour("blend-waterquaggreen-", quagmireWater, waterOf({"Green", "Ice", "Metal"}, 0), quagmireWaterTileIsQuagmire);
+        rememberTwoWayColour("blend-waterquagdesert-", quagmireWater, waterOf({"Desert", "Archi"}, 0), quagmireWaterTileIsQuagmire);
+        rememberTwoWayColour("blend-waterquagmars-", quagmireWater, paintWorldAt("Mars", 0), quagmireWaterTileIsQuagmire);
+        rememberTwoWayColour("blend-waterquagcrystal-", quagmireWater, paintWorldAt("Crystal", 0), quagmireWaterTileIsQuagmire);
+        rememberTwoWayColour("blend-waterquagacid-", quagmireWater, paintWorldAt("Acid", 0), quagmireWaterTileIsQuagmire);
+        rememberTwoWayColour("blend-waterquaglush-", quagmireWater, paintWorldAt("Lush", 27), quagmireWaterTileIsQuagmire);
     }
     // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
     // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.
@@ -17179,7 +17228,7 @@ void EditorApp::drawTileBrush() {
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
     if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
-        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire"}) {
             const bool selected = brushWorld_ == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;

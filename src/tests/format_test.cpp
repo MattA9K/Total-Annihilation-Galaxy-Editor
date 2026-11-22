@@ -6814,6 +6814,152 @@ void testFineBrush() {
         }
     }
     expect(sandPixels > 256 * 8, "the sand band survives, at half width: " + std::to_string(sandPixels));
+
+    // A coast kept at full detail. Its 16 x 16 pieces have flat grass where their corners are land, a band of
+    // rock 160 pixels wide beyond it, and water past that.
+    expect(coastPieceCorners("Coast-Land-TL-01") == LandCorners{true, false, false, false}, "Coast-Land-TL is land at the top left");
+    expect(coastPieceCorners("Coast-Water-BR-02") == LandCorners{true, true, true, false}, "Coast-Water-BR is land but for the bottom right");
+    expect(coastPieceCorners("Coast-Water-B-01") == LandCorners{true, true, false, false}, "Coast-Water-B has its water along the bottom");
+    expect(!coastPieceCorners("Blend-GreenMars-B-01"), "a blend is not a coast piece");
+    expect(coastPieceCorners("Coast-Lava-B") == LandCorners{true, true, false, false}, "Coast-Lava-B has its lava along the bottom");
+    using Levels = std::array<int, 4>;
+    expect(coastPieceLevels("ShallowCoast-Water-B-01") == Levels{0, 0, 1, 1}, "ShallowCoast-Water-B has shallows along the bottom");
+    expect(coastPieceLevels("ShallowDeep-Shallow-T-01") == Levels{1, 1, 2, 2}, "ShallowDeep-Shallow-T has shallows along the top and water below");
+    expect(coastPieceLevels("ShallowDeep-Deep-BL-02") == Levels{1, 1, 2, 1}, "ShallowDeep-Deep-BL is water at the bottom left");
+    expect(coastPieceLevels("DSL-Land-B-Shallow-TL-Water-TR") == Levels{1, 2, 0, 0}, "a DSL piece names land, shallows and water");
+    expect(coastPieceLevels("DSL-Land-TL-Shallow-BL_and_TR-Water-BR") == Levels{0, 1, 1, 2}, "a DSL piece can name shallows at two corners");
+    expect(!coastPieceLevels("DSL-Land-B-Shallow-TL-Water-TL"), "a DSL piece must name every corner once");
+    const std::uint8_t rockColours[4] = {nearestIndex(120, 90, 140), nearestIndex(70, 50, 80), nearestIndex(170, 150, 190), nearestIndex(25, 20, 35)};
+    const auto bigGroundOf = [&](const std::uint8_t* colours) {
+        PaletteImage ground;
+        ground.width = 512;
+        ground.height = 512;
+        for (int i = 0; i < 512 * 512; ++i) {
+            ground.pixels.push_back(colours[noise() % 2]);
+        }
+        return ground;
+    };
+    const PaletteImage grass = bigGroundOf(greens);
+    const PaletteImage sea = bigGroundOf(blues);
+    const auto coastPiece = [&](const LandCorners& corners) {
+        SectionStamp coast;
+        coast.tileWidth = 16;
+        coast.tileHeight = 16;
+        coast.tileCount = 256;
+        PaletteImage picture;
+        picture.width = 512;
+        picture.height = 512;
+        for (int y = 0; y < 512; ++y) {
+            for (int x = 0; x < 512; ++x) {
+                double nearest = 1.0e9;
+                for (int corner = 0; corner < 4; ++corner) {
+                    if (!corners[static_cast<std::size_t>(corner)]) {
+                        continue;
+                    }
+                    const int x0 = (corner & 1) != 0 ? 256 : 0;
+                    const int y0 = (corner & 2) != 0 ? 256 : 0;
+                    const double dx = std::max({0, x0 - x, x - (x0 + 255)});
+                    const double dy = std::max({0, y0 - y, y - (y0 + 255)});
+                    nearest = std::min(nearest, std::sqrt(dx * dx + dy * dy));
+                }
+                picture.pixels.push_back(nearest <= 0.0 ? grass.at(x, y) : nearest < 160.0 ? rockColours[noise() % 4] : sea.at(x, y));
+            }
+        }
+        for (int ty = 0; ty < 16; ++ty) {
+            for (int tx = 0; tx < 16; ++tx) {
+                coast.indices.push_back(static_cast<std::uint32_t>(ty * 16 + tx));
+                for (int y = 0; y < 32; ++y) {
+                    for (int x = 0; x < 32; ++x) {
+                        coast.tileImages.push_back(picture.at(tx * 32 + x, ty * 32 + y));
+                    }
+                }
+            }
+        }
+        for (int y = 0; y < 32; ++y) {
+            for (int x = 0; x < 32; ++x) {
+                const bool land = corners[static_cast<std::size_t>((y >= 16 ? 2 : 0) + (x >= 16 ? 1 : 0))];
+                coast.heights.push_back(static_cast<std::uint8_t>(land ? 85 : 0));
+            }
+        }
+        return coast;
+    };
+    std::array<SectionStamp, 4> straights;
+    const char* straightNames[4] = {"Coast-Water-B-01", "Coast-Water-T-01", "Coast-Water-R-01", "Coast-Water-L-01"};
+    for (std::size_t s = 0; s < 4; ++s) {
+        straights[s] = coastPiece(*coastPieceCorners(straightNames[s]));
+    }
+    const DetailedCoastMaker coastMaker(grass, sea, straights);
+    expect(coastMaker.canMake({0, 0, 1, 1}) && !coastMaker.canMake({0, 1, 2, 2}), "a coast maker draws only the grounds it knows");
+    const LandCorners topLeft = *coastPieceCorners("Coast-Land-TL-01");
+    const SectionStamp cornerSource = coastPiece(topLeft);
+    const SectionStamp corner = coastMaker.make(cornerSource, topLeft);
+    const SectionStamp straight = coastMaker.make(straights[0], *coastPieceCorners("Coast-Water-B-01"));
+    const SectionStamp sideways = coastMaker.make(straights[2], *coastPieceCorners("Coast-Water-R-01"));
+    expect(corner.tileWidth == 8 && corner.tileHeight == 8 && corner.heights.size() == 256, "a full-detail coast piece is 8 x 8 tiles with two heights a tile");
+    expect(corner.heights.front() == 85 && corner.heights.back() == 0, "a full-detail coast piece's heights are halved");
+    const PaletteImage cornerOut = sectionImage(corner);
+    bool groundAligned = true;
+    for (int y = 0; y < 32; ++y) {
+        for (int x = 0; x < 32; ++x) {
+            groundAligned = groundAligned && cornerOut.at(x, y) == grass.at(x, y) && cornerOut.at(224 + x, 224 + y) == sea.at(224 + x, 224 + y);
+        }
+    }
+    expect(groundAligned, "a full-detail coast piece's flat ground is its bases' texture from their top-left corners");
+    // The band is drawn with full-size copies of the 16 x 16 band, where a halved band has none. Windows across
+    // a seam between two patches, or in a side strip drawn from another piece, are not whole copies.
+    const PaletteImage cornerIn = sectionImage(cornerSource);
+    const auto isRock = [&](std::uint8_t colour) { return std::find(std::begin(rockColours), std::end(rockColours), colour) != std::end(rockColours); };
+    const auto windowAt = [](const PaletteImage& image, int x, int y) {
+        std::uint64_t hash = 1469598103934665603ull;
+        for (int v = 0; v < 4; ++v) {
+            for (int u = 0; u < 4; ++u) {
+                hash = (hash ^ image.at(x + u, y + v)) * 1099511628211ull;
+            }
+        }
+        return hash;
+    };
+    std::set<std::uint64_t> sourceWindows;
+    for (int y = 0; y + 4 <= 512; ++y) {
+        for (int x = 0; x + 4 <= 512; ++x) {
+            sourceWindows.insert(windowAt(cornerIn, x, y));
+        }
+    }
+    int rockWindows = 0;
+    int copiedWindows = 0;
+    for (int y = 0; y + 4 <= 256; y += 2) {
+        for (int x = 0; x + 4 <= 256; x += 2) {
+            bool allRock = true;
+            for (int v = 0; v < 4 && allRock; ++v) {
+                for (int u = 0; u < 4 && allRock; ++u) {
+                    allRock = isRock(cornerOut.at(x + u, y + v));
+                }
+            }
+            if (allRock) {
+                ++rockWindows;
+                copiedWindows += sourceWindows.count(windowAt(cornerOut, x, y)) != 0 ? 1 : 0;
+            }
+        }
+    }
+    expect(rockWindows > 400 && copiedWindows * 10 > rockWindows * 6,
+        "a full-detail band is full-size copies of the 16 x 16 band: " + std::to_string(copiedWindows) + " of " + std::to_string(rockWindows));
+    // Pieces whose sides the coast crosses the same way end in the same strip there.
+    const PaletteImage straightOut = sectionImage(straight);
+    const PaletteImage sidewaysOut = sectionImage(sideways);
+    bool sameLeft = true;
+    bool sameTop = true;
+    for (int i = 0; i < 256; ++i) {
+        for (int d = 0; d < 3; ++d) {
+            sameLeft = sameLeft && cornerOut.at(d, i) == straightOut.at(d, i);
+            sameTop = sameTop && cornerOut.at(i, d) == sidewaysOut.at(i, d);
+        }
+    }
+    expect(sameLeft && sameTop, "coast pieces crossed the same way along a side share that side's strip");
+    // The band runs from the land for about two thirds of its 16 x 16 width: neither halved nor whole.
+    int bandRows = 0;
+    for (int y = 0; y < 256; ++y) {
+        bandRows += isRock(straightOut.at(128, y)) ? 1 : 0;
+    }
+    expect(bandRows > 90 && bandRows < 125, "a full-detail band is cut to about two thirds of its width: " + std::to_string(bandRows));
 }
 
 void testRandomMapProgress() {

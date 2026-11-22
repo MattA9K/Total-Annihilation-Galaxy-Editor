@@ -160,6 +160,22 @@ inline int brushPieceFolderTiles(std::string_view folder, std::string& kind) {
     return kBrushCellTiles;
 }
 
+// Whether the Tile Brush paints coasts with 8 x 8 pieces. Turned off for now: the 8 x 8 coast pieces stay
+// in the random map tileset, but the brush does not load them, so a 4 x 4 or 8 x 8 stroke that would need a
+// coast, shallow coast or shallow-to-deep piece is left for the 16 x 16 brush. The 8 x 8 blends between
+// lands are not coasts and stay on. Set this to true to paint 8 x 8 coasts again.
+inline constexpr bool kFineCoastsEnabled = false;
+
+// True for the folders that hold coast pieces: CoastTiles, ShallowCoastTiles, ShallowDeepTiles and CoastDSL,
+// given without their -8x8 ending.
+inline bool brushCoastFolder(std::string_view kind) {
+    std::string lowered(kind);
+    for (char& character : lowered) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    return lowered == "coasttiles" || lowered == "shallowcoasttiles" || lowered == "shallowdeeptiles" || lowered == "coastdsl";
+}
+
 // Corner bits of a cell mask.
 inline constexpr int kCornerTopLeft = 1;
 inline constexpr int kCornerTopRight = 2;
@@ -367,6 +383,9 @@ inline std::string blendWorldName(std::string_view category) {
     for (char& character : lower) {
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     }
+    if (lower.find("quagmire") != std::string::npos) {
+        return "Quag";
+    }
     if (lower.find("mars") != std::string::npos) {
         return "Mars";
     }
@@ -484,6 +503,17 @@ inline bool waterBlendsWithSand(std::string_view world) {
     return world == "Mars" || world == "Crystal" || world == "Acid";
 }
 
+// The waters Quagmire Base-0 fades into with a Blend-WaterQuag piece: the blue water, the Archipelago and
+// Desert water, and Mars, Crystal and Acid water. Lush's Base-27 water does too, through its own rule.
+inline bool quagmireWaterPartner(std::string_view world) {
+    return blueWaterWorld(world) || sandWaterWorld(world) || world == "Mars" || world == "Crystal" || world == "Acid";
+}
+
+// The lands whose Base-85 blends into Quagmire Base-85.
+inline bool quagmirePartner(std::string_view world) {
+    return world == "Green" || world == "Mars" || world == "Acid" || world == "Crystal" || world == "Ice" || world == "Metal";
+}
+
 // The paints from lowest to highest and which of them are joined by pieces. A
 // paint is called a level here, numbered by its place in that order.
 class BrushGraph {
@@ -547,10 +577,11 @@ public:
                             && (((blueWaterWorld(wa) != blueWaterWorld(wb)) && (blueWaterWorld(wa) ? waterBlendsWithBlue(wb) : waterBlendsWithBlue(wa)))
                                 || ((sandWaterWorld(wa) != sandWaterWorld(wb)) && (sandWaterWorld(wa) ? waterBlendsWithSand(wb) : waterBlendsWithSand(wa)))
                                 || ((wa == "Mars") != (wb == "Mars") && (wa == "Mars" ? waterBlendsWithMars(wb) : waterBlendsWithMars(wa)))
-                                || namedPair("Crystal", "Acid"));
+                                || namedPair("Crystal", "Acid")
+                                || ((wa == "Quag") != (wb == "Quag") && quagmireWaterPartner(wa == "Quag" ? wb : wa)));
                         // Ordered by height: the blue, sand or Mars water is the Base-0 side and Lush the Base-27 side.
                         const bool lushWater = rule.lowerHeight == 0 && rule.upperHeight == 27
-                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid") && wb == "Lush";
+                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag") && wb == "Lush";
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
@@ -558,7 +589,8 @@ public:
                                 || namedPair("Green", "Mars") || namedPair("Green", "Metal") || namedPair("Acid", "Crystal")
                                 || namedPair("Green", "Crystal") || namedPair("Acid", "Mars") || namedPair("Ice", "Acid")
                                 || namedPair("Acid", "Metal") || namedPair("Mars", "Crystal") || namedPair("Mars", "Metal")
-                                || namedPair("Ice", "Crystal") || namedPair("Ice", "Metal") || namedPair("Crystal", "Metal"));
+                                || namedPair("Ice", "Crystal") || namedPair("Ice", "Metal") || namedPair("Crystal", "Metal")
+                                || (named && (wa == "Quag") != (wb == "Quag") && quagmirePartner(wa == "Quag" ? wb : wa)));
                         const bool desert85 = rule.lowerHeight == 80 && rule.upperHeight == 85
                             && (namedPair("Acid", "Desert") || namedPair("Crystal", "Desert") || namedPair("Green", "Desert")
                                 || namedPair("Ice", "Desert") || namedPair("Mars", "Desert") || namedPair("Metal", "Desert"));
@@ -2679,7 +2711,21 @@ inline std::array<int, 4> threeWayCornerLands(std::string_view loweredName, cons
     return lands;
 }
 
+// The lands Quagmire's three-way pieces pair it with, in the order their names give them.
+inline constexpr std::array<const char*, 6> kQuagmireTriLands = {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal"};
+
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    // Quagmire with two of the Base-85 lands it blends into, Quagmire as the pivot and the other two in
+    // kQuagmireTriLands order: Blend-Tri-Quag-T-Green-L-Mars has Quagmire along the top, GreenWorld at the
+    // bottom left and Mars at the bottom right.
+    for (std::size_t first = 0; first < kQuagmireTriLands.size(); ++first) {
+        for (std::size_t second = first + 1; second < kQuagmireTriLands.size(); ++second) {
+            if (std::string name = triGreenLushName(graph, corners, kQuagmireTriLands[first], kQuagmireTriLands[second], 85, 85, "Quag", 85, "Quag");
+                !name.empty()) {
+                return name;
+            }
+        }
+    }
     for (const char* third : {"Ice", "Mars", "Metal", "Crystal", "Acid"}) {
         if (std::string greenLush = triGreenLushName(graph, corners, third); !greenLush.empty()) {
             return greenLush;
@@ -2986,6 +3032,20 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         int marked = sorted[1];
         std::string family;
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && (graph.world(sorted[0]) == "Quag") != (graph.world(sorted[1]) == "Quag")) {
+            // Quagmire water beside another land's water. The mask marks the Quagmire water, and the other
+            // water is named for its family: Blend-WaterQuagGreen-T has Quagmire water along the top and the
+            // blue water of GreenWorld, Ice or Metal along the bottom, and Blend-WaterQuagDesert serves
+            // Archipelago and Desert. Blend-WaterQuagLush rises from 0 to Lush's Base-27.
+            marked = graph.world(sorted[0]) == "Quag" ? sorted[0] : sorted[1];
+            const std::string_view other = graph.world(marked == sorted[0] ? sorted[1] : sorted[0]);
+            family = "WaterQuag" + std::string(blueWaterWorld(other) ? "Green" : sandWaterWorld(other) ? "Desert" : other);
+        } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Quag") != (graph.world(sorted[1]) == "Quag")) {
+            // Quagmire beside another land's Base-85. The mask marks Quagmire: Blend-QuagGreen-T has
+            // Quagmire along the top and GreenWorld along the bottom.
+            marked = graph.world(sorted[0]) == "Quag" ? sorted[0] : sorted[1];
+            family = "Quag" + std::string(graph.world(marked == sorted[0] ? sorted[1] : sorted[0]));
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
             && blueWaterWorld(graph.world(sorted[0])) != blueWaterWorld(graph.world(sorted[1]))) {
             // The mask marks the other water. Blend-WaterGreenMars-T has Mars water along the top, and
             // Blend-WaterGreenCrystal, -Desert and -Lush mark theirs. GreenWorld, Ice and Metal draw the
@@ -3714,6 +3774,35 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
         }
     }
 
+    // The host: the land most corners just around the stroke stand on, other than the painted one, such
+    // as the sea a Mars patch or an island is painted into. -1 when there is none.
+    int host = -1;
+    {
+        std::vector<int> counts(static_cast<std::size_t>(graph.size()), 0);
+        const int lowX = corner ? blockX - 1 : blockX - 1;
+        const int lowY = corner ? blockY - 1 : blockY - 1;
+        const int highX = corner ? blockX + 1 : blockX + blockCells + 1;
+        const int highY = corner ? blockY + 1 : blockY + blockCells + 1;
+        for (int y = lowY; y <= highY; ++y) {
+            for (int x = lowX; x <= highX; ++x) {
+                if (!inLattice(x, y) || isLocked(x, y)) {
+                    continue;
+                }
+                const int before = levelBefore(x, y);
+                if (before != level) {
+                    ++counts[static_cast<std::size_t>(before)];
+                }
+            }
+        }
+        int most = 0;
+        for (int candidate = 0; candidate < graph.size(); ++candidate) {
+            if (counts[static_cast<std::size_t>(candidate)] > most) {
+                most = counts[static_cast<std::size_t>(candidate)];
+                host = candidate;
+            }
+        }
+    }
+
     // Settle the corners. A changed corner pulls any corner sharing a cell with
     // it onto a joined paint, and a cell left with its upper corners on a
     // diagonal moves toward the painted level. Each move is one step along a
@@ -3769,13 +3858,25 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                     if (!allJoined || brushCellValid(graph, corners)) {
                         continue;
                     }
+                    // Lands that only meet through world blends, such as three waters, have no piece for
+                    // the three together. Moving a corner onto the painted land would only meet the next
+                    // cell of the blend band the same way and run the whole band over, so a corner may
+                    // instead take the host, the land the stroke is painted into, and that is preferred to any
+                    // other move: the stroke ends up wrapped in its host, and the other land steps back.
+                    bool blendsOnly = true;
+                    for (const int first : corners) {
+                        for (const int second : corners) {
+                            blendsOnly = blendsOnly && (first == second || graph.style(std::min(first, second), std::max(first, second)) == TransitionStyle::WorldBlend);
+                        }
+                    }
                     std::array<std::vector<int>, 4> options;
                     for (int corner = 0; corner < 4; ++corner) {
                         const int current = corners[static_cast<std::size_t>(corner)];
                         options[static_cast<std::size_t>(corner)].push_back(current);
                         if (!isLocked(cx + (corner & 1), cy + (corner >> 1))) {
                             for (int candidate = 0; candidate < graph.size(); ++candidate) {
-                                if (candidate != current && graph.distance(level, candidate) < graph.distance(level, current)) {
+                                const bool toHost = blendsOnly && candidate == host && current != level;
+                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost)) {
                                     options[static_cast<std::size_t>(corner)].push_back(candidate);
                                 }
                             }
@@ -3783,6 +3884,7 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                     }
                     bool found = false;
                     int fewest = 5;
+                    int fewestPainted = 5;
                     int smallestMove = graph.kFar * 8;
                     std::array<int, 4> best = corners;
                     for (const int a : options[0]) {
@@ -3794,16 +3896,23 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                                         continue;
                                     }
                                     int changes = 0;
+                                    int painted = 0;
                                     int move = 0;
                                     for (std::size_t i = 0; i < 4; ++i) {
                                         if (trial[i] != corners[i]) {
                                             ++changes;
+                                            painted += blendsOnly && host >= 0 && trial[i] != host ? 1 : 0;
                                             move += graph.distance(level, corners[i]) - graph.distance(level, trial[i]);
                                         }
                                     }
-                                    if (changes < fewest || (changes == fewest && move < smallestMove)) {
+                                    // In a blend-only cell, any move but one onto the host is the last resort.
+                                    const bool better = painted != fewestPainted ? painted < fewestPainted
+                                        : changes != fewest ? changes < fewest
+                                        : move < smallestMove;
+                                    if (better) {
                                         found = true;
                                         fewest = changes;
+                                        fewestPainted = painted;
                                         smallestMove = move;
                                         best = trial;
                                     }

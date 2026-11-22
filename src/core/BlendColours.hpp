@@ -266,6 +266,31 @@ inline bool archiAcidTileIsSand(const std::uint8_t* bytes) {
 
 using BlendColourTest = bool (*)(const std::uint8_t*);
 
+// Quagmire water is an olive mud, the only water whose red outweighs its blue: red minus blue averages
+// 35 to 48 on its Base-0 and stroke tiles, and -21 or less on every other land's water.
+inline bool quagmireWaterTileIsQuagmire(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[0]) - static_cast<int>(color[2]);
+    }
+    return score >= 7 * 1024;
+}
+
+// Quagmire mud is brown: red minus blue averages 50 to 53 on its Base-85 tiles, against 30 or less on
+// GreenWorld, Acid, Crystal, Ice and Metal Base-85. Mars is as red but redder than green by 47 or more,
+// where Quagmire's red leads its green by about 25.
+inline bool quagmireTileIsQuagmire(const std::uint8_t* bytes) {
+    int redBlue = 0;
+    int redGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        redBlue += static_cast<int>(color[0]) - static_cast<int>(color[2]);
+        redGreen += static_cast<int>(color[0]) - static_cast<int>(color[1]);
+    }
+    return redBlue >= 40 * 1024 && redGreen >= 12 * 1024 && redGreen < 36 * 1024;
+}
+
 // One pair of lands told apart by a colour test: tiles of yesBase must pass and tiles of noBase must
 // not. The bases are section paths under sections/BaseTiles in the favorites archive.
 struct BlendColourPair {
@@ -343,6 +368,21 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Archipelago / Acid", "Archipelago/Base-78", "Acid/Base-85", archiAcidTileIsSand},
     {"Archipelago / Mars", "Archipelago/Base-78", "Mars/Base-85", archiAcidTileIsSand},
     {"Archipelago / Metal", "Archipelago/Base-78", "Metal/Base-85", archiAcidTileIsSand},
+    {"Quagmire / GreenWorld", "Quagmire/Base-85", "GreenWorld/Base-85", quagmireTileIsQuagmire},
+    {"Quagmire / Mars", "Quagmire/Base-85", "Mars/Base-85", quagmireTileIsQuagmire},
+    {"Quagmire / Acid", "Quagmire/Base-85", "Acid/Base-85", quagmireTileIsQuagmire},
+    {"Quagmire / Crystal", "Quagmire/Base-85", "Crystal/Base-85", quagmireTileIsQuagmire},
+    {"Quagmire / Ice", "Quagmire/Base-85", "Ice/Base-85", quagmireTileIsQuagmire},
+    {"Quagmire / Metal", "Quagmire/Base-85", "Metal/Base-85", quagmireTileIsQuagmire},
+    {"Quagmire / GreenWorld water", "Quagmire/Base-0", "GreenWorld/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Ice water", "Quagmire/Base-0", "Ice/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Metal water", "Quagmire/Base-0", "Metal/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Desert water", "Quagmire/Base-0", "Desert/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Archipelago water", "Quagmire/Base-0", "Archipelago/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Mars water", "Quagmire/Base-0", "Mars/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Crystal water", "Quagmire/Base-0", "Crystal/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Acid water", "Quagmire/Base-0", "Acid/Base-0", quagmireWaterTileIsQuagmire},
+    {"Quagmire / Lush water", "Quagmire/Base-0", "Lush/Base-27", quagmireWaterTileIsQuagmire},
 };
 
 }  // namespace galaxy

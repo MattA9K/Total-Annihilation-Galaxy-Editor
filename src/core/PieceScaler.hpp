@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -59,17 +60,88 @@ std::array<int, 4> pieceCornerLands(const SectionStamp& piece, const std::vector
 
 // How plainly each pixel of a picture shows one of lands, from 0 (the transition band) to 1
 // (that land's flat ground), and which of those lands it is closest to. Both are row-major.
+// Closeness is a pixel's distance from a land's mean colour over the spread of the land's texture.
+// With byColour, the land nearest in colour wins instead whenever the pixel reads as its ground too:
+// a land with a busy texture, like Acid, otherwise wins plain ground of a nearby colour, like Quagmire's
+// mud. It is off for the older lands so their pieces stay as they were drawn.
 struct PieceGround {
     std::vector<float> plain;
     std::vector<int> land;
 };
-PieceGround pieceGround(const PaletteImage& image, const std::vector<PieceLand>& lands, const std::vector<int>& pieceLands);
+PieceGround pieceGround(const PaletteImage& image, const std::vector<PieceLand>& lands, const std::vector<int>& pieceLands, bool byColour = false);
 
 // The 8 x 8 tile version of a 16 x 16 tile piece. pieceLands are the lands the piece joins, as
 // indices into lands. Its flat ground is each land's own texture from the texture's top-left
 // corner, as if the piece sat at the corner of the land's section; anchorPieceGround moves it to
 // where the piece is placed. seed picks the dither of the fade.
-SectionStamp halvePiece(const SectionStamp& piece, const std::vector<PieceLand>& lands, const std::vector<int>& pieceLands, std::uint32_t seed);
+SectionStamp halvePiece(const SectionStamp& piece, const std::vector<PieceLand>& lands, const std::vector<int>& pieceLands, std::uint32_t seed, bool byColour = false);
+
+// Which corners of a piece are land: the top left, top right, bottom left and bottom right.
+using LandCorners = std::array<bool, 4>;
+
+// The ground at each corner of a coast piece, from its name, for the top left, top right, bottom left and bottom
+// right: 0 for land, 1 for shallows and 2 for water. Coast-Land-BL is land at the bottom left and water elsewhere,
+// and Coast-Water-T water along the top; Coast-Lava pieces name their lava as water. ShallowCoast-Land and -Water
+// pieces join land and shallows, ShallowDeep-Shallow and -Deep pieces shallows and water, and
+// DSL-Land-B-Shallow-TL_and_BR-Water-TR names all three. Empty when the name is none of these.
+std::optional<std::array<int, 4>> coastPieceLevels(std::string_view name);
+
+// The land corners a Coast piece's name gives, as coastPieceLevels reads it. Empty for any other name.
+std::optional<LandCorners> coastPieceCorners(std::string_view name);
+
+// Makes 8 x 8 tile coast pieces that keep their 16 x 16 piece's texture at full size rather than halving it,
+// so the rock cuts and shingle of a coast look as they do in the 16 x 16 pieces. Each ground's side has the
+// halved piece's shape, and a band starts where its higher ground ends, as in a halved piece, but is cut down
+// across its middle to about two thirds of its full width rather than shrunk. The picture is made of full-size
+// patches of the 16 x 16 piece, each chosen to match the band where it lies and joined to the patches beside it
+// along the seam where the two pictures differ least.
+//
+// Every side a coast crosses ends in a shared strip, one for each pair of grounds and way the coast can cross a
+// side, so any two pieces that meet join cleanly, and near the side the piece's coast bends to meet the strip's.
+// The strips come from each pair's four straight pieces, each made to join itself end to end.
+class DetailedCoastMaker {
+public:
+    // A pair of grounds a coast joins, as indices into the maker's grounds with the higher first, and the coast's
+    // four 16 x 16 straight pieces: those with the lower ground along the bottom, top, right and left.
+    struct Join {
+        int higher = 0;
+        int lower = 1;
+        std::array<SectionStamp, 4> straights;
+    };
+
+    // grounds are the coast's flat bases, highest first, such as land, shallows and water.
+    DetailedCoastMaker(std::vector<PaletteImage> grounds, const std::vector<Join>& joins);
+    // A coast between land and water alone, whose straight pieces are Coast-Water-B, -T, -R and -L.
+    DetailedCoastMaker(PaletteImage land, PaletteImage water, const std::array<SectionStamp, 4>& straights);
+
+    // Whether make can draw a piece with these grounds at its corners, as indices into grounds: it knows them all,
+    // and a join between the grounds at the ends of each side the coast crosses.
+    bool canMake(const std::array<int, 4>& corners) const;
+
+    // The 8 x 8 tile version of a 16 x 16 tile coast piece with these grounds at its corners. Its flat ground is
+    // each base's texture from the texture's top-left corner, as in halvePiece, and its heights are halved.
+    SectionStamp make(const SectionStamp& piece, const std::array<int, 4>& corners) const;
+    // The same for a coast between land, ground 0, and water, ground 1.
+    SectionStamp make(const SectionStamp& piece, LandCorners corners) const;
+
+private:
+    // A side strip: the whole 8 x 8 straight piece it comes from, what each pixel is (a ground, or 255 in the
+    // band), and the piece's distance from its higher ground's side and band width, for bending a coast to it.
+    struct Strip {
+        PaletteImage image;
+        std::vector<std::uint8_t> kinds;
+        std::vector<float> fromHigher;
+        std::vector<float> width;
+    };
+
+    int joinOf(int higher, int lower) const;
+
+    std::vector<PaletteImage> grounds_;
+    std::vector<std::vector<std::uint64_t>> windows_;
+    std::vector<int> joinHigher_;
+    std::vector<int> joinLower_;
+    std::vector<std::array<Strip, 4>> strips_;
+};
 
 // The picture signature the Tile Brush uses for a 32 x 32 tile: FNV-1a over its 1024 bytes.
 inline std::uint64_t brushTileHash(const std::uint8_t* bytes) {
