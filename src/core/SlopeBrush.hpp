@@ -359,6 +359,34 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         }
     }
 
+    // A low corner on its own needs a Single-Low picture. GreenWorld has none: its Slope-Low pieces are
+    // drawn to meet a slope on at least one arm, so alone they crease against both cliffs. Such a corner
+    // only becomes a slope once the cliff below or beside it on one of its arms is a slope already.
+    if (slopeCornerCount(here.mask) == 3) {
+        bool joined = false;
+        for (int direction = 1; direction <= kRiverAllSides; direction <<= 1) {
+            if ((slopeCliffSides(here.mask) & direction) == 0) {
+                continue;
+            }
+            int nx = x;
+            int ny = y;
+            slopeStep(direction, nx, ny);
+            const auto found = slopes.find({nx, ny});
+            joined = joined || (found != slopes.end() && slopeEdgesMatch(here.mask, found->second, direction));
+        }
+        const char* corner = slopeCornerLetters(kCornerAll & ~here.mask);
+        const bool hasSingle = corner != nullptr
+            && (available ? available(slopeQualify(std::string("Single-Low-") + corner, family)) : family == 202);
+        if (!joined && !hasSingle) {
+            const RiverCell cell = lookup(x, y);
+            std::string text = "Slopes cannot go on ";
+            text += cell.label.empty() ? "this corner" : cell.label;
+            text += "\nSlope a cliff beside this corner first, then this corner can join it";
+            plan.reason = std::move(text);
+            return plan;
+        }
+    }
+
     const auto inRun = [&](int cx, int cy) { return slopes.find({cx, cy}) != slopes.end(); };
     const auto gentle = [&](int cx, int cy, int mask, int back) {
         if (slopeStraight(mask)) {

@@ -386,6 +386,10 @@ inline std::string blendWorldName(std::string_view category) {
     if (lower.find("quagmire") != std::string::npos) {
         return "Quag";
     }
+    // Before "green": Evergreen is its own land, not GreenWorld.
+    if (lower.find("evergreen") != std::string::npos) {
+        return "Ever";
+    }
     if (lower.find("mars") != std::string::npos) {
         return "Mars";
     }
@@ -509,6 +513,11 @@ inline bool quagmireWaterPartner(std::string_view world) {
     return blueWaterWorld(world) || sandWaterWorld(world) || world == "Mars" || world == "Crystal" || world == "Acid";
 }
 
+// The lands whose Base-85 blends into Evergreen Base-85: Quagmire's partners and Quagmire.
+inline bool evergreenPartner(std::string_view world) {
+    return world == "Green" || world == "Mars" || world == "Acid" || world == "Crystal" || world == "Ice" || world == "Metal" || world == "Quag";
+}
+
 // The lands whose Base-85 blends into Quagmire Base-85.
 inline bool quagmirePartner(std::string_view world) {
     return world == "Green" || world == "Mars" || world == "Acid" || world == "Crystal" || world == "Ice" || world == "Metal";
@@ -590,7 +599,8 @@ public:
                                 || namedPair("Green", "Crystal") || namedPair("Acid", "Mars") || namedPair("Ice", "Acid")
                                 || namedPair("Acid", "Metal") || namedPair("Mars", "Crystal") || namedPair("Mars", "Metal")
                                 || namedPair("Ice", "Crystal") || namedPair("Ice", "Metal") || namedPair("Crystal", "Metal")
-                                || (named && (wa == "Quag") != (wb == "Quag") && quagmirePartner(wa == "Quag" ? wb : wa)));
+                                || (named && (wa == "Quag") != (wb == "Quag") && quagmirePartner(wa == "Quag" ? wb : wa))
+                                || (named && (wa == "Ever") != (wb == "Ever") && evergreenPartner(wa == "Ever" ? wb : wa)));
                         const bool desert85 = rule.lowerHeight == 80 && rule.upperHeight == 85
                             && (namedPair("Acid", "Desert") || namedPair("Crystal", "Desert") || namedPair("Green", "Desert")
                                 || namedPair("Ice", "Desert") || namedPair("Mars", "Desert") || namedPair("Metal", "Desert"));
@@ -2713,8 +2723,20 @@ inline std::array<int, 4> threeWayCornerLands(std::string_view loweredName, cons
 
 // The lands Quagmire's three-way pieces pair it with, in the order their names give them.
 inline constexpr std::array<const char*, 6> kQuagmireTriLands = {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal"};
+inline constexpr std::array<const char*, 7> kEvergreenTriLands = {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal", "Quag"};
 
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    // Evergreen with two of the Base-85 lands it blends into, Evergreen as the pivot and the other two in
+    // kEvergreenTriLands order: Blend-Tri-Ever-T-Green-L-Quag has Evergreen along the top, GreenWorld at
+    // the bottom left and Quagmire at the bottom right.
+    for (std::size_t first = 0; first < kEvergreenTriLands.size(); ++first) {
+        for (std::size_t second = first + 1; second < kEvergreenTriLands.size(); ++second) {
+            if (std::string name = triGreenLushName(graph, corners, kEvergreenTriLands[first], kEvergreenTriLands[second], 85, 85, "Ever", 85, "Ever");
+                !name.empty()) {
+                return name;
+            }
+        }
+    }
     // Quagmire with two of the Base-85 lands it blends into, Quagmire as the pivot and the other two in
     // kQuagmireTriLands order: Blend-Tri-Quag-T-Green-L-Mars has Quagmire along the top, GreenWorld at the
     // bottom left and Mars at the bottom right.
@@ -3040,6 +3062,11 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             marked = graph.world(sorted[0]) == "Quag" ? sorted[0] : sorted[1];
             const std::string_view other = graph.world(marked == sorted[0] ? sorted[1] : sorted[0]);
             family = "WaterQuag" + std::string(blueWaterWorld(other) ? "Green" : sandWaterWorld(other) ? "Desert" : other);
+        } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Ever") != (graph.world(sorted[1]) == "Ever")) {
+            // Evergreen beside another land's Base-85, Quagmire's included. The mask marks Evergreen:
+            // Blend-EverGreen-T has Evergreen along the top and GreenWorld along the bottom.
+            marked = graph.world(sorted[0]) == "Ever" ? sorted[0] : sorted[1];
+            family = "Ever" + std::string(graph.world(marked == sorted[0] ? sorted[1] : sorted[0]));
         } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Quag") != (graph.world(sorted[1]) == "Quag")) {
             // Quagmire beside another land's Base-85. The mask marks Quagmire: Blend-QuagGreen-T has
             // Quagmire along the top and GreenWorld along the bottom.

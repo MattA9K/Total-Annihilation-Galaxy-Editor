@@ -266,6 +266,18 @@ inline bool archiAcidTileIsSand(const std::uint8_t* bytes) {
 
 using BlendColourTest = bool (*)(const std::uint8_t*);
 
+// Evergreen grass is greener than every land it blends into: green minus blue averages 83 to 87 on its
+// Base-85 tiles, against 67 or less on GreenWorld Base-85 and far less on Quagmire, Mars, Acid, Crystal,
+// Ice and Metal Base-85.
+inline bool evergreenTileIsEvergreen(const std::uint8_t* bytes) {
+    int score = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        score += static_cast<int>(color[1]) - static_cast<int>(color[2]);
+    }
+    return score >= 76 * 1024;
+}
+
 // Quagmire water is an olive mud, the only water whose red outweighs its blue: red minus blue averages
 // 35 to 48 on its Base-0 and stroke tiles, and -21 or less on every other land's water.
 inline bool quagmireWaterTileIsQuagmire(const std::uint8_t* bytes) {
@@ -368,6 +380,13 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Archipelago / Acid", "Archipelago/Base-78", "Acid/Base-85", archiAcidTileIsSand},
     {"Archipelago / Mars", "Archipelago/Base-78", "Mars/Base-85", archiAcidTileIsSand},
     {"Archipelago / Metal", "Archipelago/Base-78", "Metal/Base-85", archiAcidTileIsSand},
+    {"Evergreen / GreenWorld", "Evergreen/Base-85", "GreenWorld/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen / Mars", "Evergreen/Base-85", "Mars/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen / Acid", "Evergreen/Base-85", "Acid/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen / Crystal", "Evergreen/Base-85", "Crystal/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen / Ice", "Evergreen/Base-85", "Ice/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen / Metal", "Evergreen/Base-85", "Metal/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen / Quagmire", "Evergreen/Base-85", "Quagmire/Base-85", evergreenTileIsEvergreen},
     {"Quagmire / GreenWorld", "Quagmire/Base-85", "GreenWorld/Base-85", quagmireTileIsQuagmire},
     {"Quagmire / Mars", "Quagmire/Base-85", "Mars/Base-85", quagmireTileIsQuagmire},
     {"Quagmire / Acid", "Quagmire/Base-85", "Acid/Base-85", quagmireTileIsQuagmire},

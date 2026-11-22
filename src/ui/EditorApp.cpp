@@ -12720,7 +12720,7 @@ void EditorApp::ensureBrushPaints() {
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
         || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
-        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire";
+        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire" || lowerText(brushWorld_) == "evergreen";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         std::string sectionKind;
@@ -13323,6 +13323,17 @@ void EditorApp::ensureBrushPaints() {
     } else if (std::any_of(std::begin(kQuagmirePartners), std::end(kQuagmirePartners),
                    [&](const char* partner) { return lowerText(brushWorld_) == lowerText(partner); })) {
         wanted.push_back(PartnerWant{"Quagmire", "Base-85"});
+    }
+    // Evergreen Base-85 blends into the Base-85 ground of Quagmire and of the lands Quagmire blends into,
+    // and those lands blend into it.
+    static constexpr const char* kEvergreenPartners[] = {"GreenWorld", "Mars", "Acid", "Crystal", "Ice", "Metal", "Quagmire"};
+    if (lowerText(brushWorld_) == "evergreen") {
+        for (const char* partner : kEvergreenPartners) {
+            wanted.push_back(PartnerWant{partner, "Base-85"});
+        }
+    } else if (std::any_of(std::begin(kEvergreenPartners), std::end(kEvergreenPartners),
+                   [&](const char* partner) { return lowerText(brushWorld_) == lowerText(partner); })) {
+        wanted.push_back(PartnerWant{"Evergreen", "Base-85"});
     }
     // Quagmire water fades into every other land's water: Archipelago and Desert share one water, read as
     // Desert's, GreenWorld's stands for the blue water it shares with Ice and Metal, and Lush's stands at Base-27.
@@ -14657,6 +14668,81 @@ void EditorApp::ensureBrushPaints() {
             }
             return nullptr;
         };
+        const BrushPaint* evergreenLand = paintWorldAt("Ever", 85);
+        for (const char* partner : {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal", "Quag"}) {
+            const std::string prefix = "blend-ever" + lowerText(partner) + "-";
+            rememberTwoWayColour(prefix.c_str(), evergreenLand, paintWorldAt(partner, 85), evergreenTileIsEvergreen);
+        }
+        // Their three-way pieces: each tile is the land of the three whose base it is nearest in colour.
+        for (const BrushPiece& piece : brushPieces_) {
+            const std::string lowered = lowerText(piece.name);
+            if (!lowered.starts_with("blend-tri-quag-") && !lowered.starts_with("blend-tri-ever-")) {
+                continue;
+            }
+            std::vector<const BrushPaint*> triLands;
+            std::vector<std::array<double, 3>> means;
+            for (const std::string& world : blendPieceWorlds(piece.name)) {
+                const BrushPaint* land = paintWorldAt(blendWorldName(world).c_str(), 85);
+                const PaletteImage* ground = land != nullptr ? brushGround(land->category, land->name) : nullptr;
+                if (ground == nullptr || ground->pixels.empty()) {
+                    triLands.clear();
+                    break;
+                }
+                std::array<double, 3> mean = {0, 0, 0};
+                for (const std::uint8_t index : ground->pixels) {
+                    for (int channel = 0; channel < 3; ++channel) {
+                        mean[static_cast<std::size_t>(channel)] += kTaPalette[index][channel];
+                    }
+                }
+                for (double& channel : mean) {
+                    channel /= static_cast<double>(ground->pixels.size());
+                }
+                triLands.push_back(land);
+                means.push_back(mean);
+            }
+            if (triLands.size() != 3) {
+                continue;
+            }
+            try {
+                const HpiFile* file = source->archive().find(piece.sectionPath);
+                if (file == nullptr) {
+                    continue;
+                }
+                const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                for (int tile = 0; tile < stamp.tileWidth * stamp.tileHeight; ++tile) {
+                    const std::size_t bytes = static_cast<std::size_t>(stamp.indices[static_cast<std::size_t>(tile)]) * 1024;
+                    if (bytes + 1024 > stamp.tileImages.size()) {
+                        continue;
+                    }
+                    const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                    const std::uint64_t hash = hashBrushTile(pixels);
+                    if (const auto existing = brushPictures_.find(hash); existing != brushPictures_.end() && !existing->second.fringe) {
+                        continue;
+                    }
+                    std::array<double, 3> tileMean = {0, 0, 0};
+                    for (int i = 0; i < 1024; ++i) {
+                        for (int channel = 0; channel < 3; ++channel) {
+                            tileMean[static_cast<std::size_t>(channel)] += kTaPalette[pixels[i]][channel] / 1024.0;
+                        }
+                    }
+                    std::size_t nearest = 0;
+                    double nearestDistance = 1.0e30;
+                    for (std::size_t i = 0; i < means.size(); ++i) {
+                        double distance = 0;
+                        for (int channel = 0; channel < 3; ++channel) {
+                            const double gap = tileMean[static_cast<std::size_t>(channel)] - means[i][static_cast<std::size_t>(channel)];
+                            distance += gap * gap;
+                        }
+                        if (distance < nearestDistance) {
+                            nearestDistance = distance;
+                            nearest = i;
+                        }
+                    }
+                    brushPictures_[hash] = BrushPictureHint{triLands[nearest]->category, triLands[nearest]->name, false, {}, {}};
+                }
+            } catch (const std::exception&) {
+            }
+        }
         const BrushPaint* quagmireWater = paintWorldAt("Quag", 0);
         rememberTwoWayColour("blend-waterquaggreen-", quagmireWater, waterOf({"Green", "Ice", "Metal"}, 0), quagmireWaterTileIsQuagmire);
         rememberTwoWayColour("blend-waterquagdesert-", quagmireWater, waterOf({"Desert", "Archi"}, 0), quagmireWaterTileIsQuagmire);
@@ -17228,7 +17314,7 @@ void EditorApp::drawTileBrush() {
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
     if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
-        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen"}) {
             const bool selected = brushWorld_ == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;

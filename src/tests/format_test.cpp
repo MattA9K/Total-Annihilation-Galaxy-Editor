@@ -5732,7 +5732,14 @@ void testSlopes() {
     expect(topRight.slope(1, 1).allowed() && topRight.at(1, 1) == "Single-High-TR", "an isolated Cliff-High-TR becomes Single-High-TR");
     SlopeTestGrid pit(3, 3, "Base-219");
     pit.at(1, 1) = "Cliff-Low-TL";
-    expect(pit.slope(1, 1).allowed() && pit.at(1, 1) == "Slope-Low-TL", "an isolated Cliff-Low-TL becomes Slope-Low-TL, got " + pit.at(1, 1));
+    // GreenWorld has no Single-Low pieces, and its Slope-Low pieces crease against both cliffs when alone.
+    const galaxy::RiverPlan lonePit = pit.slope(1, 1);
+    expect(!lonePit.allowed() && lonePit.reason.find("Slope a cliff beside") != std::string::npos && pit.at(1, 1) == "Cliff-Low-TL",
+        "an isolated Cliff-Low-TL is refused, got " + pit.at(1, 1) + ": " + lonePit.reason);
+    // Archipelago has a Single-Low for each corner, so its lone low corner is a slope.
+    SlopeTestGrid archPit(3, 3, "Base-194");
+    archPit.at(1, 1) = "Cliff-Low-TL";
+    expect(archPit.slope(1, 1, {}, 202).allowed() && archPit.at(1, 1) == "Single-202-Low-TL", "an isolated Archipelago low corner is Single-202-Low-TL, got " + archPit.at(1, 1));
 
     // Two bottom cliffs, clicked one after the other. The gentle sides face each other.
     SlopeTestGrid pair(5, 3, "Base-85");
@@ -5766,12 +5773,14 @@ void testSlopes() {
     topRightCorner.slope(2, 0);
     expect(topRightCorner.at(2, 1) == "Slope-High-TR" && topRightCorner.at(3, 1) == "Slope-High-T-TransitionL" && topRightCorner.at(2, 0) == "Slope-High-R-TransitionB", "both arms make Slope-High-TR, got " + topRightCorner.at(2, 1) + " " + topRightCorner.at(3, 1) + " " + topRightCorner.at(2, 0));
 
-    // A low corner with one arm keeps that arm gentle and the other side steep.
+    // A low corner with one arm keeps that arm gentle and the other side steep. The arm is sloped first:
+    // the corner alone is refused.
     SlopeTestGrid lowArm(4, 4, "Base-219");
     lowArm.at(2, 2) = "Cliff-Low-TL";
     lowArm.at(1, 2) = "Cliff-High-B";
-    lowArm.slope(2, 2);
+    expect(!lowArm.slope(2, 2).allowed() && lowArm.at(2, 2) == "Cliff-Low-TL", "a low corner with no sloped arm is refused");
     lowArm.slope(1, 2);
+    expect(lowArm.slope(2, 2).allowed(), "a low corner beside a sloped arm becomes a slope");
     expect(lowArm.at(2, 2) == "Slope-Low-TL-TransitionL" && lowArm.at(1, 2) == "Slope-High-B-TransitionR", "one arm of a low corner is a transition, got " + lowArm.at(2, 2) + " " + lowArm.at(1, 2));
     lowArm.at(2, 1) = "Cliff-High-R";
     lowArm.slope(2, 1);

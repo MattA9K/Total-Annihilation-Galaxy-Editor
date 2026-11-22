@@ -102,6 +102,7 @@ add_library(galaxy_format STATIC
     src/core/FavoritesArchive.cpp
     src/core/RmsScript.cpp
     src/core/RandomMap.cpp
+    src/core/PieceScaler.cpp
     src/core/EditorSettings.cpp
     src/core/I18n.cpp
     src/core/OrbitCamera.cpp
@@ -125,6 +126,24 @@ target_compile_definitions(galaxy_tests PRIVATE
     GALAXY_EXAMPLE_MAPS="${CMAKE_SOURCE_DIR}/../ExampleMaps"
 )
 target_compile_options(galaxy_tests PRIVATE -Wall -Wextra -Wpedantic)
+
+# Adds the 8 x 8 Tile Brush pieces to the random map tileset. Run by hand when the 16 x 16 pieces change:
+# galaxy_make_8x8_pieces build/GE-Favorites-RandomMapGeneratorTiles.hpi <out.hpi>
+add_executable(galaxy_make_8x8_pieces EXCLUDE_FROM_ALL tools/make_8x8_pieces.cpp)
+target_link_libraries(galaxy_make_8x8_pieces PRIVATE galaxy_format Threads::Threads)
+target_compile_options(galaxy_make_8x8_pieces PRIVATE -Wall -Wextra -Wpedantic)
+
+# Adds Quagmire Base-85 and its blends to the random map tileset:
+# galaxy_make_land_blends build/GE-Favorites-RandomMapGeneratorTiles.hpi build/Quagmire-2.hpi <out.hpi>
+add_executable(galaxy_make_land_blends EXCLUDE_FROM_ALL tools/make_land_blends.cpp)
+target_link_libraries(galaxy_make_land_blends PRIVATE galaxy_format)
+target_compile_options(galaxy_make_land_blends PRIVATE -Wall -Wextra -Wpedantic)
+
+# One base tile from another archive, with its heights moved, such as Evergreen Base-85:
+# galaxy_add_base_tile <favorites.hpi> <source.hpi> <section path> <world> <name> <height offset> <out.hpi>
+add_executable(galaxy_add_base_tile EXCLUDE_FROM_ALL tools/add_base_tile.cpp)
+target_link_libraries(galaxy_add_base_tile PRIVATE galaxy_format)
+target_compile_options(galaxy_add_base_tile PRIVATE -Wall -Wextra -Wpedantic)
 
 # Pictures the editor needs before it reads a single file (the splash and the
 # window icon) are compiled into the executable. Reconfigure after replacing one.
