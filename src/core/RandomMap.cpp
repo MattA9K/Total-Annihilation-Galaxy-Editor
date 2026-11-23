@@ -2925,8 +2925,34 @@ std::vector<const RandomMapSection*> RandomMapTiles::pieces(const BrushGraph& gr
             oneWorld = false;
         }
     }
+    // Evergreen's two grasses share the sea. A coast cell names the grass, and the shallow-to-deep
+    // pieces filed under either grass are the same water.
+    std::string shoreWorld;
+    bool evergreenSea = !oneWorld;
+    bool shallowDeep = piece.rfind("ShallowDeep-", 0) == 0;
+    if (!oneWorld) {
+        for (const int corner : corners) {
+            const RandomMapPaint& paint = paints_[static_cast<std::size_t>(levels[static_cast<std::size_t>(corner)])];
+            if (!evergreenWorld(blendWorldName(paint.world))) {
+                evergreenSea = false;
+            }
+            if (paint.height >= 85 && shoreWorld.empty()) {
+                shoreWorld = lower(paint.world);
+            }
+            if (paint.height > 65) {
+                shallowDeep = false;
+            }
+        }
+    }
     for (const RandomMapSection& section : pieces_) {
-        const bool usable = sharedCategory(section.category) || (oneWorld && categoryIsWorld(section.category, world));
+        bool usable = sharedCategory(section.category) || (oneWorld && categoryIsWorld(section.category, world));
+        if (!usable && evergreenSea && shallowDeep && evergreenWorld(blendWorldName(section.category))) {
+            usable = true;
+        }
+        if (!usable && evergreenSea && !shoreWorld.empty() && categoryIsWorld(section.category, shoreWorld)
+            && (piece.rfind("Coast-", 0) == 0 || piece.rfind("ShallowCoast-", 0) == 0 || piece.rfind("Cliff-", 0) == 0 || piece.rfind("DSL-", 0) == 0)) {
+            usable = true;
+        }
         if (usable && transitionVariation(section.name, piece) >= 0) {
             found.push_back(&section);
         }

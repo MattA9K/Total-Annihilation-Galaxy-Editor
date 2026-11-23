@@ -127,23 +127,33 @@ target_compile_definitions(galaxy_tests PRIVATE
 )
 target_compile_options(galaxy_tests PRIVATE -Wall -Wextra -Wpedantic)
 
+# These curation tools are built when their sources are present. They are not part of a normal editor build.
+function(add_curation_tool target source)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
+        add_executable(${target} EXCLUDE_FROM_ALL ${source})
+        target_link_libraries(${target} PRIVATE galaxy_format ${ARGN})
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
 # Adds the 8 x 8 Tile Brush pieces to the random map tileset. Run by hand when the 16 x 16 pieces change:
 # galaxy_make_8x8_pieces build/GE-Favorites-RandomMapGeneratorTiles.hpi <out.hpi>
-add_executable(galaxy_make_8x8_pieces EXCLUDE_FROM_ALL tools/make_8x8_pieces.cpp)
-target_link_libraries(galaxy_make_8x8_pieces PRIVATE galaxy_format Threads::Threads)
-target_compile_options(galaxy_make_8x8_pieces PRIVATE -Wall -Wextra -Wpedantic)
+add_curation_tool(galaxy_make_8x8_pieces tools/make_8x8_pieces.cpp Threads::Threads)
 
 # Adds Quagmire Base-85 and its blends to the random map tileset:
 # galaxy_make_land_blends build/GE-Favorites-RandomMapGeneratorTiles.hpi build/Quagmire-2.hpi <out.hpi>
-add_executable(galaxy_make_land_blends EXCLUDE_FROM_ALL tools/make_land_blends.cpp)
-target_link_libraries(galaxy_make_land_blends PRIVATE galaxy_format)
-target_compile_options(galaxy_make_land_blends PRIVATE -Wall -Wextra -Wpedantic)
+add_curation_tool(galaxy_make_land_blends tools/make_land_blends.cpp)
 
 # One base tile from another archive, with its heights moved, such as Evergreen Base-85:
 # galaxy_add_base_tile <favorites.hpi> <source.hpi> <section path> <world> <name> <height offset> <out.hpi>
-add_executable(galaxy_add_base_tile EXCLUDE_FROM_ALL tools/add_base_tile.cpp)
-target_link_libraries(galaxy_add_base_tile PRIVATE galaxy_format)
-target_compile_options(galaxy_add_base_tile PRIVATE -Wall -Wextra -Wpedantic)
+add_curation_tool(galaxy_add_base_tile tools/add_base_tile.cpp)
+
+# Copies Evergreen shallow water, both grasses' shores, and the Base-190 cliff into the
+# random-map favorites. The source packs are not in the repo:
+# galaxy_add_evergreen_water <favorites.hpi> <UTAS part 3.hpi> <U_EverGreen.hpi> <out.hpi>
+add_executable(galaxy_add_evergreen_water EXCLUDE_FROM_ALL tools/add_evergreen_water.cpp)
+target_link_libraries(galaxy_add_evergreen_water PRIVATE galaxy_format)
+target_compile_options(galaxy_add_evergreen_water PRIVATE -Wall -Wextra -Wpedantic)
 
 # Pictures the editor needs before it reads a single file (the splash and the
 # window icon) are compiled into the executable. Reconfigure after replacing one.
