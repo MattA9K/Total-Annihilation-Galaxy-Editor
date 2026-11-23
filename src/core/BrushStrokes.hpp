@@ -53,6 +53,15 @@ namespace galaxy {
 // between the water and the ravine. Base-68 is also GreenWorld's shallow water,
 // and that shallow coast stays inside one world, so Archipelago's Base-68 does
 // not join GreenWorld's Base-85.
+// Evergreen's sea is its own pair of heights. Deep water is Base-0 and shallow
+// water is Base-65, joined by ShallowDeep pieces. Both grasses, Base-85-1 and
+// Base-85-2, meet that shallow water with ShallowCoast pieces and meet the deep
+// water with Coast pieces. The direct deep coast stays, so painting grass on
+// deep water does not insert a shallow ring. Base-65 is not Base-68, so it does
+// not join GreenWorld, Desert, Archipelago, or Metal. A cell that holds deep
+// water, shallow water, and grass at once has no CoastDSL section. Evergreen
+// Base-190-1 joins Base-85-1 with Cliff pieces. Base-85-2 has no cliff to it,
+// and Lava's Base-190 stays on Base-86.
 // Metal uses the GreenWorld water set: Base-0, Base-68, and Base-85.
 // Base-85 and Base-139 join with Cliff pieces. Metal's raised ground is Base-139.
 // Base-85 also joins Base-219 with Cliff pieces. When one low ground has two cliff
@@ -312,8 +321,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 35>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 35> rules = {{
+inline const std::array<BrushTransitionRule, 38>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 38> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -325,6 +334,12 @@ inline const std::array<BrushTransitionRule, 35>& brushTransitionRules() {
         {0, 68, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
         {68, 78, TransitionStyle::ShallowCoast},
+        // Evergreen only. Shallow water is Base-65. The graph keeps this pair
+        // inside the two Evergreen grasses, and the deep coast on Base-0.
+        {0, 65, TransitionStyle::ShallowDeep},
+        {65, 85, TransitionStyle::ShallowCoast},
+        // Evergreen Base-190 joins Base-85. Lava's Base-190 stays on Base-86.
+        {85, 190, TransitionStyle::Cliff},
         {78, 85, TransitionStyle::WorldBlend},
         {0, 219, TransitionStyle::CoastalCliffDeep},
         {68, 219, TransitionStyle::CoastalCliffShallow},
@@ -526,6 +541,10 @@ inline bool evergreenPartner(std::string_view world) {
 inline bool evergreenWorld(std::string_view world) {
     return world == "Ever" || world == "Ever2";
 }
+// The two grasses share one sea, so a piece that joins Evergreen water to either grass is not a foreign coast.
+inline bool evergreenSharedSea(std::string_view a, std::string_view b) {
+    return evergreenWorld(a) && evergreenWorld(b);
+}
 
 // The lands whose Base-85 blends into Quagmire Base-85.
 inline bool quagmirePartner(std::string_view world) {
@@ -583,14 +602,22 @@ public:
                         };
                         const bool named = !wa.empty() && !wb.empty();
                         const bool differentWorld = named && wa != wb;
-                        if (blendsOnlyAcrossWorlds && differentWorld && rule.style != TransitionStyle::WorldBlend) {
+                        // Evergreen deep water, shallow water, and either grass stay joined even when the
+                        // random map holds every land, and when the brush is on the other grass.
+                        const bool evergreenSea = named && evergreenSharedSea(wa, wb)
+                            && ((rule.lowerHeight == 0 && (rule.upperHeight == 65 || rule.upperHeight == 85))
+                                || (rule.lowerHeight == 65 && rule.upperHeight == 85));
+                        if (blendsOnlyAcrossWorlds && differentWorld && rule.style != TransitionStyle::WorldBlend && !evergreenSea) {
                             continue;
                         }
-                        if (!brushWorld.empty() && named && wa == wb && wa != brushWorld && rule.style != TransitionStyle::WorldBlend) {
+                        if (!brushWorld.empty() && named && wa == wb && wa != brushWorld && rule.style != TransitionStyle::WorldBlend
+                            && !(evergreenWorld(brushWorld) && evergreenSea)) {
                             continue;
                         }
-                        // Water only meets another land's water through a water blend.
-                        const bool foreignWater = rule.lowerHeight == 0 && differentWorld && rule.style != TransitionStyle::WorldBlend;
+                        // Water only meets another land's water through a water blend. Evergreen's two grasses
+                        // are the exception: they share Base-0 and Base-65.
+                        const bool foreignWater = rule.lowerHeight == 0 && differentWorld && rule.style != TransitionStyle::WorldBlend
+                            && !evergreenSharedSea(wa, wb);
                         const bool same0 = rule.lowerHeight == 0 && rule.upperHeight == 0 && named
                             && (((blueWaterWorld(wa) != blueWaterWorld(wb)) && (blueWaterWorld(wa) ? waterBlendsWithBlue(wb) : waterBlendsWithBlue(wa)))
                                 || ((sandWaterWorld(wa) != sandWaterWorld(wb)) && (sandWaterWorld(wa) ? waterBlendsWithSand(wb) : waterBlendsWithSand(wa)))
@@ -602,6 +629,10 @@ public:
                             && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag") && wb == "Lush";
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
+                        // Unnamed paints, as in the brush tests, may use the heights. Named paints use them
+                        // only when both are Evergreen grasses, so Base-65 never meets GreenWorld Base-85.
+                        const bool evergreenShallowDeep = rule.lowerHeight == 0 && rule.upperHeight == 65 && (!named || evergreenSharedSea(wa, wb));
+                        const bool evergreenShelf = rule.lowerHeight == 65 && rule.upperHeight == 85 && (!named || evergreenSharedSea(wa, wb));
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
                             && (namedPair("Green", "Acid") || namedPair("Ice", "Mars") || namedPair("Ice", "Green")
                                 || namedPair("Green", "Mars") || namedPair("Green", "Metal") || namedPair("Acid", "Crystal")
@@ -617,7 +648,8 @@ public:
                         const bool archiDesert = rule.lowerHeight == 78 && rule.upperHeight == 80 && namedPair("Archi", "Desert");
                         // A land keeps its own coast. Another land's Base-85 beside the water, such as
                         // GreenWorld beside Mars water or Ice water, goes through that land's own ground.
-                        const bool foreignIceCoast = rule.lowerHeight == 0 && rule.upperHeight == 85 && differentWorld;
+                        const bool foreignIceCoast = rule.lowerHeight == 0 && rule.upperHeight == 85 && differentWorld
+                            && !evergreenSharedSea(wa, wb);
                         // Desert's own coast from Base-0 stays, so Acid or Crystal beside Desert water
                         // does not take that coast, and Acid or Crystal water does not take Desert's Base-80 coast.
                         const bool foreignDesertCoast = rule.lowerHeight == 0 && rule.upperHeight == 80 && differentWorld;
@@ -632,6 +664,8 @@ public:
                                 || namedPair("Lush", "Ever") || namedPair("Lush", "Ever2"));
                         const bool lushDesert = rule.lowerHeight == 77 && rule.upperHeight == 80 && namedPair("Lush", "Desert");
                         if (foreignLand || foreignShallow || foreignIceCoast || foreignDesertCoast || foreignIceCliff || foreignWater
+                            || (rule.lowerHeight == 0 && rule.upperHeight == 65 && !evergreenShallowDeep)
+                            || (rule.lowerHeight == 65 && rule.upperHeight == 85 && !evergreenShelf)
                             || (rule.lowerHeight == rule.upperHeight && !same85 && !same0)
                             || (rule.lowerHeight == 0 && rule.upperHeight == 0 && !same0)
                             || (rule.lowerHeight == 0 && rule.upperHeight == 27 && !lushWater)

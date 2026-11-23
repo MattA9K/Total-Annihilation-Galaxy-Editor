@@ -3039,6 +3039,45 @@ void testBrushCells() {
     stillBlend.paint(2, 2, 1, 2);
     expect(stillBlend.piece(2, 2) == "Base-86" && stillBlend.piece(2, 1) == "Blend-Mars-T" && !stillBlend.steep(), "Base-86 on Mars still uses blend pieces when Base-190 is present");
 
+    // Evergreen shallow water is Base-65. Both grasses meet it, and Base-190-1 meets Base-85-1 with cliffs.
+    const std::vector<int> evergreenHeights = {0, 65, 85, 85, 190, 85};
+    const std::vector<std::string> evergreenWorlds = {"Ever", "Ever", "Ever", "Ever2", "Ever", "Green"};
+    const BrushGraph evergreen(evergreenHeights, evergreenWorlds, false, "Ever");
+    expect(evergreen.style(0, 1) == TransitionStyle::ShallowDeep && evergreen.style(1, 0) == TransitionStyle::ShallowDeep, "Evergreen deep and shallow water join with ShallowDeep pieces");
+    expect(evergreen.style(1, 2) == TransitionStyle::ShallowCoast && evergreen.style(1, 3) == TransitionStyle::ShallowCoast, "both Evergreen grasses meet Base-65 with shallow coasts");
+    expect(evergreen.style(1, 5) == TransitionStyle::None && evergreen.style(0, 5) == TransitionStyle::None, "Base-65 and Evergreen water stay off GreenWorld");
+    expect(evergreen.style(0, 2) == TransitionStyle::Coast && evergreen.style(0, 3) == TransitionStyle::Coast && evergreen.distance(0, 2) == 1, "both grasses keep a direct coast to deep water");
+    expect(evergreen.style(2, 4) == TransitionStyle::Cliff && evergreen.style(3, 4) == TransitionStyle::None && evergreen.style(5, 4) == TransitionStyle::None, "Base-190 joins Base-85-1 and not Base-85-2 or GreenWorld");
+    expect(brushPieceName(evergreen, {4, 4, 2, 2}) == "Cliff-High-T", "Base-190 is the only cliff top, so the pieces keep the plain Cliff-High name");
+    expect(brushPieceName(evergreen, {2, 1, 0, 0}).empty(), "Evergreen has no CoastDSL section for deep water, shallow water, and grass in one cell");
+    const BrushGraph otherGrass(evergreenHeights, evergreenWorlds, false, "Ever2");
+    expect(otherGrass.style(0, 1) == TransitionStyle::ShallowDeep && otherGrass.style(1, 3) == TransitionStyle::ShallowCoast && otherGrass.style(0, 3) == TransitionStyle::Coast, "the second grass still joins the shared sea");
+    expect(otherGrass.style(2, 4) == TransitionStyle::None, "the second grass does not carry the Base-190 cliff");
+    const BrushGraph everyLand(evergreenHeights, evergreenWorlds, true);
+    expect(everyLand.style(1, 3) == TransitionStyle::ShallowCoast && everyLand.style(0, 3) == TransitionStyle::Coast && everyLand.style(1, 5) == TransitionStyle::None, "a map of every land keeps the Evergreen shallow coast and leaves GreenWorld off it");
+    BrushTestLattice evergreenSea(6, 6, 0, evergreen);
+    evergreenSea.paint(2, 2, 1, 1);
+    expect(evergreenSea.piece(2, 2) == "Base-65" && evergreenSea.piece(2, 1) == "ShallowDeep-Shallow-B" && evergreenSea.piece(1, 1) == "ShallowDeep-Shallow-BR" && !evergreenSea.steep(), "shallow water painted on deep water uses ShallowDeep pieces");
+    BrushTestLattice evergreenDeep(6, 6, 1, evergreen);
+    evergreenDeep.paint(2, 2, 1, 0);
+    expect(evergreenDeep.piece(2, 2) == "Base-0" && evergreenDeep.piece(2, 1) == "ShallowDeep-Shallow-T" && evergreenDeep.piece(1, 1) == "ShallowDeep-Deep-BR" && !evergreenDeep.steep(), "deep water painted on shallow water uses ShallowDeep pieces");
+    BrushTestLattice evergreenShelf(6, 6, 2, evergreen);
+    evergreenShelf.paint(2, 2, 1, 1);
+    expect(evergreenShelf.piece(2, 2) == "Base-65" && evergreenShelf.piece(2, 1) == "ShallowCoast-Water-B" && evergreenShelf.piece(1, 1) == "ShallowCoast-Water-BR" && !evergreenShelf.steep(), "Base-65 painted on Base-85-1 uses shallow coast pieces");
+    BrushTestLattice evergreenShelf2(6, 6, 3, otherGrass);
+    evergreenShelf2.paint(2, 2, 1, 1);
+    expect(evergreenShelf2.piece(2, 2) == "Base-65" && evergreenShelf2.piece(2, 1) == "ShallowCoast-Water-B" && !evergreenShelf2.steep(), "Base-65 painted on Base-85-2 uses shallow coast pieces");
+    BrushTestLattice evergreenCoast(6, 6, 0, evergreen);
+    evergreenCoast.paint(2, 2, 1, 2);
+    expect(evergreenCoast.piece(2, 2) == "Base-85" && evergreenCoast.piece(2, 1) == "Coast-Water-T" && evergreenCoast.piece(1, 1) == "Coast-Land-BR" && !evergreenCoast.steep(), "Base-85-1 painted on deep water keeps the direct coast");
+    BrushTestLattice evergreenPlateau(6, 6, 2, evergreen);
+    evergreenPlateau.paint(2, 2, 1, 4);
+    expect(evergreenPlateau.piece(2, 2) == "Base-190" && evergreenPlateau.piece(2, 1) == "Cliff-High-B" && evergreenPlateau.piece(1, 1) == "Cliff-High-BR" && !evergreenPlateau.steep(), "Base-190-1 on Base-85-1 is ringed by cliff pieces");
+    BrushTestLattice evergreenMeet(8, 8, 2, evergreen);
+    evergreenMeet.paint(2, 2, 2, 0);
+    evergreenMeet.paint(5, 2, 1, 1);
+    expect(!evergreenMeet.steep(), "deep water, shallow water, and grass meet without an unjoined cell");
+
     // Mars is Base-0 water, Base-85 land, and Base-255 cliff ground.
     const BrushGraph mars(std::vector<int>{0, 85, 255});
     expect(mars.style(0, 1) == TransitionStyle::Coast && mars.style(1, 2) == TransitionStyle::Cliff && mars.compatible(0, 1) && mars.compatible(1, 2), "Mars joins water to land with coasts and land to Base-255 with cliffs");

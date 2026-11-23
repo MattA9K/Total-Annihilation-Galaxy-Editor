@@ -11173,7 +11173,11 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
             // Blend pieces are shared, so Lava, Mars and GreenWorld can place them.
             // Two-way blends live in BlendTiles/Shared and three-way blends in BlendTiles/3-Way.
             const bool shared = lowerText(candidate.category) == "shared" || lowerText(candidate.category) == "3-way";
-            if ((own || shared) && transitionVariation(candidate.name, piece) >= 0) {
+            // Shallow and deep Evergreen water are one sea. The pieces are filed under Evergreen and
+            // either grass can place them.
+            const bool evergreenShallowDeep = isEvergreenWorld(category) && isEvergreenWorld(candidate.category)
+                && lowerText(candidate.name).starts_with("shallowdeep-");
+            if ((own || shared || evergreenShallowDeep) && transitionVariation(candidate.name, piece) >= 0) {
                 matches.push_back(&candidate);
             }
         }
@@ -11613,7 +11617,21 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     }
                     continue;
                 }
-                const std::string& pieceCategory = armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
+                std::string pieceCategory = armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
+                // Evergreen's two grasses have their own shores. The grass in the cell picks the set, so
+                // painting water against Base-85-2 uses the Evergreen2 coast rather than Base-85-1's.
+                const bool evergreenShore = piece.rfind("Coast-", 0) == 0 || piece.rfind("ShallowCoast-", 0) == 0 || piece.rfind("DSL-", 0) == 0;
+                if (evergreenShore) {
+                    const BrushPaint* grass = nullptr;
+                    if (trailingNumber(upper->name) >= 85 && isEvergreenWorld(upper->category)) {
+                        grass = upper;
+                    } else if (trailingNumber(lower->name) >= 85 && isEvergreenWorld(lower->category)) {
+                        grass = lower;
+                    }
+                    if (grass != nullptr) {
+                        pieceCategory = grass->category;
+                    }
+                }
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
                 if (pieces.empty() && ringCell.matched) {
                     continue;
@@ -12903,9 +12921,11 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "hills";
         const bool archipelagoIsland = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "islands";
-        // Both Evergreen grasses are buttons whichever of them is armed.
+        // Both Evergreen grasses are buttons whichever of them is armed. Their shared water and both
+        // shores are loaded with either grass, so painting one still finds the other's coast.
         const bool evergreenBase = isEvergreenWorld(brushWorld_) && isEvergreenWorld(section.category) && isBaseBrushTile(section.world, section.name);
-        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
+        const bool evergreenPiece = isEvergreenWorld(brushWorld_) && isEvergreenWorld(section.category) && isTransitionWorld(section.world);
+        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !evergreenPiece && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
@@ -13179,7 +13199,12 @@ void EditorApp::ensureBrushPaints() {
             paint.name = section->name;
             paint.category = section->category;
             if (isEvergreenWorld(section->category)) {
-                paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
+                // The two grasses share a name, and Base-190 is the first grass's cliff top. Water keeps
+                // its height name: there is one Base-0 and one Base-65.
+                const int height = trailingNumber(section->name);
+                if (height == 85 || height == 190) {
+                    paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
+                }
             }
             paint.preview = uploadTexture(rgba.data(), width, height, false);
             if (paint.preview == 0) {
