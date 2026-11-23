@@ -6450,6 +6450,7 @@ void testBlendDoodads() {
     const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
     int blendTrees = 0;
     int cliffTrees = 0;
+    int coastTrees = 0;
     bool treesRight = true;
     bool metalFlat = true;
     for (const RmsPlacedFeature& feature : outcome.features) {
@@ -6466,20 +6467,23 @@ void testBlendDoodads() {
             continue;
         }
         // On a blend the corner nearest the tree is Lush ground, the forest or the cliff
-        // plateau, and no corner is water. Trees may stand on cliffs: the ground built
-        // later leaves out any whose tile is not level.
+        // plateau, never the water. Trees may stand on cliff and coast tiles: the ground
+        // built later leaves out any whose tile is not level.
         const int nearest = canvas.at(lx + ((feature.x % 4) >= 2 ? 1 : 0), ly + ((feature.y % 4) >= 2 ? 1 : 0));
         treesRight = treesRight && (nearest == 1 || nearest == 2);
         bool cliff = false;
+        bool coast = false;
         for (const int corner : corners) {
-            treesRight = treesRight && corner != 0;
             cliff = cliff || corner == 2;
+            coast = coast || corner == 0;
         }
         cliffTrees += cliff ? 1 : 0;
+        coastTrees += coast ? 1 : 0;
         ++blendTrees;
     }
-    expect(treesRight, "trees stand on Lush quarters of a blend or cliff, never by water");
+    expect(treesRight, "trees stand on Lush quarters of a blend, cliff or coast, never on the water's");
     expect(cliffTrees > 0, "trees reach onto cliff tiles: " + std::to_string(cliffTrees));
+    expect(coastTrees > 0, "trees reach onto coast tiles: " + std::to_string(coastTrees));
     expect(blendTrees > 0, "trees reach onto the blend at the forest's edge: " + std::to_string(blendTrees));
     expect(metalFlat, "metal nodes still keep to flat cells of one ground");
 }

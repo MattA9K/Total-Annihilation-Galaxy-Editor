@@ -691,12 +691,12 @@ create_elevation 7 {
 <CLIFF_GENERATION>
 /* Cliffs: short ridges of ICE_BASE-170 with cliff faces. Lengths are
    squares, and the count grows with the map. */
-min_number_of_cliffs 3
-max_number_of_cliffs 5
-min_length_of_cliff 2
-max_length_of_cliff 4
+min_number_of_cliffs 1
+max_number_of_cliffs 3
+min_length_of_cliff 1
+max_length_of_cliff 2
 cliff_curliness 10
-min_distance_cliffs 2
+min_distance_cliffs 4
 
 <TERRAIN_GENERATION>
 /* Floes of snow and ice out on the lake, where the original has holes
@@ -730,14 +730,14 @@ create_object START_POSITION {
 
 /* Gold and stone become metal: some near each start, more out on the shore. */
 create_object METAL_NODES {
-  number_of_objects 3
+  number_of_objects 64
   set_place_for_every_player
   min_distance_to_players 10
-  max_distance_to_players 26
+  max_distance_to_players 128
   temp_min_distance_group_placement 6
 }
 create_object METAL_NODES {
-  number_of_objects 1
+  number_of_objects 2
   set_scaling_to_map_size
   terrain_to_place_on ICE_BASE-85
   min_distance_to_players 36
@@ -754,16 +754,27 @@ create_object METAL_NODES {
 
 /* A geothermal vent near each start. */
 create_object GEO_VENTS {
-  number_of_objects 1
+  number_of_objects 8
   set_place_for_every_player
-  min_distance_to_players 12
-  max_distance_to_players 32
+  min_distance_to_players 32
+  max_distance_to_players 128
 }
 
 /* The snow forests: dense stands of snow-laden pines, out from the starts. */
 create_object TREES {
   number_of_objects 90
-  number_of_groups 0.5
+  number_of_groups 0.8
+  group_placement_radius 12
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-85
+  min_distance_to_players 16
+  min_distance_group_placement 10
+}
+
+create_object TREES {
+  number_of_objects 950
+  number_of_groups 0.1
   group_placement_radius 12
   set_tight_grouping
   set_scaling_to_map_size

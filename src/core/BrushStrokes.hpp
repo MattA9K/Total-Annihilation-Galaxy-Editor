@@ -526,6 +526,11 @@ inline bool evergreenPartner(std::string_view world) {
 inline bool evergreenWorld(std::string_view world) {
     return world == "Ever" || world == "Ever2";
 }
+// One land for the rules that keep a land's coasts and cliffs to itself. Evergreen's two grasses share
+// one water, Evergreen Base-0, and each has its own coast into it.
+inline bool sameBrushLand(std::string_view a, std::string_view b) {
+    return a == b || (evergreenWorld(a) && evergreenWorld(b));
+}
 
 // The lands whose Base-85 blends into Quagmire Base-85.
 inline bool quagmirePartner(std::string_view world) {
@@ -582,11 +587,11 @@ public:
                             return (wa == x && wb == y) || (wa == y && wb == x);
                         };
                         const bool named = !wa.empty() && !wb.empty();
-                        const bool differentWorld = named && wa != wb;
+                        const bool differentWorld = named && !sameBrushLand(wa, wb);
                         if (blendsOnlyAcrossWorlds && differentWorld && rule.style != TransitionStyle::WorldBlend) {
                             continue;
                         }
-                        if (!brushWorld.empty() && named && wa == wb && wa != brushWorld && rule.style != TransitionStyle::WorldBlend) {
+                        if (!brushWorld.empty() && named && sameBrushLand(wa, wb) && !sameBrushLand(wa, brushWorld) && rule.style != TransitionStyle::WorldBlend) {
                             continue;
                         }
                         // Water only meets another land's water through a water blend.
@@ -3937,6 +3942,17 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                             blendsOnly = blendsOnly && (first == second || graph.style(std::min(first, second), std::max(first, second)) == TransitionStyle::WorldBlend);
                         }
                     }
+                    // Evergreen's two grasses share one water, and no piece shows the water with both grasses.
+                    // Where a cell holds all three, its other grass corners take the host, the grass the stroke
+                    // was painted into, so the seam steps back from the water instead of the water running along
+                    // it, and the shore keeps the host's grass all the way round.
+                    bool hasEver = false;
+                    bool hasEver2 = false;
+                    for (const int value : corners) {
+                        hasEver = hasEver || graph.world(value) == "Ever";
+                        hasEver2 = hasEver2 || graph.world(value) == "Ever2";
+                    }
+                    const bool evergreenMix = hasEver && hasEver2;
                     std::array<std::vector<int>, 4> options;
                     for (int corner = 0; corner < 4; ++corner) {
                         const int current = corners[static_cast<std::size_t>(corner)];
@@ -3944,7 +3960,11 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                         if (!isLocked(cx + (corner & 1), cy + (corner >> 1))) {
                             for (int candidate = 0; candidate < graph.size(); ++candidate) {
                                 const bool toHost = blendsOnly && candidate == host && current != level;
-                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost)) {
+                                // Only a corner the stroke has not moved yet, so two cells never hand one back and forth.
+                                const bool unmoved = slots.find(keyOf(cx + (corner & 1), cy + (corner >> 1))) == slots.end();
+                                const bool otherGrass = evergreenMix && unmoved && current != level && candidate == host
+                                    && evergreenWorld(graph.world(current)) && evergreenWorld(graph.world(candidate));
+                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost || otherGrass)) {
                                     options[static_cast<std::size_t>(corner)].push_back(candidate);
                                 }
                             }
@@ -3969,7 +3989,7 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                                     for (std::size_t i = 0; i < 4; ++i) {
                                         if (trial[i] != corners[i]) {
                                             ++changes;
-                                            painted += blendsOnly && host >= 0 && trial[i] != host ? 1 : 0;
+                                            painted += (blendsOnly && host >= 0 && trial[i] != host) || (evergreenMix && trial[i] == level) ? 1 : 0;
                                             move += graph.distance(level, corners[i]) - graph.distance(level, trial[i]);
                                         }
                                     }
@@ -4095,7 +4115,7 @@ inline bool brushPlanMovesForeignCoast(const BrushPlan& plan, const BrushGraph& 
             continue;
         }
         const std::string_view world = graph.world(old);
-        if (world.empty() || world == brushWorld) {
+        if (world.empty() || sameBrushLand(world, brushWorld)) {
             continue;
         }
         for (int cy = node.y - 1; cy <= node.y; ++cy) {

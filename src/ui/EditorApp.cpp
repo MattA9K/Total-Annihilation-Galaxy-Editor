@@ -10008,6 +10008,13 @@ void EditorApp::finishRandomMap() {
                         ++treesOnSlopes;
                         continue;
                     }
+                    // Trees reach onto coast tiles, but a level tile down at or under the sea is water.
+                    const std::size_t shownAt = static_cast<std::size_t>(std::clamp(shownY, 0, cellsHigh - 1)) * static_cast<std::size_t>(cellsWide)
+                        + static_cast<std::size_t>(std::clamp(feature.x, 0, cellsWide - 1));
+                    if (shownAt < map_->heights.size() && map_->heights[shownAt] <= map_->seaLevel) {
+                        ++treesOnSlopes;
+                        continue;
+                    }
                 }
                 if (found != byName.end() && featureIsDoodad(*found->second, DoodadKind::MetalNodes)) {
                     const auto [w, h] = footprintOf(feature.name);
@@ -10080,7 +10087,7 @@ void EditorApp::finishRandomMap() {
         }
         if (treesOnSlopes > 0) {
             randomMapNotes_.push_back(RmsMessage{0, std::to_string(treesOnSlopes) + (treesOnSlopes == 1 ? " tree" : " trees")
-                                                         + " landed on a tile whose four heights were not all the same, so "
+                                                         + " landed on a tile whose four heights were not all the same, or under the sea, so "
                                                          + (treesOnSlopes == 1 ? "it was" : "they were") + " left out."});
         }
         if (featuresSkipped > 0) {
@@ -11207,7 +11214,9 @@ EditorApp::BrushCornerReading EditorApp::brushCornerReading(const std::vector<co
     // A partner land is still found by its picture, which is how a blend is read.
     std::vector<std::size_t> ownLevels;
     for (std::size_t i = 0; i < levels.size(); ++i) {
-        if (brushCategoryMatches(levels[i]->category, brushWorld_)) {
+        // Evergreen's two grasses share their water, so each brush owns both folders' bases.
+        if (brushCategoryMatches(levels[i]->category, brushWorld_)
+            || (isEvergreenWorld(levels[i]->category) && isEvergreenWorld(brushWorld_))) {
             ownLevels.push_back(i);
         }
     }
@@ -11276,7 +11285,8 @@ int EditorApp::readBrushCorner(const BrushCornerReading& reading, const BrushGra
         int candidates = 0;
         double bestDistance = 1.0e30;
         for (std::size_t i = 0; i < levels.size(); ++i) {
-            if (levelHeights[i] != height || levelColours[i][0] < 0) {
+            // Coast and blend tiles stand a little off their base's height.
+            if (std::abs(levelHeights[i] - height) > 3 || levelColours[i][0] < 0) {
                 continue;
             }
             ++candidates;
@@ -11659,6 +11669,23 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
             BrushPlan plan = cornerBrush
                 ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readNode)
                 : planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readNode);
+            // Evergreen's water has no piece that meets both grasses at once, so where a stroke brings the water
+            // and both grasses together the shore takes one grass, and that can run on round a shore nearby. A
+            // stroke whose changes would reach past the cells around it is refused rather than recolouring a
+            // shore the stroke never touched.
+            if (isEvergreenWorld(brushWorld_)) {
+                const int lowX = (cornerBrush ? nodeX : blockX) - 1;
+                const int lowY = (cornerBrush ? nodeY : blockY) - 1;
+                const int highX = (cornerBrush ? nodeX : blockX + blockCells) + 1;
+                const int highY = (cornerBrush ? nodeY : blockY + blockCells) + 1;
+                for (const BrushNode& node : plan.nodes) {
+                    if (readNode(node.x, node.y) != node.level && (node.x < lowX || node.x > highX || node.y < lowY || node.y > highY)) {
+                        statusNote_ = "Painting here would reshape a shore nearby: no piece joins Evergreen's water to both grasses at once. "
+                                      "Leave a cell of one grass between this and the other grass's shore";
+                        return BrushOutcome::Done;
+                    }
+                }
+            }
             // Water blends are for islands: a stroke that would move another land's coast, such as a Mars
             // Base-85 stroke over a GreenWorld shore, is refused, so the two coasts never meet.
             if (brushPlanMovesForeignCoast(plan, graph, ownWorld, cellsX, cellsY, readNode)) {
@@ -11742,7 +11769,11 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     }
                     continue;
                 }
-                const std::string& pieceCategory = armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
+                // Evergreen's water has a coast for each grass: the land's own folder holds it, whichever is armed.
+                const bool evergreenCoast = isEvergreenWorld(lower->category) && isEvergreenWorld(upper->category)
+                    && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Coast;
+                const std::string& pieceCategory = evergreenCoast ? upper->category
+                    : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
                 if (pieces.empty() && ringCell.matched) {
                     continue;
@@ -13032,8 +13063,9 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "hills";
         const bool archipelagoIsland = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "islands";
-        // Both Evergreen grasses are buttons whichever of them is armed.
-        const bool evergreenBase = isEvergreenWorld(brushWorld_) && isEvergreenWorld(section.category) && isBaseBrushTile(section.world, section.name);
+        // Both Evergreen grasses are buttons whichever of them is armed, and both grasses' coasts into their
+        // shared water are loaded, since either grass can meet that water.
+        const bool evergreenBase = isEvergreenWorld(brushWorld_) && isEvergreenWorld(section.category);
         if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
@@ -13307,7 +13339,7 @@ void EditorApp::ensureBrushPaints() {
             BrushPaint paint;
             paint.name = section->name;
             paint.category = section->category;
-            if (isEvergreenWorld(section->category)) {
+            if (isEvergreenWorld(section->category) && trailingNumber(section->name) == 85) {
                 paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
             }
             paint.preview = uploadTexture(rgba.data(), width, height, false);

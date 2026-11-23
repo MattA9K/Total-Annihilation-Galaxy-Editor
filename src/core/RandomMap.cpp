@@ -1567,8 +1567,8 @@ private:
 
     // True when the brush cell at lattice (lx, ly) is a gentle blend between dry
     // grounds: no water or lava at any corner, and no cliff between them. With
-    // cliffs, a cliff between dry grounds counts too.
-    bool gentleBlend(int lx, int ly, bool cliffs = false) const {
+    // steep, cliffs and coasts count too: any cell with a dry corner.
+    bool gentleBlend(int lx, int ly, bool steep = false) const {
         const RmsObjectSettings& objects = *options_.objects;
         int low = std::numeric_limits<int>::max();
         int high = std::numeric_limits<int>::min();
@@ -1576,32 +1576,46 @@ private:
             for (int dx = 0; dx <= 1; ++dx) {
                 const int corner = canvas_.at(lx + dx, ly + dy);
                 const std::size_t slot = static_cast<std::size_t>(corner);
-                if (corner < 0 || slot >= objects.terrainHeights.size() || (slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot])) {
+                if (corner < 0 || slot >= objects.terrainHeights.size()) {
+                    return false;
+                }
+                if (slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot]) {
+                    if (steep) {
+                        continue;
+                    }
                     return false;
                 }
                 low = std::min(low, objects.terrainHeights[slot]);
                 high = std::max(high, objects.terrainHeights[slot]);
             }
         }
-        return cliffs || high - low <= kBlendDoodadRise;
+        // With steep, at least one corner must be dry ground.
+        return steep ? high >= low : high - low <= kBlendDoodadRise;
     }
 
     // The ground under a feature cell for doodads such as trees: as groundAt, but on a
     // gentle blend each quarter of the brush cell takes the ground of its own corner,
-    // so a forest's trees reach out to its edge. With cliffs, cliff cells count too.
-    int doodadGroundAt(int x, int y, bool cliffs = false) const {
+    // so a forest's trees reach out to its edge. With steep, cliff and coast cells count
+    // too, but a quarter whose corner is water or lava has no ground.
+    int doodadGroundAt(int x, int y, bool steep = false) const {
         const int flat = groundAt(x, y);
         if (flat >= 0 || x < 0 || y < 0 || x >= cellsWide_ || y >= cellsHigh_) {
             return flat;
         }
         const int lx = std::min(x / perNode_, latticeX_ - 1);
         const int ly = std::min(y / perNode_, latticeY_ - 1);
-        if (!gentleBlend(lx, ly, cliffs)) {
+        if (!gentleBlend(lx, ly, steep)) {
             return -1;
         }
         const int qx = (x - lx * perNode_) * 2 >= perNode_ ? 1 : 0;
         const int qy = (y - ly * perNode_) * 2 >= perNode_ ? 1 : 0;
-        return canvas_.at(lx + qx, ly + qy);
+        const int ground = canvas_.at(lx + qx, ly + qy);
+        const RmsObjectSettings& objects = *options_.objects;
+        const std::size_t slot = static_cast<std::size_t>(ground);
+        if (ground < 0 || (slot < objects.terrainLiquid.size() && objects.terrainLiquid[slot])) {
+            return -1;
+        }
+        return ground;
     }
 
     // Doodad kinds may stand on blends; metal, vents, starts and named features keep
@@ -1610,8 +1624,8 @@ private:
         return choice.byKind && choice.kind != DoodadKind::MetalNodes && choice.kind != DoodadKind::GeoVents;
     }
 
-    // Trees may also stand on cliff tiles: once the ground is built, a tree whose tile
-    // is not level is left out, so only the flat parts of a cliff keep theirs.
+    // Trees may also stand on the dry side of cliff and coast tiles: once the ground is
+    // built, a tree whose tile is not level is left out, so only the flat parts keep theirs.
     static bool usesCliffs(const ObjectChoice& choice) {
         return choice.byKind && (choice.kind == DoodadKind::Trees || choice.kind == DoodadKind::Palms);
     }
