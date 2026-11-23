@@ -278,6 +278,20 @@ inline bool evergreenTileIsEvergreen(const std::uint8_t* bytes) {
     return score >= 76 * 1024;
 }
 
+// Evergreen's second grass, Base-85-2, is an olive green: green minus blue averages 57 to 61 on its tiles,
+// against 42 or less on every land it blends into but GreenWorld and Evergreen Base-85-1. Those two are
+// greener against their red: red minus green is -37 or less on them and -28 to -26 on Base-85-2.
+inline bool evergreen2TileIsEvergreen2(const std::uint8_t* bytes) {
+    int greenBlue = 0;
+    int redGreen = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        greenBlue += static_cast<int>(color[1]) - static_cast<int>(color[2]);
+        redGreen += static_cast<int>(color[0]) - static_cast<int>(color[1]);
+    }
+    return greenBlue >= 48 * 1024 && redGreen >= -33 * 1024;
+}
+
 // Quagmire water is an olive mud, the only water whose red outweighs its blue: red minus blue averages
 // 35 to 48 on its Base-0 and stroke tiles, and -21 or less on every other land's water.
 inline bool quagmireWaterTileIsQuagmire(const std::uint8_t* bytes) {
@@ -380,6 +394,23 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Archipelago / Acid", "Archipelago/Base-78", "Acid/Base-85", archiAcidTileIsSand},
     {"Archipelago / Mars", "Archipelago/Base-78", "Mars/Base-85", archiAcidTileIsSand},
     {"Archipelago / Metal", "Archipelago/Base-78", "Metal/Base-85", archiAcidTileIsSand},
+    {"Evergreen / Lava", "Evergreen/Base-85", "Lava/Base-86", evergreenTileIsEvergreen},
+    {"Evergreen / Archipelago", "Evergreen/Base-85", "Archipelago/Base-78", evergreenTileIsEvergreen},
+    {"Evergreen / Lush", "Evergreen/Base-85", "Lush/Base-77", evergreenTileIsEvergreen},
+    {"Evergreen / Desert", "Evergreen/Base-85", "Desert/Base-80", evergreenTileIsEvergreen},
+    {"Evergreen / Evergreen Base-85-2", "Evergreen/Base-85", "Evergreen2/Base-85", evergreenTileIsEvergreen},
+    {"Evergreen Base-85-2 / GreenWorld", "Evergreen2/Base-85", "GreenWorld/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Mars", "Evergreen2/Base-85", "Mars/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Acid", "Evergreen2/Base-85", "Acid/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Crystal", "Evergreen2/Base-85", "Crystal/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Ice", "Evergreen2/Base-85", "Ice/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Metal", "Evergreen2/Base-85", "Metal/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Quagmire", "Evergreen2/Base-85", "Quagmire/Base-85", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Lava", "Evergreen2/Base-85", "Lava/Base-86", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Archipelago", "Evergreen2/Base-85", "Archipelago/Base-78", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Lush", "Evergreen2/Base-85", "Lush/Base-77", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Desert", "Evergreen2/Base-85", "Desert/Base-80", evergreen2TileIsEvergreen2},
+    {"Evergreen Base-85-2 / Evergreen Base-85-1", "Evergreen2/Base-85", "Evergreen/Base-85", evergreen2TileIsEvergreen2},
     {"Evergreen / GreenWorld", "Evergreen/Base-85", "GreenWorld/Base-85", evergreenTileIsEvergreen},
     {"Evergreen / Mars", "Evergreen/Base-85", "Mars/Base-85", evergreenTileIsEvergreen},
     {"Evergreen / Acid", "Evergreen/Base-85", "Acid/Base-85", evergreenTileIsEvergreen},

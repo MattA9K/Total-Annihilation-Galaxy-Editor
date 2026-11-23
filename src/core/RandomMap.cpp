@@ -2513,6 +2513,29 @@ int footprintRise(const std::vector<std::uint8_t>& heights, int width, int heigh
     return high >= low ? high - low : 0;
 }
 
+bool tileIsLevel(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y) {
+    const int left = x & ~1;
+    const int top = y & ~1;
+    int first = -1;
+    for (int cy = top; cy < top + 2 && cy < height; ++cy) {
+        for (int cx = left; cx < left + 2 && cx < width; ++cx) {
+            if (cx < 0 || cy < 0) {
+                continue;
+            }
+            const std::size_t index = static_cast<std::size_t>(cy) * static_cast<std::size_t>(width) + static_cast<std::size_t>(cx);
+            if (index >= heights.size()) {
+                continue;
+            }
+            if (first < 0) {
+                first = heights[index];
+            } else if (heights[index] != first) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool findFlatSpot(const std::vector<std::uint8_t>& heights, const std::vector<std::uint8_t>& occupied, int width, int height, int w, int h,
                   int x, int y, int level, int maxRise, int radius, int& outX, int& outY) {
     w = std::max(1, w);

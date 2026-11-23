@@ -361,6 +361,12 @@ bool brushCategoryMatches(std::string_view category, std::string_view world) {
     return right == "greenworld" && left == "greenland";
 }
 
+// Evergreen's two grasses are two lands, Evergreen and Evergreen2, painted from one Tile Brush tileset.
+bool isEvergreenWorld(std::string_view world) {
+    const std::string lower = lowerText(world);
+    return lower == "evergreen" || lower == "evergreen2";
+}
+
 bool isBrushStrokeWorld(std::string_view world) {
     return lowerText(world) == "basetilebrushstrokes";
 }
@@ -9910,6 +9916,7 @@ void EditorApp::finishRandomMap() {
         int featuresSkipped = 0;
         int nodesOnHills = 0;
         int nodesMoved = 0;
+        int treesOnSlopes = 0;
         if (outcome.placesObjects) {
             // A script with <OBJECTS_GENERATION> replaces every feature on the map.
             // A metal node that a hill or other stamp has since raised off flat ground is
@@ -9940,6 +9947,17 @@ void EditorApp::finishRandomMap() {
             placements.reserve(outcome.features.size());
             for (const RmsPlacedFeature& feature : outcome.features) {
                 const auto found = byName.find(lowerText(feature.name));
+                // A tree goes only on a level tile: all four of its height cells the same.
+                // A feature is drawn raised by half its ground height, so the tile checked
+                // is the one the tree's base shows on, worked out the way it is drawn.
+                if (found != byName.end() && featureIsDoodad(*found->second, DoodadKind::Trees)) {
+                    const int depth = std::max(1, found->second->footprintZ);
+                    const int shownY = (feature.y * 16 + depth * 8 - featureLift(*map_, feature.x, feature.y)) >> 4;
+                    if (!tileIsLevel(map_->heights, cellsWide, cellsHigh, feature.x, std::max(0, shownY))) {
+                        ++treesOnSlopes;
+                        continue;
+                    }
+                }
                 if (found != byName.end() && featureIsDoodad(*found->second, DoodadKind::MetalNodes)) {
                     const auto [w, h] = footprintOf(feature.name);
                     if (footprintRise(map_->heights, cellsWide, cellsHigh, feature.x, feature.y, w, h) > kMetalNodeMaxRise) {
@@ -10009,6 +10027,11 @@ void EditorApp::finishRandomMap() {
                                                          + " ended up on a hill or other slope with no flat ground of " + (nodesOnHills == 1 ? "its" : "their")
                                                          + " own nearby, so " + (nodesOnHills == 1 ? "it was" : "they were") + " left out."});
         }
+        if (treesOnSlopes > 0) {
+            randomMapNotes_.push_back(RmsMessage{0, std::to_string(treesOnSlopes) + (treesOnSlopes == 1 ? " tree" : " trees")
+                                                         + " landed on a tile whose four heights were not all the same, so "
+                                                         + (treesOnSlopes == 1 ? "it was" : "they were") + " left out."});
+        }
         if (featuresSkipped > 0) {
             randomMapNotes_.push_back(RmsMessage{0, std::to_string(featuresSkipped) + " features landed on open space or past the map's limit of feature names, so they were left out."});
         }
@@ -10017,7 +10040,7 @@ void EditorApp::finishRandomMap() {
         statusNote_ = "Generated a random map: " + std::to_string(outcome.lands) + (outcome.lands == 1 ? " land, " : " lands, ")
             + std::to_string(outcome.terrains) + (outcome.terrains == 1 ? " terrain, " : " terrains, ")
             + std::to_string(outcome.connections) + (outcome.connections == 1 ? " connection" : " connections")
-            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped + nodesOnHills)) + " features" : std::string())
+            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped + nodesOnHills + treesOnSlopes)) + " features" : std::string())
             + (outcome.placesStarts ? ", " + std::to_string(outcome.starts.size()) + (outcome.starts.size() == 1 ? " start" : " starts") : std::string());
         error_.clear();
     } catch (const std::exception& ex) {
@@ -11317,6 +11340,63 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
             const auto nearestLevel = [&](int height, bool abstainOnTie) {
                 return nearestOwnLevel(levelHeights, ownLevels, height, abstainOnTie);
             };
+            // Each paint's ground colour, for tiles whose picture is unknown where several lands share a
+            // height. An 8 x 8 piece's flat ground is moved onto the map grid as it is placed, so its tiles
+            // are pictures the brush has never seen; at Base-85 the height alone would read GreenWorld grass
+            // beside Evergreen as Evergreen. The nearest ground colour names the land when the tile plainly
+            // looks like one; a tile like none of them, such as one from a game map, is read by height.
+            std::vector<std::array<double, 3>> levelColours(levels.size(), {-1.0, -1.0, -1.0});
+            bool sharedLevelHeight = false;
+            for (std::size_t i = 0; i < levels.size(); ++i) {
+                for (std::size_t j = i + 1; j < levels.size(); ++j) {
+                    sharedLevelHeight = sharedLevelHeight || levelHeights[i] == levelHeights[j];
+                }
+            }
+            if (pictures && sharedLevelHeight) {
+                for (std::size_t i = 0; i < levels.size(); ++i) {
+                    const PaletteImage* ground = brushGround(levels[i]->category, levels[i]->name);
+                    if (ground == nullptr || ground->pixels.empty()) {
+                        continue;
+                    }
+                    std::array<double, 3> mean = {0, 0, 0};
+                    for (const std::uint8_t index : ground->pixels) {
+                        for (int channel = 0; channel < 3; ++channel) {
+                            mean[static_cast<std::size_t>(channel)] += kTaPalette[index][channel];
+                        }
+                    }
+                    for (double& channel : mean) {
+                        channel /= static_cast<double>(ground->pixels.size());
+                    }
+                    levelColours[i] = mean;
+                }
+            }
+            const auto levelByColour = [&](const std::uint8_t* pixels, int height) {
+                std::array<double, 3> tileMean = {0, 0, 0};
+                for (int i = 0; i < 1024; ++i) {
+                    for (int channel = 0; channel < 3; ++channel) {
+                        tileMean[static_cast<std::size_t>(channel)] += kTaPalette[pixels[i]][channel] / 1024.0;
+                    }
+                }
+                int best = -1;
+                int candidates = 0;
+                double bestDistance = 1.0e30;
+                for (std::size_t i = 0; i < levels.size(); ++i) {
+                    if (levelHeights[i] != height || levelColours[i][0] < 0) {
+                        continue;
+                    }
+                    ++candidates;
+                    double distance = 0;
+                    for (int channel = 0; channel < 3; ++channel) {
+                        const double gap = tileMean[static_cast<std::size_t>(channel)] - levelColours[i][static_cast<std::size_t>(channel)];
+                        distance += gap * gap;
+                    }
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        best = static_cast<int>(i);
+                    }
+                }
+                return candidates >= 2 && bestDistance < 24.0 * 24.0 ? best : -1;
+            };
             const auto readCorner = [&](int nodeX, int nodeY) {
                 std::vector<int> votes(levels.size(), 0);
                 for (int dy = -1; dy <= 0; ++dy) {
@@ -11411,7 +11491,14 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                         }
                         if (voted < 0) {
                             const std::size_t index = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
-                            if (index < map_->heights.size()) {
+                            const std::size_t cellIndex = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
+                            if (pictures && sharedLevelHeight && index < map_->heights.size() && cellIndex < map_->indices.size()) {
+                                const std::size_t bytes = static_cast<std::size_t>(map_->indices[cellIndex]) * 1024;
+                                if (bytes + 1024 <= map_->tileImages.size()) {
+                                    voted = levelByColour(map_->tileImages.data() + bytes, map_->heights[index]);
+                                }
+                            }
+                            if (voted < 0 && index < map_->heights.size()) {
                                 voted = nearestLevel(map_->heights[index], pictures);
                             }
                         }
@@ -12720,7 +12807,7 @@ void EditorApp::ensureBrushPaints() {
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
         || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
-        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire" || lowerText(brushWorld_) == "evergreen";
+        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire" || isEvergreenWorld(brushWorld_);
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         std::string sectionKind;
@@ -12816,7 +12903,9 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "hills";
         const bool archipelagoIsland = lowerText(brushWorld_) == "archipelago" && lowerText(section.world) == "archipelago"
             && lowerText(section.category) == "islands";
-        if (!brushCategoryMatches(section.category, brushWorld_) && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
+        // Both Evergreen grasses are buttons whichever of them is armed.
+        const bool evergreenBase = isEvergreenWorld(brushWorld_) && isEvergreenWorld(section.category) && isBaseBrushTile(section.world, section.name);
+        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
@@ -13089,6 +13178,9 @@ void EditorApp::ensureBrushPaints() {
             BrushPaint paint;
             paint.name = section->name;
             paint.category = section->category;
+            if (isEvergreenWorld(section->category)) {
+                paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
+            }
             paint.preview = uploadTexture(rgba.data(), width, height, false);
             if (paint.preview == 0) {
                 continue;
@@ -13324,16 +13416,22 @@ void EditorApp::ensureBrushPaints() {
                    [&](const char* partner) { return lowerText(brushWorld_) == lowerText(partner); })) {
         wanted.push_back(PartnerWant{"Quagmire", "Base-85"});
     }
-    // Evergreen Base-85 blends into the Base-85 ground of Quagmire and of the lands Quagmire blends into,
-    // and those lands blend into it.
-    static constexpr const char* kEvergreenPartners[] = {"GreenWorld", "Mars", "Acid", "Crystal", "Ice", "Metal", "Quagmire"};
-    if (lowerText(brushWorld_) == "evergreen") {
-        for (const char* partner : kEvergreenPartners) {
-            wanted.push_back(PartnerWant{partner, "Base-85"});
+    // Both Evergreen grasses blend into every Base-85 land, Lava Base-86, Archipelago Base-78, Lush Base-77
+    // and Desert Base-80, and those lands blend into both. The two grasses are each other's buttons, not
+    // partners, since the Evergreen brush shows them both.
+    static constexpr PartnerWant kEvergreenPartners[] = {
+        {"GreenWorld", "Base-85"}, {"Mars", "Base-85"}, {"Acid", "Base-85"}, {"Crystal", "Base-85"}, {"Ice", "Base-85"},
+        {"Metal", "Base-85"}, {"Quagmire", "Base-85"}, {"Lava", "Base-86"}, {"Archipelago", "Base-78"}, {"Lush", "Base-77"},
+        {"Desert", "Base-80"},
+    };
+    if (isEvergreenWorld(brushWorld_)) {
+        for (const PartnerWant& partner : kEvergreenPartners) {
+            wanted.push_back(partner);
         }
     } else if (std::any_of(std::begin(kEvergreenPartners), std::end(kEvergreenPartners),
-                   [&](const char* partner) { return lowerText(brushWorld_) == lowerText(partner); })) {
+                   [&](const PartnerWant& partner) { return lowerText(brushWorld_) == lowerText(partner.world); })) {
         wanted.push_back(PartnerWant{"Evergreen", "Base-85"});
+        wanted.push_back(PartnerWant{"Evergreen2", "Base-85"});
     }
     // Quagmire water fades into every other land's water: Archipelago and Desert share one water, read as
     // Desert's, GreenWorld's stands for the blue water it shares with Ice and Metal, and Lush's stands at Base-27.
@@ -14668,21 +14766,53 @@ void EditorApp::ensureBrushPaints() {
             }
             return nullptr;
         };
+        // The lands the Evergreen grasses blend into, at their heights.
+        struct EvergreenPartner {
+            const char* word;
+            int height;
+        };
+        static constexpr EvergreenPartner kEvergreenLands[] = {
+            {"Green", 85}, {"Mars", 85}, {"Acid", 85}, {"Crystal", 85}, {"Ice", 85}, {"Metal", 85}, {"Quag", 85},
+            {"Lava", 86}, {"Archi", 78}, {"Lush", 77}, {"Desert", 80}, {"Ever2", 85}, {"Ever", 85},
+        };
         const BrushPaint* evergreenLand = paintWorldAt("Ever", 85);
-        for (const char* partner : {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal", "Quag"}) {
-            const std::string prefix = "blend-ever" + lowerText(partner) + "-";
-            rememberTwoWayColour(prefix.c_str(), evergreenLand, paintWorldAt(partner, 85), evergreenTileIsEvergreen);
+        const BrushPaint* evergreen2Land = paintWorldAt("Ever2", 85);
+        for (const EvergreenPartner& partner : kEvergreenLands) {
+            if (std::string_view(partner.word) != "Ever") {
+                const std::string prefix = "blend-ever" + lowerText(partner.word) + "-";
+                rememberTwoWayColour(prefix.c_str(), evergreenLand, paintWorldAt(partner.word, partner.height), evergreenTileIsEvergreen);
+            }
+            if (std::string_view(partner.word) != "Ever" && std::string_view(partner.word) != "Ever2") {
+                const std::string prefix = "blend-ever2" + lowerText(partner.word) + "-";
+                rememberTwoWayColour(prefix.c_str(), evergreen2Land, paintWorldAt(partner.word, partner.height), evergreen2TileIsEvergreen2);
+            }
         }
-        // Their three-way pieces: each tile is the land of the three whose base it is nearest in colour.
+        const auto landOf = [&](const std::string& word) -> const BrushPaint* {
+            for (const EvergreenPartner& partner : kEvergreenLands) {
+                if (word == partner.word) {
+                    return paintWorldAt(partner.word, partner.height);
+                }
+            }
+            return nullptr;
+        };
+        // Their three-way pieces, and Quagmire's: each tile is the land of the three whose base it is
+        // nearest in colour. Any of the three lands may fill the side the name starts with.
         for (const BrushPiece& piece : brushPieces_) {
             const std::string lowered = lowerText(piece.name);
-            if (!lowered.starts_with("blend-tri-quag-") && !lowered.starts_with("blend-tri-ever-")) {
+            if (!lowered.starts_with("blend-tri-")) {
+                continue;
+            }
+            const std::vector<std::string> pieceWorlds = blendPieceWorlds(piece.name);
+            const bool ours = std::any_of(pieceWorlds.begin(), pieceWorlds.end(), [](const std::string& world) {
+                return world == "Quagmire" || world == "Evergreen" || world == "Evergreen2";
+            });
+            if (!ours) {
                 continue;
             }
             std::vector<const BrushPaint*> triLands;
             std::vector<std::array<double, 3>> means;
-            for (const std::string& world : blendPieceWorlds(piece.name)) {
-                const BrushPaint* land = paintWorldAt(blendWorldName(world).c_str(), 85);
+            for (const std::string& world : pieceWorlds) {
+                const BrushPaint* land = landOf(blendWorldName(world));
                 const PaletteImage* ground = land != nullptr ? brushGround(land->category, land->name) : nullptr;
                 if (ground == nullptr || ground->pixels.empty()) {
                     triLands.clear();
@@ -17313,9 +17443,11 @@ void EditorApp::drawTileBrush() {
     }
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
-    if (ImGui::BeginCombo("Tileset", brushWorld_.c_str())) {
+    // Evergreen2 is Evergreen's second grass, listed as Evergreen.
+    const char* shownWorld = isEvergreenWorld(brushWorld_) ? "Evergreen" : brushWorld_.c_str();
+    if (ImGui::BeginCombo("Tileset", shownWorld)) {
         for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen"}) {
-            const bool selected = brushWorld_ == world;
+            const bool selected = std::string_view(shownWorld) == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;
                 brushCatalogKey_.clear();
@@ -17371,10 +17503,12 @@ void EditorApp::drawTileBrush() {
             ImGui::SameLine();
         }
         column = (column + 1) % kColumns;
-        ImGui::PushID(paint.name.c_str());
+        ImGui::PushID((paint.category + "/" + paint.name).c_str());
         ImGui::BeginGroup();
         const float groupX = ImGui::GetCursorPosX();
-        const bool selected = brushName_ == paint.name;
+        // Evergreen's grasses share the name Base-85: the armed one is the one whose land the brush is on.
+        const bool sibling = isEvergreenWorld(paint.category) && !brushCategoryMatches(paint.category, brushWorld_);
+        const bool selected = brushName_ == paint.name && !sibling;
         if (selected) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
@@ -17399,7 +17533,14 @@ void EditorApp::drawTileBrush() {
                 0,
                 2.0f);
         }
-        if (pressed) {
+        if (pressed && sibling) {
+            // The other Evergreen grass: the brush moves to its land, keeping the Evergreen buttons.
+            const std::string name = paint.name;
+            brushWorld_ = paint.category;
+            brushCatalogKey_.clear();
+            brushName_.clear();
+            armBrush(name);
+        } else if (pressed) {
             armBrush(paint.name);
         }
         if (ImGui::IsItemHovered()) {
@@ -17513,10 +17654,11 @@ void EditorApp::drawTileBrush() {
             }
             ImGui::SetTooltip("%s", hint);
         }
-        const float textWidth = ImGui::CalcTextSize(paint.name.c_str()).x;
+        const std::string& caption = paint.label.empty() ? paint.name : paint.label;
+        const float textWidth = ImGui::CalcTextSize(caption.c_str()).x;
         const float itemWidth = buttonMax.x - buttonMin.x;
         ImGui::SetCursorPosX(groupX + std::max(0.0f, (itemWidth - textWidth) * 0.5f));
-        ImGui::TextUnformatted(paint.name.c_str());
+        ImGui::TextUnformatted(caption.c_str());
         ImGui::EndGroup();
         ImGui::PopID();
     }

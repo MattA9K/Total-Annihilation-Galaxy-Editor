@@ -554,6 +554,9 @@ private:
     struct BrushPaint {
         std::string name;
         std::string category;
+        // The button's caption when it differs from the name: Evergreen's two Base-85 grasses are
+        // Base-85-1 and Base-85-2.
+        std::string label;
         GLuint preview = 0;
         BrushKind kind = BrushKind::Base;
     };

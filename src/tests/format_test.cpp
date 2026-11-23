@@ -7223,6 +7223,9 @@ void testStartsAndResources() {
         expect(footprintRise(heights, 6, 4, 2, 0, 1, 1) == 50 && footprintRise(heights, 6, 4, 2, 0, 1, 1) > kMetalNodeMaxRise,
             "a footprint whose far edge touches the hill rises with it");
         expect(footprintRise(heights, 6, 4, 4, 2, 5, 5) == 50, "a footprint past the map's edge is measured inside it");
+        expect(tileIsLevel(heights, 6, 4, 1, 1) && tileIsLevel(heights, 6, 4, 0, 0), "a tile with four equal heights is level");
+        expect(!tileIsLevel(heights, 6, 4, 2, 0) && !tileIsLevel(heights, 6, 4, 3, 1), "a tile with one raised height cell is not level");
+        expect(tileIsLevel(heights, 5, 4, 4, 0) == (heights[4] == heights[9]), "a tile cut by the map's edge checks only its cells inside");
         {
             // A node on the hill at (4, 1) moves to the nearest flat, free spot at level 40.
             std::vector<std::uint8_t> occupied(24, 0);

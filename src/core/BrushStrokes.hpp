@@ -386,7 +386,11 @@ inline std::string blendWorldName(std::string_view category) {
     if (lower.find("quagmire") != std::string::npos) {
         return "Quag";
     }
-    // Before "green": Evergreen is its own land, not GreenWorld.
+    // Before "green": Evergreen is its own land, not GreenWorld. Its second grass, Evergreen Base-85-2, is
+    // filed as Evergreen2 and is a land of its own too, so two grasses can share Base-85.
+    if (lower.find("evergreen2") != std::string::npos) {
+        return "Ever2";
+    }
     if (lower.find("evergreen") != std::string::npos) {
         return "Ever";
     }
@@ -513,9 +517,14 @@ inline bool quagmireWaterPartner(std::string_view world) {
     return blueWaterWorld(world) || sandWaterWorld(world) || world == "Mars" || world == "Crystal" || world == "Acid";
 }
 
-// The lands whose Base-85 blends into Evergreen Base-85: Quagmire's partners and Quagmire.
+// The lands both Evergreen grasses blend into: every Base-85 land, Lava Base-86, Archipelago Base-78,
+// Lush Base-77 and Desert Base-80, and the other Evergreen grass.
 inline bool evergreenPartner(std::string_view world) {
-    return world == "Green" || world == "Mars" || world == "Acid" || world == "Crystal" || world == "Ice" || world == "Metal" || world == "Quag";
+    return world == "Green" || world == "Mars" || world == "Acid" || world == "Crystal" || world == "Ice" || world == "Metal" || world == "Quag"
+        || world == "Lava" || world == "Archi" || world == "Lush" || world == "Desert" || world == "Ever" || world == "Ever2";
+}
+inline bool evergreenWorld(std::string_view world) {
+    return world == "Ever" || world == "Ever2";
 }
 
 // The lands whose Base-85 blends into Quagmire Base-85.
@@ -600,10 +609,11 @@ public:
                                 || namedPair("Acid", "Metal") || namedPair("Mars", "Crystal") || namedPair("Mars", "Metal")
                                 || namedPair("Ice", "Crystal") || namedPair("Ice", "Metal") || namedPair("Crystal", "Metal")
                                 || (named && (wa == "Quag") != (wb == "Quag") && quagmirePartner(wa == "Quag" ? wb : wa))
-                                || (named && (wa == "Ever") != (wb == "Ever") && evergreenPartner(wa == "Ever" ? wb : wa)));
+                                || (named && wa != wb && (evergreenWorld(wa) || evergreenWorld(wb)) && evergreenPartner(evergreenWorld(wa) ? wb : wa)));
                         const bool desert85 = rule.lowerHeight == 80 && rule.upperHeight == 85
                             && (namedPair("Acid", "Desert") || namedPair("Crystal", "Desert") || namedPair("Green", "Desert")
-                                || namedPair("Ice", "Desert") || namedPair("Mars", "Desert") || namedPair("Metal", "Desert"));
+                                || namedPair("Ice", "Desert") || namedPair("Mars", "Desert") || namedPair("Metal", "Desert")
+                                || namedPair("Ever", "Desert") || namedPair("Ever2", "Desert"));
                         const bool archiDesert = rule.lowerHeight == 78 && rule.upperHeight == 80 && namedPair("Archi", "Desert");
                         // A land keeps its own coast. Another land's Base-85 beside the water, such as
                         // GreenWorld beside Mars water or Ice water, goes through that land's own ground.
@@ -618,7 +628,8 @@ public:
                         const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86 && namedPair("Lush", "Lava");
                         const bool lush85 = rule.lowerHeight == 77 && rule.upperHeight == 85
                             && (namedPair("Lush", "Ice") || namedPair("Lush", "Green") || namedPair("Lush", "Mars")
-                                || namedPair("Lush", "Acid") || namedPair("Lush", "Crystal") || namedPair("Lush", "Metal"));
+                                || namedPair("Lush", "Acid") || namedPair("Lush", "Crystal") || namedPair("Lush", "Metal")
+                                || namedPair("Lush", "Ever") || namedPair("Lush", "Ever2"));
                         const bool lushDesert = rule.lowerHeight == 77 && rule.upperHeight == 80 && namedPair("Lush", "Desert");
                         if (foreignLand || foreignShallow || foreignIceCoast || foreignDesertCoast || foreignIceCliff || foreignWater
                             || (rule.lowerHeight == rule.upperHeight && !same85 && !same0)
@@ -2723,7 +2734,20 @@ inline std::array<int, 4> threeWayCornerLands(std::string_view loweredName, cons
 
 // The lands Quagmire's three-way pieces pair it with, in the order their names give them.
 inline constexpr std::array<const char*, 6> kQuagmireTriLands = {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal"};
-inline constexpr std::array<const char*, 7> kEvergreenTriLands = {"Green", "Mars", "Acid", "Crystal", "Ice", "Metal", "Quag"};
+struct TriLand {
+    const char* world;
+    int height;
+};
+// The lands an Evergreen grass shares a three-way cell with, with their heights. Evergreen Base-85-1 is
+// the pivot of any set with both grasses in it, so the Base-85-2 list leaves Base-85-1 out.
+inline constexpr std::array<TriLand, 12> kEvergreenTriLands = {{
+    {"Green", 85}, {"Mars", 85}, {"Acid", 85}, {"Crystal", 85}, {"Ice", 85}, {"Metal", 85}, {"Quag", 85},
+    {"Lava", 86}, {"Archi", 78}, {"Lush", 77}, {"Desert", 80}, {"Ever2", 85},
+}};
+inline constexpr std::array<TriLand, 11> kEvergreen2TriLands = {{
+    {"Green", 85}, {"Mars", 85}, {"Acid", 85}, {"Crystal", 85}, {"Ice", 85}, {"Metal", 85}, {"Quag", 85},
+    {"Lava", 86}, {"Archi", 78}, {"Lush", 77}, {"Desert", 80},
+}};
 
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
     // Evergreen with two of the Base-85 lands it blends into, Evergreen as the pivot and the other two in
@@ -2731,7 +2755,19 @@ inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4
     // the bottom left and Quagmire at the bottom right.
     for (std::size_t first = 0; first < kEvergreenTriLands.size(); ++first) {
         for (std::size_t second = first + 1; second < kEvergreenTriLands.size(); ++second) {
-            if (std::string name = triGreenLushName(graph, corners, kEvergreenTriLands[first], kEvergreenTriLands[second], 85, 85, "Ever", 85, "Ever");
+            const TriLand& third = kEvergreenTriLands[first];
+            const TriLand& last = kEvergreenTriLands[second];
+            if (std::string name = triGreenLushName(graph, corners, third.world, last.world, last.height, third.height, "Ever", 85, "Ever");
+                !name.empty()) {
+                return name;
+            }
+        }
+    }
+    for (std::size_t first = 0; first < kEvergreen2TriLands.size(); ++first) {
+        for (std::size_t second = first + 1; second < kEvergreen2TriLands.size(); ++second) {
+            const TriLand& third = kEvergreen2TriLands[first];
+            const TriLand& last = kEvergreen2TriLands[second];
+            if (std::string name = triGreenLushName(graph, corners, third.world, last.world, last.height, third.height, "Ever2", 85, "Ever2");
                 !name.empty()) {
                 return name;
             }
@@ -3067,6 +3103,11 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             // Blend-EverGreen-T has Evergreen along the top and GreenWorld along the bottom.
             marked = graph.world(sorted[0]) == "Ever" ? sorted[0] : sorted[1];
             family = "Ever" + std::string(graph.world(marked == sorted[0] ? sorted[1] : sorted[0]));
+        } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Ever2") != (graph.world(sorted[1]) == "Ever2")) {
+            // Evergreen Base-85-2 beside another land. The mask marks it: Blend-Ever2Lava-T has the second
+            // Evergreen grass along the top and Lava along the bottom. Beside Base-85-1 it is Blend-EverEver2.
+            marked = graph.world(sorted[0]) == "Ever2" ? sorted[0] : sorted[1];
+            family = "Ever2" + std::string(graph.world(marked == sorted[0] ? sorted[1] : sorted[0]));
         } else if (style == TransitionStyle::WorldBlend && (graph.world(sorted[0]) == "Quag") != (graph.world(sorted[1]) == "Quag")) {
             // Quagmire beside another land's Base-85. The mask marks Quagmire: Blend-QuagGreen-T has
             // Quagmire along the top and GreenWorld along the bottom.
