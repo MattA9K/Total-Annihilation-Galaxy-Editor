@@ -1566,8 +1566,9 @@ private:
     }
 
     // True when the brush cell at lattice (lx, ly) is a gentle blend between dry
-    // grounds: no water or lava at any corner, and no cliff between them.
-    bool gentleBlend(int lx, int ly) const {
+    // grounds: no water or lava at any corner, and no cliff between them. With
+    // cliffs, a cliff between dry grounds counts too.
+    bool gentleBlend(int lx, int ly, bool cliffs = false) const {
         const RmsObjectSettings& objects = *options_.objects;
         int low = std::numeric_limits<int>::max();
         int high = std::numeric_limits<int>::min();
@@ -1582,20 +1583,20 @@ private:
                 high = std::max(high, objects.terrainHeights[slot]);
             }
         }
-        return high - low <= kBlendDoodadRise;
+        return cliffs || high - low <= kBlendDoodadRise;
     }
 
     // The ground under a feature cell for doodads such as trees: as groundAt, but on a
     // gentle blend each quarter of the brush cell takes the ground of its own corner,
-    // so a forest's trees reach out to its edge.
-    int doodadGroundAt(int x, int y) const {
+    // so a forest's trees reach out to its edge. With cliffs, cliff cells count too.
+    int doodadGroundAt(int x, int y, bool cliffs = false) const {
         const int flat = groundAt(x, y);
         if (flat >= 0 || x < 0 || y < 0 || x >= cellsWide_ || y >= cellsHigh_) {
             return flat;
         }
         const int lx = std::min(x / perNode_, latticeX_ - 1);
         const int ly = std::min(y / perNode_, latticeY_ - 1);
-        if (!gentleBlend(lx, ly)) {
+        if (!gentleBlend(lx, ly, cliffs)) {
             return -1;
         }
         const int qx = (x - lx * perNode_) * 2 >= perNode_ ? 1 : 0;
@@ -1607,6 +1608,12 @@ private:
     // to one flat ground.
     static bool usesBlends(const ObjectChoice& choice) {
         return choice.byKind && choice.kind != DoodadKind::MetalNodes && choice.kind != DoodadKind::GeoVents;
+    }
+
+    // Trees may also stand on cliff tiles: once the ground is built, a tree whose tile
+    // is not level is left out, so only the flat parts of a cliff keep theirs.
+    static bool usesCliffs(const ObjectChoice& choice) {
+        return choice.byKind && (choice.kind == DoodadKind::Trees || choice.kind == DoodadKind::Palms);
     }
 
     // True when a coast, cliff or blend lies within distance feature cells.
@@ -1723,7 +1730,7 @@ private:
                 if (cx >= cellsWide_ || cy >= cellsHigh_ || occupied_[static_cast<std::size_t>(cy) * static_cast<std::size_t>(cellsWide_) + static_cast<std::size_t>(cx)]) {
                     return false;
                 }
-                const int here = usesBlends(choice) ? doodadGroundAt(cx, cy) : groundAt(cx, cy);
+                const int here = usesBlends(choice) ? doodadGroundAt(cx, cy, usesCliffs(choice)) : groundAt(cx, cy);
                 if (here < 0 || (ground != -2 && here != ground)) {
                     return false;
                 }
@@ -1812,7 +1819,7 @@ private:
         // is as likely as any other, whichever ones fail to fit here. The order is drawn one
         // feature at a time, a shuffle that stops at the first feature that fits.
         // A feature takes the ground of its top-left cell, so only those that suit it are tried.
-        const int ground = usesBlends(choice) ? doodadGroundAt(x, y) : groundAt(x, y);
+        const int ground = usesBlends(choice) ? doodadGroundAt(x, y, usesCliffs(choice)) : groundAt(x, y);
         if (ground < 0) {
             return false;
         }
@@ -1945,7 +1952,7 @@ private:
                 bool any = false;
                 if (ground >= 0) {
                     any = usable(ground);
-                } else if (blends && gentleBlend(lx, ly)) {
+                } else if (blends && gentleBlend(lx, ly, usesCliffs(choice))) {
                     // A blend counts when any of its corners is ground the choice can use.
                     for (int corner = 0; corner < 4 && !any; ++corner) {
                         any = usable(canvas_.at(lx + corner % 2, ly + corner / 2));

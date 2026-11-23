@@ -6349,6 +6349,57 @@ void EditorApp::drawMap() {
         eachLine(true);
         eachLine(false);
     }
+    if (showBrushCorners_ && zoom_ > 0.0f) {
+        refreshBrushCorners();
+        const float spacing = static_cast<float>(kBrushCellTiles * 32) * zoom_;
+        if (brushCornerNodesX_ > 0 && spacing >= 6.0f) {
+            const float cellPixels = static_cast<float>(kBrushCellTiles * 32);
+            const int firstX = std::max(0, static_cast<int>(std::floor((-panX_ / zoom_) / cellPixels)));
+            const int lastX = std::min(brushCornerNodesX_ - 1, static_cast<int>(std::ceil(((canvas.x - panX_) / zoom_) / cellPixels)));
+            const int firstY = std::max(0, static_cast<int>(std::floor((-panY_ / zoom_) / cellPixels)));
+            const int lastY = std::min(brushCornerNodesY_ - 1, static_cast<int>(std::ceil(((canvas.y - panY_) / zoom_) / cellPixels)));
+            // The cell lines, then a dot at each corner coloured by its land, and its name when there is room.
+            const float mapPixelW = static_cast<float>(map_->pixelWidth());
+            const float mapPixelH = static_cast<float>(map_->pixelHeight());
+            for (int x = firstX; x <= lastX; ++x) {
+                const ImVec2 a = toScreen(std::min(static_cast<float>(x) * cellPixels, mapPixelW), 0.0f);
+                const ImVec2 b = toScreen(std::min(static_cast<float>(x) * cellPixels, mapPixelW), mapPixelH);
+                draw->AddLine(a, b, IM_COL32(255, 220, 60, 150), 1.0f);
+            }
+            for (int y = firstY; y <= lastY; ++y) {
+                const ImVec2 a = toScreen(0.0f, std::min(static_cast<float>(y) * cellPixels, mapPixelH));
+                const ImVec2 b = toScreen(mapPixelW, std::min(static_cast<float>(y) * cellPixels, mapPixelH));
+                draw->AddLine(a, b, IM_COL32(255, 220, 60, 150), 1.0f);
+            }
+            const bool labels = spacing >= 90.0f;
+            const float radius = std::clamp(spacing * 0.06f, 3.0f, 7.0f);
+            for (int y = firstY; y <= lastY; ++y) {
+                for (int x = firstX; x <= lastX; ++x) {
+                    const int level = brushCornerLevels_[static_cast<std::size_t>(y) * static_cast<std::size_t>(brushCornerNodesX_) + static_cast<std::size_t>(x)];
+                    if (level < 0 || static_cast<std::size_t>(level) >= brushCornerNames_.size()) {
+                        continue;
+                    }
+                    const std::string& name = brushCornerNames_[static_cast<std::size_t>(level)];
+                    const ImVec2 at = toScreen(std::min(static_cast<float>(x) * cellPixels, mapPixelW), std::min(static_cast<float>(y) * cellPixels, mapPixelH));
+                    // One hue per land, lighter for higher ground.
+                    const std::size_t space = name.rfind(' ');
+                    const std::string world = space == std::string::npos ? name : name.substr(0, space);
+                    const float hue = static_cast<float>(std::hash<std::string>{}(world) % 360u) / 360.0f;
+                    const float height = static_cast<float>(std::max(0, trailingNumber(name)));
+                    const ImU32 colour = ImColor::HSV(hue, 0.75f, 0.45f + 0.55f * std::min(1.0f, height / 255.0f));
+                    draw->AddCircleFilled(at, radius, colour);
+                    draw->AddCircle(at, radius, IM_COL32(0, 0, 0, 230), 0.0f, 1.5f);
+                    if (labels) {
+                        const ImVec2 size = ImGui::CalcTextSize(name.c_str());
+                        const ImVec2 textAt(at.x + radius + 3.0f, at.y + radius + 1.0f);
+                        draw->AddRectFilled(ImVec2(textAt.x - 2.0f, textAt.y - 1.0f), ImVec2(textAt.x + size.x + 2.0f, textAt.y + size.y + 1.0f),
+                                            IM_COL32(0, 0, 0, 170), 3.0f);
+                        draw->AddText(textAt, IM_COL32(255, 255, 255, 255), name.c_str());
+                    }
+                }
+            }
+        }
+    }
     const ImVec2 clipMin(origin.x - 48.0f, origin.y - 48.0f);
     const ImVec2 clipMax(origin.x + canvas.x + 48.0f, origin.y + canvas.y + 48.0f);
     auto onScreen = [&](const ImVec2& at) {
@@ -10742,6 +10793,9 @@ bool EditorApp::draw() {
                         gridTiles_ = size;
                     }
                 }
+                ImGui::Separator();
+                // Each corner of the 16 x 16 tile cells with the paint the Tile Brush reads there.
+                ImGui::MenuItem(text(Text::GridBrushCorners), nullptr, &showBrushCorners_, map_.has_value());
                 ImGui::EndMenu();
             }
             ImGui::Separator();
@@ -11116,6 +11170,295 @@ std::string EditorApp::foreignGroundIn(int tileX, int tileY, int width, int heig
     return {};
 }
 
+std::vector<const EditorApp::BrushPaint*> EditorApp::brushLevels() const {
+    std::vector<const BrushPaint*> levels;
+    for (const BrushPaint& paint : brushPaints_) {
+        if (paint.kind == BrushKind::Base && trailingNumber(paint.name) >= 0) {
+            levels.push_back(&paint);
+        }
+    }
+    for (const BrushPaint& partner : brushPartners_) {
+        if (trailingNumber(partner.name) >= 0) {
+            levels.push_back(&partner);
+        }
+    }
+    std::stable_sort(levels.begin(), levels.end(), [](const BrushPaint* left, const BrushPaint* right) {
+        return trailingNumber(left->name) < trailingNumber(right->name);
+    });
+    return levels;
+}
+
+// How the Tile Brush reads the ground at its cell corners: the armed tileset's paints with
+// what it takes to tell them apart. A corner sits on the level whose paint height is closest
+// to the tiles around it. Two lands can share a height, so a known picture names its land,
+// and a blend fringe follows the height at that corner.
+EditorApp::BrushCornerReading EditorApp::brushCornerReading(const std::vector<const BrushPaint*>& levels) {
+    BrushCornerReading reading;
+    reading.levels = levels;
+    std::vector<int> levelHeights;
+    for (const BrushPaint* paint : levels) {
+        levelHeights.push_back(trailingNumber(paint->name));
+    }
+    const bool pictures = !brushPictures_.empty();
+    // A tile whose picture is unknown, such as one from a game map or another section of the
+    // tileset, is read by its height alone. Only the armed tileset's own bases are in the
+    // running then: the partner lands sit at 77 to 86, so Metal plating at 86 would be read as
+    // Lava Base-86, and plating at 85 would tie with five other Base-85 lands and fall to Base-0.
+    // A partner land is still found by its picture, which is how a blend is read.
+    std::vector<std::size_t> ownLevels;
+    for (std::size_t i = 0; i < levels.size(); ++i) {
+        if (brushCategoryMatches(levels[i]->category, brushWorld_)) {
+            ownLevels.push_back(i);
+        }
+    }
+    if (ownLevels.empty()) {
+        for (std::size_t i = 0; i < levels.size(); ++i) {
+            ownLevels.push_back(i);
+        }
+    }
+    // Each paint's ground colour, for tiles whose picture is unknown where several lands share a
+    // height. An 8 x 8 piece's flat ground is moved onto the map grid as it is placed, so its tiles
+    // are pictures the brush has never seen; at Base-85 the height alone would read GreenWorld grass
+    // beside Evergreen as Evergreen. The nearest ground colour names the land when the tile plainly
+    // looks like one; a tile like none of them, such as one from a game map, is read by height.
+    std::vector<std::array<double, 3>> levelColours(levels.size(), {-1.0, -1.0, -1.0});
+    bool sharedLevelHeight = false;
+    for (std::size_t i = 0; i < levels.size(); ++i) {
+        for (std::size_t j = i + 1; j < levels.size(); ++j) {
+            sharedLevelHeight = sharedLevelHeight || levelHeights[i] == levelHeights[j];
+        }
+    }
+    if (pictures && sharedLevelHeight) {
+        for (std::size_t i = 0; i < levels.size(); ++i) {
+            const PaletteImage* ground = brushGround(levels[i]->category, levels[i]->name);
+            if (ground == nullptr || ground->pixels.empty()) {
+                continue;
+            }
+            std::array<double, 3> mean = {0, 0, 0};
+            for (const std::uint8_t index : ground->pixels) {
+                for (int channel = 0; channel < 3; ++channel) {
+                    mean[static_cast<std::size_t>(channel)] += kTaPalette[index][channel];
+                }
+            }
+            for (double& channel : mean) {
+                channel /= static_cast<double>(ground->pixels.size());
+            }
+            levelColours[i] = mean;
+        }
+    }
+    reading.heights = std::move(levelHeights);
+    reading.own = std::move(ownLevels);
+    reading.colours = std::move(levelColours);
+    reading.shared = sharedLevelHeight;
+    reading.pictures = pictures;
+    return reading;
+}
+
+// The level the four tiles around corner (nodeX, nodeY) of the cell grid vote for, cells of cell tiles.
+int EditorApp::readBrushCorner(const BrushCornerReading& reading, const BrushGraph& graph, int nodeX, int nodeY, int cell) const {
+    const std::vector<const BrushPaint*>& levels = reading.levels;
+    const std::vector<int>& levelHeights = reading.heights;
+    const std::vector<std::size_t>& ownLevels = reading.own;
+    const std::vector<std::array<double, 3>>& levelColours = reading.colours;
+    const bool pictures = reading.pictures;
+    const bool sharedLevelHeight = reading.shared;
+    const auto nearestLevel = [&](int height, bool abstainOnTie) {
+        return nearestOwnLevel(levelHeights, ownLevels, height, abstainOnTie);
+    };
+    const auto levelByColour = [&](const std::uint8_t* pixels, int height) {
+        std::array<double, 3> tileMean = {0, 0, 0};
+        for (int i = 0; i < 1024; ++i) {
+            for (int channel = 0; channel < 3; ++channel) {
+                tileMean[static_cast<std::size_t>(channel)] += kTaPalette[pixels[i]][channel] / 1024.0;
+            }
+        }
+        int best = -1;
+        int candidates = 0;
+        double bestDistance = 1.0e30;
+        for (std::size_t i = 0; i < levels.size(); ++i) {
+            if (levelHeights[i] != height || levelColours[i][0] < 0) {
+                continue;
+            }
+            ++candidates;
+            double distance = 0;
+            for (int channel = 0; channel < 3; ++channel) {
+                const double gap = tileMean[static_cast<std::size_t>(channel)] - levelColours[i][static_cast<std::size_t>(channel)];
+                distance += gap * gap;
+            }
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = static_cast<int>(i);
+            }
+        }
+        return candidates >= 2 && bestDistance < 24.0 * 24.0 ? best : -1;
+    };
+    std::vector<int> votes(levels.size(), 0);
+    for (int dy = -1; dy <= 0; ++dy) {
+        for (int dx = -1; dx <= 0; ++dx) {
+            const int tx = std::clamp(nodeX * cell + dx, 0, map_->tileWidth - 1);
+            const int ty = std::clamp(nodeY * cell + dy, 0, map_->tileHeight - 1);
+            int voted = -1;
+            if (pictures) {
+                const std::size_t cellIndex = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
+                if (cellIndex < map_->indices.size()) {
+                    const std::uint32_t image = map_->indices[cellIndex];
+                    const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
+                    if (bytes + 1024 <= map_->tileImages.size()) {
+                        const std::uint64_t pictureHash = hashBrushTile(map_->tileImages.data() + bytes);
+                        const auto found = brushPictures_.find(pictureHash);
+                        // A picture several bases share, such as Desert Base-80 and Base-155
+                        // sand, is one of those bases: the nearest of them by height. Other
+                        // paints at a nearer height, such as Lava Base-86, are not in the running.
+                        if (const auto shared = found == brushPictures_.end() ? sharedPictures_.find(pictureHash) : sharedPictures_.end();
+                            shared != sharedPictures_.end()) {
+                            const std::size_t heightIndex = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
+                            if (heightIndex < map_->heights.size()) {
+                                const int height = map_->heights[heightIndex];
+                                int bestDistance = 1 << 30;
+                                for (std::size_t i = 0; i < levels.size(); ++i) {
+                                    bool sharesPicture = false;
+                                    for (const auto& [category, name] : shared->second) {
+                                        sharesPicture = sharesPicture || (lowerText(levels[i]->category) == lowerText(category) && lowerText(levels[i]->name) == lowerText(name));
+                                    }
+                                    const int distance = std::abs(height - levelHeights[i]);
+                                    if (sharesPicture && distance < bestDistance) {
+                                        bestDistance = distance;
+                                        voted = static_cast<int>(i);
+                                    }
+                                }
+                            }
+                        }
+                        if (found != brushPictures_.end()) {
+                            int matched = -1;
+                            for (std::size_t i = 0; i < levels.size(); ++i) {
+                                if (lowerText(levels[i]->category) == lowerText(found->second.category) && lowerText(levels[i]->name) == lowerText(found->second.name)) {
+                                    matched = static_cast<int>(i);
+                                    break;
+                                }
+                            }
+                            if (matched >= 0 && !found->second.fringe) {
+                                voted = matched;
+                            } else if (matched >= 0) {
+                                int other = -1;
+                                const bool namedPartner = !found->second.partnerName.empty();
+                                for (int i = 0; i < graph.size(); ++i) {
+                                    if (namedPartner) {
+                                        if (lowerText(levels[static_cast<std::size_t>(i)]->category) == lowerText(found->second.partnerCategory)
+                                            && lowerText(levels[static_cast<std::size_t>(i)]->name) == lowerText(found->second.partnerName)) {
+                                            other = i;
+                                            break;
+                                        }
+                                    } else if (graph.style(i, matched) == TransitionStyle::WorldBlend) {
+                                        other = i;
+                                    }
+                                }
+                                // A shore's water held under another land of its water family, such as an
+                                // Archipelago shore beside the Desert water the GreenWorld brush holds.
+                                for (int i = 0; other < 0 && namedPartner && i < graph.size(); ++i) {
+                                    const BrushPaint* level = levels[static_cast<std::size_t>(i)];
+                                    if (lowerText(level->name) == lowerText(found->second.partnerName) && levelHeights[static_cast<std::size_t>(i)] < 68
+                                        && sameWaterFamily(blendWorldName(level->category), blendWorldName(found->second.partnerCategory))) {
+                                        other = i;
+                                    }
+                                }
+                                const int sx = tx * 2 + (tx < nodeX * cell ? 1 : 0);
+                                const int sy = ty * 2 + (ty < nodeY * cell ? 1 : 0);
+                                const std::size_t heightIndex = static_cast<std::size_t>(sy) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(sx);
+                                const int height = heightIndex < map_->heights.size() ? map_->heights[heightIndex] : levelHeights[static_cast<std::size_t>(matched)];
+                                if (other < 0 && namedPartner && trailingNumber(found->second.partnerName) >= 0) {
+                                    // A partner land's shore, whose liquid this brush cannot paint: the
+                                    // land where the height is nearer it, otherwise read by height below.
+                                    const int liquid = trailingNumber(found->second.partnerName);
+                                    const int land = levelHeights[static_cast<std::size_t>(matched)];
+                                    voted = std::abs(height - land) <= std::abs(height - liquid) ? matched : -1;
+                                } else if (other < 0) {
+                                    voted = matched;
+                                } else {
+                                    const int matchedDistance = std::abs(height - levelHeights[static_cast<std::size_t>(matched)]);
+                                    const int otherDistance = std::abs(height - levelHeights[static_cast<std::size_t>(other)]);
+                                    voted = otherDistance < matchedDistance ? other : matched;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (voted < 0) {
+                const std::size_t index = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
+                const std::size_t cellIndex = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
+                if (pictures && sharedLevelHeight && index < map_->heights.size() && cellIndex < map_->indices.size()) {
+                    const std::size_t bytes = static_cast<std::size_t>(map_->indices[cellIndex]) * 1024;
+                    if (bytes + 1024 <= map_->tileImages.size()) {
+                        voted = levelByColour(map_->tileImages.data() + bytes, map_->heights[index]);
+                    }
+                }
+                if (voted < 0 && index < map_->heights.size()) {
+                    voted = nearestLevel(map_->heights[index], pictures);
+                }
+            }
+            if (voted >= 0) {
+                ++votes[static_cast<std::size_t>(voted)];
+            }
+        }
+    }
+    int winner = -1;
+    int bestVotes = 0;
+    for (std::size_t i = 0; i < votes.size(); ++i) {
+        if (votes[i] > bestVotes) {
+            bestVotes = votes[i];
+            winner = static_cast<int>(i);
+        }
+    }
+    if (winner >= 0) {
+        return winner;
+    }
+    return 0;
+}
+
+void EditorApp::refreshBrushCorners() {
+    if (!map_) {
+        brushCornerLevels_.clear();
+        brushCornerNames_.clear();
+        brushCornerNodesX_ = 0;
+        brushCornerNodesY_ = 0;
+        brushCornerKey_ = 0;
+        return;
+    }
+    ensureBrushPaints();
+    const std::uint64_t key = (mapRevision_ * 0x9E3779B97F4A7C15ull) ^ (mapSerial_ * 0xC2B2AE3D27D4EB4Full)
+        ^ static_cast<std::uint64_t>(std::hash<std::string>{}(brushCatalogKey_)) ^ static_cast<std::uint64_t>(map_->tileWidth) << 40
+        ^ static_cast<std::uint64_t>(map_->tileHeight) << 20;
+    if (key == brushCornerKey_) {
+        return;
+    }
+    brushCornerKey_ = key;
+    brushCornerLevels_.clear();
+    brushCornerNames_.clear();
+    brushCornerNodesX_ = 0;
+    brushCornerNodesY_ = 0;
+    const std::vector<const BrushPaint*> levels = brushLevels();
+    if (levels.empty()) {
+        return;
+    }
+    const BrushCornerReading reading = brushCornerReading(levels);
+    std::vector<std::string> worlds;
+    for (const BrushPaint* paint : levels) {
+        worlds.push_back(blendWorldName(paint->category));
+        brushCornerNames_.push_back(worlds.back() + " " + std::to_string(trailingNumber(paint->name)));
+    }
+    // The same graph a stroke builds, since a blend fringe is read through it.
+    const BrushGraph graph(reading.heights, worlds, false, blendWorldName(brushWorld_));
+    const int cell = kBrushCellTiles;
+    brushCornerNodesX_ = (map_->tileWidth + cell - 1) / cell + 1;
+    brushCornerNodesY_ = (map_->tileHeight + cell - 1) / cell + 1;
+    brushCornerLevels_.reserve(static_cast<std::size_t>(brushCornerNodesX_) * static_cast<std::size_t>(brushCornerNodesY_));
+    for (int y = 0; y < brushCornerNodesY_; ++y) {
+        for (int x = 0; x < brushCornerNodesX_; ++x) {
+            brushCornerLevels_.push_back(readBrushCorner(reading, graph, x, y, cell));
+        }
+    }
+}
+
 EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cellTiles, bool mayRefine, int footprintTiles) {
     const int cell = cellTiles;
     pictureBandSizes_.clear();
@@ -11225,20 +11568,7 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
 
     // The paints, lowest to highest, are the levels. The graph says which pairs
     // have pieces, such as Coast for Base-0 and Base-85.
-    std::vector<const BrushPaint*> levels;
-    for (const BrushPaint& paint : brushPaints_) {
-        if (paint.kind == BrushKind::Base && trailingNumber(paint.name) >= 0) {
-            levels.push_back(&paint);
-        }
-    }
-    for (const BrushPaint& partner : brushPartners_) {
-        if (trailingNumber(partner.name) >= 0) {
-            levels.push_back(&partner);
-        }
-    }
-    std::stable_sort(levels.begin(), levels.end(), [](const BrushPaint* left, const BrushPaint* right) {
-        return trailingNumber(left->name) < trailingNumber(right->name);
-    });
+    const std::vector<const BrushPaint*> levels = brushLevels();
     std::vector<int> levelHeights;
     std::vector<std::string> levelWorlds;
     for (const BrushPaint* paint : levels) {
@@ -11317,209 +11647,8 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
         }
 
         if (transitions) {
-            // A corner sits on the level whose paint height is closest to the
-            // tiles around it. Two lands can share a height, so a known picture
-            // names its land, and a blend fringe follows the height at that corner.
-            const bool pictures = !brushPictures_.empty();
-            // A tile whose picture is unknown, such as one from a game map or another section of the
-            // tileset, is read by its height alone. Only the armed tileset's own bases are in the
-            // running then: the partner lands sit at 77 to 86, so Metal plating at 86 would be read as
-            // Lava Base-86, and plating at 85 would tie with five other Base-85 lands and fall to Base-0.
-            // A partner land is still found by its picture, which is how a blend is read.
-            std::vector<std::size_t> ownLevels;
-            for (std::size_t i = 0; i < levels.size(); ++i) {
-                if (brushCategoryMatches(levels[i]->category, brushWorld_)) {
-                    ownLevels.push_back(i);
-                }
-            }
-            if (ownLevels.empty()) {
-                for (std::size_t i = 0; i < levels.size(); ++i) {
-                    ownLevels.push_back(i);
-                }
-            }
-            const auto nearestLevel = [&](int height, bool abstainOnTie) {
-                return nearestOwnLevel(levelHeights, ownLevels, height, abstainOnTie);
-            };
-            // Each paint's ground colour, for tiles whose picture is unknown where several lands share a
-            // height. An 8 x 8 piece's flat ground is moved onto the map grid as it is placed, so its tiles
-            // are pictures the brush has never seen; at Base-85 the height alone would read GreenWorld grass
-            // beside Evergreen as Evergreen. The nearest ground colour names the land when the tile plainly
-            // looks like one; a tile like none of them, such as one from a game map, is read by height.
-            std::vector<std::array<double, 3>> levelColours(levels.size(), {-1.0, -1.0, -1.0});
-            bool sharedLevelHeight = false;
-            for (std::size_t i = 0; i < levels.size(); ++i) {
-                for (std::size_t j = i + 1; j < levels.size(); ++j) {
-                    sharedLevelHeight = sharedLevelHeight || levelHeights[i] == levelHeights[j];
-                }
-            }
-            if (pictures && sharedLevelHeight) {
-                for (std::size_t i = 0; i < levels.size(); ++i) {
-                    const PaletteImage* ground = brushGround(levels[i]->category, levels[i]->name);
-                    if (ground == nullptr || ground->pixels.empty()) {
-                        continue;
-                    }
-                    std::array<double, 3> mean = {0, 0, 0};
-                    for (const std::uint8_t index : ground->pixels) {
-                        for (int channel = 0; channel < 3; ++channel) {
-                            mean[static_cast<std::size_t>(channel)] += kTaPalette[index][channel];
-                        }
-                    }
-                    for (double& channel : mean) {
-                        channel /= static_cast<double>(ground->pixels.size());
-                    }
-                    levelColours[i] = mean;
-                }
-            }
-            const auto levelByColour = [&](const std::uint8_t* pixels, int height) {
-                std::array<double, 3> tileMean = {0, 0, 0};
-                for (int i = 0; i < 1024; ++i) {
-                    for (int channel = 0; channel < 3; ++channel) {
-                        tileMean[static_cast<std::size_t>(channel)] += kTaPalette[pixels[i]][channel] / 1024.0;
-                    }
-                }
-                int best = -1;
-                int candidates = 0;
-                double bestDistance = 1.0e30;
-                for (std::size_t i = 0; i < levels.size(); ++i) {
-                    if (levelHeights[i] != height || levelColours[i][0] < 0) {
-                        continue;
-                    }
-                    ++candidates;
-                    double distance = 0;
-                    for (int channel = 0; channel < 3; ++channel) {
-                        const double gap = tileMean[static_cast<std::size_t>(channel)] - levelColours[i][static_cast<std::size_t>(channel)];
-                        distance += gap * gap;
-                    }
-                    if (distance < bestDistance) {
-                        bestDistance = distance;
-                        best = static_cast<int>(i);
-                    }
-                }
-                return candidates >= 2 && bestDistance < 24.0 * 24.0 ? best : -1;
-            };
-            const auto readCorner = [&](int nodeX, int nodeY) {
-                std::vector<int> votes(levels.size(), 0);
-                for (int dy = -1; dy <= 0; ++dy) {
-                    for (int dx = -1; dx <= 0; ++dx) {
-                        const int tx = std::clamp(nodeX * cell + dx, 0, map_->tileWidth - 1);
-                        const int ty = std::clamp(nodeY * cell + dy, 0, map_->tileHeight - 1);
-                        int voted = -1;
-                        if (pictures) {
-                            const std::size_t cellIndex = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
-                            if (cellIndex < map_->indices.size()) {
-                                const std::uint32_t image = map_->indices[cellIndex];
-                                const std::size_t bytes = static_cast<std::size_t>(image) * 1024;
-                                if (bytes + 1024 <= map_->tileImages.size()) {
-                                    const std::uint64_t pictureHash = hashBrushTile(map_->tileImages.data() + bytes);
-                                    const auto found = brushPictures_.find(pictureHash);
-                                    // A picture several bases share, such as Desert Base-80 and Base-155
-                                    // sand, is one of those bases: the nearest of them by height. Other
-                                    // paints at a nearer height, such as Lava Base-86, are not in the running.
-                                    if (const auto shared = found == brushPictures_.end() ? sharedPictures_.find(pictureHash) : sharedPictures_.end();
-                                        shared != sharedPictures_.end()) {
-                                        const std::size_t heightIndex = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
-                                        if (heightIndex < map_->heights.size()) {
-                                            const int height = map_->heights[heightIndex];
-                                            int bestDistance = 1 << 30;
-                                            for (std::size_t i = 0; i < levels.size(); ++i) {
-                                                bool sharesPicture = false;
-                                                for (const auto& [category, name] : shared->second) {
-                                                    sharesPicture = sharesPicture || (lowerText(levels[i]->category) == lowerText(category) && lowerText(levels[i]->name) == lowerText(name));
-                                                }
-                                                const int distance = std::abs(height - levelHeights[i]);
-                                                if (sharesPicture && distance < bestDistance) {
-                                                    bestDistance = distance;
-                                                    voted = static_cast<int>(i);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (found != brushPictures_.end()) {
-                                        int matched = -1;
-                                        for (std::size_t i = 0; i < levels.size(); ++i) {
-                                            if (lowerText(levels[i]->category) == lowerText(found->second.category) && lowerText(levels[i]->name) == lowerText(found->second.name)) {
-                                                matched = static_cast<int>(i);
-                                                break;
-                                            }
-                                        }
-                                        if (matched >= 0 && !found->second.fringe) {
-                                            voted = matched;
-                                        } else if (matched >= 0) {
-                                            int other = -1;
-                                            const bool namedPartner = !found->second.partnerName.empty();
-                                            for (int i = 0; i < graph.size(); ++i) {
-                                                if (namedPartner) {
-                                                    if (lowerText(levels[static_cast<std::size_t>(i)]->category) == lowerText(found->second.partnerCategory)
-                                                        && lowerText(levels[static_cast<std::size_t>(i)]->name) == lowerText(found->second.partnerName)) {
-                                                        other = i;
-                                                        break;
-                                                    }
-                                                } else if (graph.style(i, matched) == TransitionStyle::WorldBlend) {
-                                                    other = i;
-                                                }
-                                            }
-                                            // A shore's water held under another land of its water family, such as an
-                                            // Archipelago shore beside the Desert water the GreenWorld brush holds.
-                                            for (int i = 0; other < 0 && namedPartner && i < graph.size(); ++i) {
-                                                const BrushPaint* level = levels[static_cast<std::size_t>(i)];
-                                                if (lowerText(level->name) == lowerText(found->second.partnerName) && levelHeights[static_cast<std::size_t>(i)] < 68
-                                                    && sameWaterFamily(blendWorldName(level->category), blendWorldName(found->second.partnerCategory))) {
-                                                    other = i;
-                                                }
-                                            }
-                                            const int sx = tx * 2 + (tx < nodeX * cell ? 1 : 0);
-                                            const int sy = ty * 2 + (ty < nodeY * cell ? 1 : 0);
-                                            const std::size_t heightIndex = static_cast<std::size_t>(sy) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(sx);
-                                            const int height = heightIndex < map_->heights.size() ? map_->heights[heightIndex] : levelHeights[static_cast<std::size_t>(matched)];
-                                            if (other < 0 && namedPartner && trailingNumber(found->second.partnerName) >= 0) {
-                                                // A partner land's shore, whose liquid this brush cannot paint: the
-                                                // land where the height is nearer it, otherwise read by height below.
-                                                const int liquid = trailingNumber(found->second.partnerName);
-                                                const int land = levelHeights[static_cast<std::size_t>(matched)];
-                                                voted = std::abs(height - land) <= std::abs(height - liquid) ? matched : -1;
-                                            } else if (other < 0) {
-                                                voted = matched;
-                                            } else {
-                                                const int matchedDistance = std::abs(height - levelHeights[static_cast<std::size_t>(matched)]);
-                                                const int otherDistance = std::abs(height - levelHeights[static_cast<std::size_t>(other)]);
-                                                voted = otherDistance < matchedDistance ? other : matched;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (voted < 0) {
-                            const std::size_t index = static_cast<std::size_t>(ty * 2) * static_cast<std::size_t>(map_->heightWidth()) + static_cast<std::size_t>(tx * 2);
-                            const std::size_t cellIndex = static_cast<std::size_t>(ty) * static_cast<std::size_t>(map_->tileWidth) + static_cast<std::size_t>(tx);
-                            if (pictures && sharedLevelHeight && index < map_->heights.size() && cellIndex < map_->indices.size()) {
-                                const std::size_t bytes = static_cast<std::size_t>(map_->indices[cellIndex]) * 1024;
-                                if (bytes + 1024 <= map_->tileImages.size()) {
-                                    voted = levelByColour(map_->tileImages.data() + bytes, map_->heights[index]);
-                                }
-                            }
-                            if (voted < 0 && index < map_->heights.size()) {
-                                voted = nearestLevel(map_->heights[index], pictures);
-                            }
-                        }
-                        if (voted >= 0) {
-                            ++votes[static_cast<std::size_t>(voted)];
-                        }
-                    }
-                }
-                int winner = -1;
-                int bestVotes = 0;
-                for (std::size_t i = 0; i < votes.size(); ++i) {
-                    if (votes[i] > bestVotes) {
-                        bestVotes = votes[i];
-                        winner = static_cast<int>(i);
-                    }
-                }
-                if (winner >= 0) {
-                    return winner;
-                }
-                return 0;
-            };
+            const BrushCornerReading cornerReading = brushCornerReading(levels);
+            const auto readCorner = [&](int nodeX, int nodeY) { return readBrushCorner(cornerReading, graph, nodeX, nodeY, cell); };
             // On the 8 tile cells, a corner inside a 16 x 16 piece is one of that piece's own lands, and
             // never a cliff top unless a corner of the 16 tile grid beside it is one.
             const bool bandLists = !coarseBandTiles_.empty() && !fineBandTiles_.empty();

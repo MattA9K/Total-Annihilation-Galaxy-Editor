@@ -58,6 +58,7 @@ enum class Text : int {
     ActualSize,
     Grid,
     GridOff,
+    GridBrushCorners,
     View3d,
     Reset3dCamera,
     HideHeightMap,

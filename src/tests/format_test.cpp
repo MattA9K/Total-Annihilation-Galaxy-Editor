@@ -6449,6 +6449,7 @@ void testBlendDoodads() {
         "create_object METAL_NODES { number_of_objects 40 }\n");
     const RandomMapOutcome outcome = runRandomMapScript(script, canvas, plainNames(), options, rng);
     int blendTrees = 0;
+    int cliffTrees = 0;
     bool treesRight = true;
     bool metalFlat = true;
     for (const RmsPlacedFeature& feature : outcome.features) {
@@ -6464,15 +6465,21 @@ void testBlendDoodads() {
             treesRight = treesRight && corners[0] != 0 && corners[0] != 3;
             continue;
         }
-        // On a blend the corner nearest the tree is forest, and no corner is cliff or water.
+        // On a blend the corner nearest the tree is Lush ground, the forest or the cliff
+        // plateau, and no corner is water. Trees may stand on cliffs: the ground built
+        // later leaves out any whose tile is not level.
         const int nearest = canvas.at(lx + ((feature.x % 4) >= 2 ? 1 : 0), ly + ((feature.y % 4) >= 2 ? 1 : 0));
-        treesRight = treesRight && nearest == 1;
+        treesRight = treesRight && (nearest == 1 || nearest == 2);
+        bool cliff = false;
         for (const int corner : corners) {
-            treesRight = treesRight && corner != 0 && corner != 2;
+            treesRight = treesRight && corner != 0;
+            cliff = cliff || corner == 2;
         }
+        cliffTrees += cliff ? 1 : 0;
         ++blendTrees;
     }
-    expect(treesRight, "trees stand on the forest's own quarter of a blend, never by a cliff or water");
+    expect(treesRight, "trees stand on Lush quarters of a blend or cliff, never by water");
+    expect(cliffTrees > 0, "trees reach onto cliff tiles: " + std::to_string(cliffTrees));
     expect(blendTrees > 0, "trees reach onto the blend at the forest's edge: " + std::to_string(blendTrees));
     expect(metalFlat, "metal nodes still keep to flat cells of one ground");
 }

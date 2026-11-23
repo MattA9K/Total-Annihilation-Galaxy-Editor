@@ -579,6 +579,34 @@ private:
     // Base-183, or Desert Base-155 and Base-230. They stay out of brushPictures_, so the base
     // brush reads those tiles by height. Each entry lists the bases as category and name.
     std::unordered_map<std::uint64_t, std::vector<std::pair<std::string, std::string>>> sharedPictures_;
+    // The armed tileset's base paints and partner lands, lowest height first: the brush's levels.
+    std::vector<const BrushPaint*> brushLevels() const;
+    // What reading a corner needs, worked out once for a set of levels.
+    struct BrushCornerReading {
+        std::vector<const BrushPaint*> levels;
+        std::vector<int> heights;
+        // The armed tileset's own levels, the only ones a tile read by height alone can be.
+        std::vector<std::size_t> own;
+        // Each level's mean ground colour, or -1 when unknown.
+        std::vector<std::array<double, 3>> colours;
+        bool shared = false;
+        bool pictures = false;
+    };
+    BrushCornerReading brushCornerReading(const std::vector<const BrushPaint*>& levels);
+    // The level at corner (nodeX, nodeY) of the grid of cell x cell tile cells, read from the
+    // four tiles around it, as the Tile Brush reads it before a stroke.
+    int readBrushCorner(const BrushCornerReading& reading, const BrushGraph& graph, int nodeX, int nodeY, int cell) const;
+    // View > Grid > Brush corners: each corner of the 16 x 16 tile cells labelled with the paint
+    // the Tile Brush reads there. Worked out again only when the map or the tileset changes.
+    bool showBrushCorners_ = false;
+    // The level read at each corner, row by row, and each level's label, such as "Mars 0".
+    std::vector<int> brushCornerLevels_;
+    std::vector<std::string> brushCornerNames_;
+    int brushCornerNodesX_ = 0;
+    int brushCornerNodesY_ = 0;
+    std::uint64_t brushCornerKey_ = 0;
+    // Reads every corner again when the map's pictures, heights or the armed tileset changed.
+    void refreshBrushCorners();
     // Stroke sections from BaseTileBrushStrokes. The stamp is read the first time that stroke is placed.
     // A land with no 8 x 8 stroke of its own gets four, one for each quarter of a 16 x 16 one:
     // cropTiles is then 8 and cropX and cropY say which quarter, in tiles.
