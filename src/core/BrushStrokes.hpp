@@ -3914,17 +3914,27 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
     while (!work.empty() && steps++ < stepLimit) {
         const std::pair<int, int> node = work.back();
         work.pop_back();
-        const int here = levelAfter(node.first, node.second);
+        int here = levelAfter(node.first, node.second);
         for (int dy = -1; dy <= 1; ++dy) {
             for (int dx = -1; dx <= 1; ++dx) {
                 if ((dx == 0 && dy == 0) || !inLattice(node.first + dx, node.second + dy)) {
                     continue;
                 }
                 const int other = levelAfter(node.first + dx, node.second + dy);
-                if (!graph.compatible(here, other)) {
-                    setLevel(node.first + dx, node.second + dy, graph.stepToward(other, here));
-                    work.emplace_back(node.first + dx, node.second + dy);
+                if (graph.compatible(here, other)) {
+                    continue;
                 }
+                // A painted corner keeps its paint. When the corner beside it is still more than one step away,
+                // as water two steps below Evergreen's Base-255 is after its first step up to Base-85, this corner
+                // takes the next step instead of pulling the painted one down.
+                if (isLocked(node.first + dx, node.second + dy) && !isLocked(node.first, node.second)) {
+                    here = graph.stepToward(here, other);
+                    setLevel(node.first, node.second, here);
+                    work.emplace_back(node.first, node.second);
+                    continue;
+                }
+                setLevel(node.first + dx, node.second + dy, graph.stepToward(other, here));
+                work.emplace_back(node.first + dx, node.second + dy);
             }
         }
         for (int cy = node.second - 1; cy <= node.second; ++cy) {

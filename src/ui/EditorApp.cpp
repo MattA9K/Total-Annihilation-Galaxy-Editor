@@ -11698,7 +11698,10 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                         && evergreenWorld(graph.world(before)) && evergreenWorld(graph.world(node.level));
                     // Ground rising toward the painted paint, such as land growing a corner where Evergreen has no
                     // piece for the layout, reshapes nothing; ground cut down or a grass swapped on a shore does.
-                    const bool raised = graph.height(node.level) > graph.height(before) && node.level == armedLevel;
+                    // Rings rising toward a high paint stamped on low ground, such as Base-85 and Base-190 round a
+                    // Base-255 stamped on water, are rises too.
+                    const bool raised = graph.height(node.level) > graph.height(before)
+                        && graph.height(node.level) <= graph.height(armedLevel);
                     if (before != node.level && (node.x < lowX || node.x > highX || node.y < lowY || node.y > highY)
                         && !raised && (!grassSwap || onShore(node.x, node.y))) {
                         statusNote_ = "Painting here would reshape the ground nearby. No piece joins Evergreen's water to both grasses at "
@@ -12957,7 +12960,10 @@ void EditorApp::ensureBrushPaints() {
     }
     std::string key = "missing";
     if (source != nullptr) {
-        key = source->path.string() + "\n" + std::to_string(source->sections.size()) + "\n" + brushWorld_
+        // Evergreen's two grasses are one catalogue: its folders hold the same buttons, pieces and partners, so
+        // moving the brush from a Base-0 button to a Base-255-2 one does not read the tileset again.
+        key = source->path.string() + "\n" + std::to_string(source->sections.size()) + "\n"
+            + (isEvergreenWorld(brushWorld_) ? std::string("Evergreen") : brushWorld_)
             + (brushCatalogStampsOnly_ ? "\nstamps" : "");
     } else if (loadingTilesets()) {
         key = "loading";
@@ -17733,7 +17739,6 @@ void EditorApp::drawTileBrush() {
             // The other Evergreen grass: the brush moves to its land, keeping the Evergreen buttons.
             const std::string name = paint.name;
             brushWorld_ = paint.category;
-            brushCatalogKey_.clear();
             brushName_.clear();
             armBrush(name);
         } else if (pressed) {
