@@ -10477,6 +10477,39 @@ bool EditorApp::draw() {
     if (loadingTilesets()) {
         continueLoadingTilesets(std::chrono::milliseconds(16));
     }
+    // TEMP-SMOKE-TEST
+    if (std::getenv("GALAXY_METAL_SMOKE") && !loadingTilesets()) {
+        static bool done = false;
+        if (!done) {
+            done = true;
+            std::FILE* out = std::fopen(std::getenv("GALAXY_METAL_SMOKE"), "w");
+            const auto paint = [&](const char* world, const char* name, int size, int x, int y) {
+                brushWorld_ = world;
+                ensureBrushPaints();
+                std::string buttons;
+                for (const BrushPaint& paint : brushPaints_) buttons += (paint.label.empty() ? paint.name : paint.label) + " ";
+                brushName_ = name;
+                brushSize_ = size;
+                statusNote_.clear();
+                error_.clear();
+                paintBrushStroke(x, y);
+                std::fprintf(out, "  %s %s %d at %d,%d: %s %s [%s]\n", world, name, size, x, y, statusNote_.c_str(), error_.c_str(), buttons.c_str());
+            };
+            addDocument(createBlankMap(160, 128), 171);
+            paint("Evergreen", "Base-85", 128, 64, 64);
+            paint("Evergreen", "Base-85", 128, 96, 64);
+            paint("Evergreen2", "Base-85", 48, 136, 64);
+            paint("Evergreen", "Base-190", 32, 32, 32);
+            paint("Evergreen2", "Base-190", 32, 80, 32);
+            paint("Evergreen2", "Base-190", 32, 136, 64);
+            paint("Evergreen2", "Base-190", 32, 80, 96);
+            paint("Evergreen", "Base-190", 8, 24, 96);
+            writeMapPng(*map_, std::getenv("GALAXY_PNG"));
+            std::fprintf(out, "done\n");
+            std::fclose(out);
+        }
+    }
+    // END-TEMP-SMOKE-TEST
     finishMapSave();
     finishRandomMap();
     if (!savingMap() && !generatingRandomMap()) {
@@ -11769,10 +11802,18 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     }
                     continue;
                 }
-                // Evergreen's water has a coast for each grass: the land's own folder holds it, whichever is armed.
+                // Evergreen's water has a coast for each grass, and its cliffs rise from one grass: the higher ground's
+                // own folder holds those pieces, whichever Evergreen paint is armed.
                 const bool evergreenCoast = isEvergreenWorld(lower->category) && isEvergreenWorld(upper->category)
-                    && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Coast;
-                const std::string& pieceCategory = evergreenCoast ? upper->category
+                    && (graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Coast
+                        || graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff);
+                // Cliffs from one Evergreen grass up to the other's plateau have a folder of their own, named for the
+                // plateau's folder and then the low ground's: Evergreen2-Evergreen rises from Base-85-1 to Base-190-2.
+                const bool evergreenCliff = evergreenCoast && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff;
+                const std::string evergreenFolder = !evergreenCoast ? std::string()
+                    : !evergreenCliff || lowerText(lower->category) == lowerText(upper->category) ? upper->category
+                    : upper->category + "-" + lower->category;
+                const std::string& pieceCategory = evergreenCoast ? evergreenFolder
                     : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
                 if (pieces.empty() && ringCell.matched) {
@@ -13065,7 +13106,8 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "islands";
         // Both Evergreen grasses are buttons whichever of them is armed, and both grasses' coasts into their
         // shared water are loaded, since either grass can meet that water.
-        const bool evergreenBase = isEvergreenWorld(brushWorld_) && isEvergreenWorld(section.category);
+        // Evergreen2-Evergreen holds the cliffs from the first grass up to the second grass's plateau.
+        const bool evergreenBase = isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen");
         if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
@@ -13339,7 +13381,8 @@ void EditorApp::ensureBrushPaints() {
             BrushPaint paint;
             paint.name = section->name;
             paint.category = section->category;
-            if (isEvergreenWorld(section->category) && trailingNumber(section->name) == 85) {
+            // Evergreen's grounds are numbered by grass: Base-85-1 and Base-190-1 are the first grass's.
+            if (isEvergreenWorld(section->category) && trailingNumber(section->name) >= 77) {
                 paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
             }
             paint.preview = uploadTexture(rgba.data(), width, height, false);

@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 36>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 36> rules = {{
+inline const std::array<BrushTransitionRule, 37>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 37> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -331,6 +331,8 @@ inline const std::array<BrushTransitionRule, 36>& brushTransitionRules() {
         {0, 219, TransitionStyle::CoastalCliffDeep},
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
+        // Evergreen Base-85-1 rises to Base-190-1.
+        {85, 190, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
         {139, 255, TransitionStyle::Cliff},
         {85, 170, TransitionStyle::Cliff},
@@ -630,7 +632,10 @@ public:
                         const bool foreignDesertCoast = rule.lowerHeight == 0 && rule.upperHeight == 80 && differentWorld;
                         // Cliffs stay inside one land: another land's Base-85 beside Lush Base-255 or
                         // GreenWorld Base-219 goes through that land's own ground.
-                        const bool foreignIceCliff = differentWorld && rule.style == TransitionStyle::Cliff;
+                        // Evergreen's cliffs: Base-85-1 rises to both Base-190-1 and Base-190-2, and Base-85-2 to
+                        // Base-190-2 alone, so the second grass never rises to the first grass's plateau.
+                        const bool evergreenCliff = wa == "Ever" && wb == "Ever2";
+                        const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;
                         const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78 && namedPair("Lush", "Archi");
                         const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86 && namedPair("Lush", "Lava");
                         const bool lush85 = rule.lowerHeight == 77 && rule.upperHeight == 85
@@ -765,7 +770,9 @@ inline int cliffPartnerCount(const BrushGraph& graph, int level) {
 // tileset do not share a file.
 inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, int highLevel, int highMask) {
     const std::string piece(cliffPieceName(highMask));
-    if (piece.empty() || piece.rfind("Cliff-", 0) != 0 || cliffPartnerCount(graph, lowLevel) <= 1 || graph.height(highLevel) == 219) {
+    // Evergreen files each pair of grounds' cliffs in a folder of its own, so its names stay plain.
+    if (piece.empty() || piece.rfind("Cliff-", 0) != 0 || cliffPartnerCount(graph, lowLevel) <= 1 || graph.height(highLevel) == 219
+        || (evergreenWorld(graph.world(lowLevel)) && evergreenWorld(graph.world(highLevel)))) {
         return piece;
     }
     return "Cliff-" + std::to_string(graph.height(highLevel)) + "-" + piece.substr(6);
