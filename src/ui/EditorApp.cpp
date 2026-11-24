@@ -10477,39 +10477,6 @@ bool EditorApp::draw() {
     if (loadingTilesets()) {
         continueLoadingTilesets(std::chrono::milliseconds(16));
     }
-    // TEMP-SMOKE-TEST
-    if (std::getenv("GALAXY_METAL_SMOKE") && !loadingTilesets()) {
-        static bool done = false;
-        if (!done) {
-            done = true;
-            std::FILE* out = std::fopen(std::getenv("GALAXY_METAL_SMOKE"), "w");
-            const auto paint = [&](const char* world, const char* name, int size, int x, int y) {
-                brushWorld_ = world;
-                ensureBrushPaints();
-                std::string buttons;
-                for (const BrushPaint& paint : brushPaints_) buttons += (paint.label.empty() ? paint.name : paint.label) + " ";
-                brushName_ = name;
-                brushSize_ = size;
-                statusNote_.clear();
-                error_.clear();
-                paintBrushStroke(x, y);
-                std::fprintf(out, "  %s %s %d at %d,%d: %s %s [%s]\n", world, name, size, x, y, statusNote_.c_str(), error_.c_str(), buttons.c_str());
-            };
-            addDocument(createBlankMap(160, 128), 171);
-            paint("Evergreen", "Base-85", 128, 64, 64);
-            paint("Evergreen", "Base-85", 128, 96, 64);
-            paint("Evergreen2", "Base-85", 48, 136, 64);
-            paint("Evergreen", "Base-190", 32, 32, 32);
-            paint("Evergreen2", "Base-190", 32, 80, 32);
-            paint("Evergreen2", "Base-190", 32, 136, 64);
-            paint("Evergreen2", "Base-190", 32, 80, 96);
-            paint("Evergreen", "Base-190", 8, 24, 96);
-            writeMapPng(*map_, std::getenv("GALAXY_PNG"));
-            std::fprintf(out, "done\n");
-            std::fclose(out);
-        }
-    }
-    // END-TEMP-SMOKE-TEST
     finishMapSave();
     finishRandomMap();
     if (!savingMap() && !generatingRandomMap()) {
@@ -11711,10 +11678,28 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 const int lowY = (cornerBrush ? nodeY : blockY) - 1;
                 const int highX = (cornerBrush ? nodeX : blockX + blockCells) + 1;
                 const int highY = (cornerBrush ? nodeY : blockY + blockCells) + 1;
+                // Swapping one grass for the other away from the water is fine: a plateau painted beside the other
+                // grass needs a ring of its own grass round its cliffs. Any other change that far out, such as a
+                // plateau flattened or water spreading, or any change on a shore, refuses the stroke.
+                const auto onShore = [&](int x, int y) {
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const int level = std::clamp(readNode(x + dx, y + dy), 0, graph.size() - 1);
+                            if (graph.height(level) < 77) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
                 for (const BrushNode& node : plan.nodes) {
-                    if (readNode(node.x, node.y) != node.level && (node.x < lowX || node.x > highX || node.y < lowY || node.y > highY)) {
-                        statusNote_ = "Painting here would reshape a shore nearby: no piece joins Evergreen's water to both grasses at once. "
-                                      "Leave a cell of one grass between this and the other grass's shore";
+                    const int before = std::clamp(readNode(node.x, node.y), 0, graph.size() - 1);
+                    const bool grassSwap = graph.height(before) == 85 && graph.height(node.level) == 85
+                        && evergreenWorld(graph.world(before)) && evergreenWorld(graph.world(node.level));
+                    if (before != node.level && (node.x < lowX || node.x > highX || node.y < lowY || node.y > highY)
+                        && (!grassSwap || onShore(node.x, node.y))) {
+                        statusNote_ = "Painting here would reshape the ground nearby. No piece joins Evergreen's water to both grasses at "
+                                      "once, and its two plateaus cannot touch. Leave a cell of grass between them";
                         return BrushOutcome::Done;
                     }
                 }
