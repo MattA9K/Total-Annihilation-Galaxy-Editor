@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 37>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 37> rules = {{
+inline const std::array<BrushTransitionRule, 38>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 38> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -331,8 +331,9 @@ inline const std::array<BrushTransitionRule, 37>& brushTransitionRules() {
         {0, 219, TransitionStyle::CoastalCliffDeep},
         {68, 219, TransitionStyle::CoastalCliffShallow},
         {85, 219, TransitionStyle::Cliff},
-        // Evergreen Base-85-1 rises to Base-190-1.
+        // Evergreen Base-85-1 rises to Base-190-1, and each Base-190 to its Base-255.
         {85, 190, TransitionStyle::Cliff},
+        {190, 255, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
         {139, 255, TransitionStyle::Cliff},
         {85, 170, TransitionStyle::Cliff},
@@ -634,7 +635,13 @@ public:
                         // GreenWorld Base-219 goes through that land's own ground.
                         // Evergreen's cliffs: Base-85-1 rises to both Base-190-1 and Base-190-2, and Base-85-2 to
                         // Base-190-2 alone, so the second grass never rises to the first grass's plateau.
-                        const bool evergreenCliff = wa == "Ever" && wb == "Ever2";
+                        // Each Base-190 rises to the Base-255 of its own grass, and Evergreen has no cliff straight
+                        // from Base-85 to Base-255.
+                        const bool evergreenCliff = wa == "Ever" && wb == "Ever2" && rule.lowerHeight == 85 && rule.upperHeight == 190;
+                        const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb)) && rule.lowerHeight == 85 && rule.upperHeight == 255;
+                        if (evergreenSkip) {
+                            continue;
+                        }
                         const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;
                         const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78 && namedPair("Lush", "Archi");
                         const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86 && namedPair("Lush", "Lava");
