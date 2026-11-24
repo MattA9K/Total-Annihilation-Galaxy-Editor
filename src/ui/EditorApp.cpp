@@ -11696,8 +11696,11 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     const int before = std::clamp(readNode(node.x, node.y), 0, graph.size() - 1);
                     const bool grassSwap = graph.height(before) == 85 && graph.height(node.level) == 85
                         && evergreenWorld(graph.world(before)) && evergreenWorld(graph.world(node.level));
+                    // Ground rising toward the painted paint, such as land growing a corner where Evergreen has no
+                    // piece for the layout, reshapes nothing; ground cut down or a grass swapped on a shore does.
+                    const bool raised = graph.height(node.level) > graph.height(before) && node.level == armedLevel;
                     if (before != node.level && (node.x < lowX || node.x > highX || node.y < lowY || node.y > highY)
-                        && (!grassSwap || onShore(node.x, node.y))) {
+                        && !raised && (!grassSwap || onShore(node.x, node.y))) {
                         statusNote_ = "Painting here would reshape the ground nearby. No piece joins Evergreen's water to both grasses at "
                                       "once, and its two plateaus cannot touch. Leave a cell of grass between them";
                         return BrushOutcome::Done;
@@ -11791,6 +11794,8 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 // own folder holds those pieces, whichever Evergreen paint is armed.
                 const bool evergreenCoast = isEvergreenWorld(lower->category) && isEvergreenWorld(upper->category)
                     && (graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Coast
+                        || graph.style(ringCell.level, ringCell.upper) == TransitionStyle::ShallowCoast
+                        || graph.style(ringCell.level, ringCell.upper) == TransitionStyle::ShallowDeep
                         || graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff);
                 // Cliffs from one Evergreen grass up to the other's plateau have a folder of their own, named for the
                 // plateau's folder and then the low ground's: Evergreen2-Evergreen rises from Base-85-1 to Base-190-2.

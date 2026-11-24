@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 38>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 38> rules = {{
+inline const std::array<BrushTransitionRule, 39>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 39> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -326,6 +326,8 @@ inline const std::array<BrushTransitionRule, 38>& brushTransitionRules() {
         // Evergreen's shallow water stands at Base-65 and joins its Base-0 the same way.
         {0, 65, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
+        // Evergreen's Base-65 shallows meet both its grasses directly.
+        {65, 85, TransitionStyle::ShallowCoast},
         {68, 78, TransitionStyle::ShallowCoast},
         {78, 85, TransitionStyle::WorldBlend},
         {0, 219, TransitionStyle::CoastalCliffDeep},
@@ -639,7 +641,9 @@ public:
                         // from Base-85 to Base-255.
                         const bool evergreenCliff = wa == "Ever" && wb == "Ever2" && rule.lowerHeight == 85 && rule.upperHeight == 190;
                         const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb)) && rule.lowerHeight == 85 && rule.upperHeight == 255;
-                        if (evergreenSkip) {
+                        // Only Evergreen's grasses meet its Base-65 shallows.
+                        const bool evergreen2Shallows = rule.lowerHeight == 65 && rule.upperHeight == 85 && named && !(evergreenWorld(wa) && evergreenWorld(wb));
+                        if (evergreenSkip || evergreen2Shallows) {
                             continue;
                         }
                         const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;
@@ -3425,6 +3429,14 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         if (low == 0 && middle == 68 && (high == 85 || high == 80 || high == 78)) {
             return dslPieceName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
+        // Evergreen's deep water, Base-65 shallows and either grass, each grass with its own pieces. Evergreen
+        // has no piece for one land corner and one shallow corner beside two deep ones.
+        if (low == 0 && middle == 65 && high == 85 && evergreenWorld(graph.world(sorted[2]))) {
+            if (cornerCount(maskOf(sorted[2])) == 1 && cornerCount(maskOf(sorted[1])) == 1) {
+                return {};
+            }
+            return dslPieceName(maskOf(sorted[2]), maskOf(sorted[1]));
+        }
         if (middle == 85 && high == 219) {
             return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
         }
@@ -3980,7 +3992,15 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                                 const bool unmoved = slots.find(keyOf(cx + (corner & 1), cy + (corner >> 1))) == slots.end();
                                 const bool otherGrass = evergreenMix && unmoved && current != level && candidate == host
                                     && evergreenWorld(graph.world(current)) && evergreenWorld(graph.world(candidate));
-                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost || otherGrass)) {
+                                // Evergreen's DSL pieces leave out one land and one shallow corner beside two deep ones,
+                                // so a deep corner may rise to the shallows between it and the painted land rather than
+                                // to the land itself, which would only meet the next cell the same way.
+                                const int lowHeight = std::min(graph.height(current), graph.height(level));
+                                const int highHeight = std::max(graph.height(current), graph.height(level));
+                                const bool between = evergreenWorld(graph.world(candidate)) && evergreenWorld(graph.world(current))
+                                    && graph.height(candidate) > lowHeight && graph.height(candidate) < highHeight
+                                    && graph.style(std::min(candidate, current), std::max(candidate, current)) != TransitionStyle::None;
+                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost || otherGrass || between)) {
                                     options[static_cast<std::size_t>(corner)].push_back(candidate);
                                 }
                             }
