@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 35>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 35> rules = {{
+inline const std::array<BrushTransitionRule, 36>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 36> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -323,6 +323,8 @@ inline const std::array<BrushTransitionRule, 35>& brushTransitionRules() {
         {41, 86, TransitionStyle::Coast},
         {0, 78, TransitionStyle::Coast},
         {0, 68, TransitionStyle::ShallowDeep},
+        // Evergreen's shallow water stands at Base-65 and joins its Base-0 the same way.
+        {0, 65, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
         {68, 78, TransitionStyle::ShallowCoast},
         {78, 85, TransitionStyle::WorldBlend},
