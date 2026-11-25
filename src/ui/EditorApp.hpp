@@ -266,6 +266,11 @@ private:
     // 8 x 8 pieces are shifted onto the map's grid with it. Read on first use.
     std::unordered_map<std::string, PaletteImage> brushGrounds_;
     const PaletteImage* brushGround(const std::string& category, const std::string& name);
+    // The cache of a tileset's brush pictures, kept beside the random map tileset: where it goes for this
+    // catalogue, reading it back into brushPictures_, sharedPictures_ and brushCoastLiquid_, and writing it.
+    std::filesystem::path brushPictureCachePath(const std::filesystem::path& tileset, const std::string& catalogueKey) const;
+    bool loadBrushPictureCache(const std::filesystem::path& cache);
+    void saveBrushPictureCache(const std::filesystem::path& cache) const;
     // The band sizes of each tile picture on the map, by picture index, for the stroke being planned.
     // Cleared at the start of every stroke, since a stroke adds pictures and undo takes them away.
     mutable std::unordered_map<std::uint32_t, int> pictureBandSizes_;
