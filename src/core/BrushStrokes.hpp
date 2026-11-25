@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 39>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 39> rules = {{
+inline const std::array<BrushTransitionRule, 40>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 40> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -336,6 +336,8 @@ inline const std::array<BrushTransitionRule, 39>& brushTransitionRules() {
         // Evergreen Base-85-1 rises to Base-190-1, and each Base-190 to its Base-255.
         {85, 190, TransitionStyle::Cliff},
         {190, 255, TransitionStyle::Cliff},
+        // Evergreen's Base-0 water rises straight to either Base-190 in a sea cliff.
+        {0, 190, TransitionStyle::Cliff},
         {85, 255, TransitionStyle::Cliff},
         {139, 255, TransitionStyle::Cliff},
         {85, 170, TransitionStyle::Cliff},
@@ -639,11 +641,13 @@ public:
                         // Base-190-2 alone, so the second grass never rises to the first grass's plateau.
                         // Each Base-190 rises to the Base-255 of its own grass, and Evergreen has no cliff straight
                         // from Base-85 to Base-255.
-                        const bool evergreenCliff = wa == "Ever" && wb == "Ever2" && rule.lowerHeight == 85 && rule.upperHeight == 190;
+                        const bool evergreenCliff = wa == "Ever" && wb == "Ever2" && (rule.lowerHeight == 85 || rule.lowerHeight == 0) && rule.upperHeight == 190;
+                        // Only Evergreen's water rises to its Base-190 plateaus.
+                        const bool noSeaCliff = rule.lowerHeight == 0 && rule.upperHeight == 190 && !(wa == "Ever" && evergreenWorld(wb));
                         const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb)) && rule.lowerHeight == 85 && rule.upperHeight == 255;
                         // Only Evergreen's grasses meet its Base-65 shallows.
                         const bool evergreen2Shallows = rule.lowerHeight == 65 && rule.upperHeight == 85 && named && !(evergreenWorld(wa) && evergreenWorld(wb));
-                        if (evergreenSkip || evergreen2Shallows) {
+                        if (evergreenSkip || evergreen2Shallows || noSeaCliff) {
                             continue;
                         }
                         const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;
@@ -3438,6 +3442,11 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             return dslPieceName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
         if (middle == 85 && high == 219) {
+            return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
+        }
+        // Evergreen's water, Base-85-1 and Base-190-1 together, filed with its sea cliffs and named like the Base-219 ones.
+        if (low == 0 && middle == 85 && high == 190 && graph.world(sorted[0]) == "Ever" && graph.world(sorted[1]) == "Ever"
+            && graph.world(sorted[2]) == "Ever") {
             return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
         }
     }

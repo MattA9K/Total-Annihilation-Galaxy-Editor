@@ -11995,9 +11995,11 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 // Cliffs from one Evergreen grass up to the other's plateau have a folder of their own, named for the
                 // plateau's folder and then the low ground's: Evergreen2-Evergreen rises from Base-85-1 to Base-190-2.
                 const bool evergreenCliff = evergreenCoast && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff;
-                // Cliffs up to Base-255 are filed apart from those up to Base-190, in Evergreen-190 and Evergreen2-190.
+                // Cliffs up to Base-255 are filed apart from those up to Base-190, in Evergreen-190 and Evergreen2-190,
+                // and the sea cliffs from Base-0 up to Base-190-2 in Evergreen2-0.
+                const int evergreenLow = trailingNumber(lower->name);
                 const std::string evergreenFolder = !evergreenCoast ? std::string()
-                    : evergreenCliff && trailingNumber(lower->name) == 190 ? upper->category + "-190"
+                    : evergreenCliff && (evergreenLow == 190 || evergreenLow == 0) ? upper->category + "-" + std::to_string(evergreenLow)
                     : !evergreenCliff || lowerText(lower->category) == lowerText(upper->category) ? upper->category
                     : upper->category + "-" + lower->category;
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
