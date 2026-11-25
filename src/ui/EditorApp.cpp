@@ -10477,6 +10477,40 @@ bool EditorApp::draw() {
     if (loadingTilesets()) {
         continueLoadingTilesets(std::chrono::milliseconds(16));
     }
+    // TEMP-SMOKE-TEST
+    if (std::getenv("GALAXY_METAL_SMOKE") && !loadingTilesets()) {
+        static bool done = false;
+        if (!done) {
+            done = true;
+            std::FILE* out = std::fopen(std::getenv("GALAXY_METAL_SMOKE"), "w");
+            const auto paint = [&](const char* world, const char* name, int size, int x, int y) {
+                brushWorld_ = world;
+                ensureBrushPaints();
+                brushName_ = name;
+                brushSize_ = size;
+                statusNote_.clear();
+                error_.clear();
+                paintBrushStroke(x, y);
+                std::fprintf(out, "  %s %s %d at %d,%d: %s %s\n", world, name, size, x, y, statusNote_.c_str(), error_.c_str());
+            };
+            addDocument(createBlankMap(224, 96), 171);
+            for (int x : {64, 160, 192}) paint("Evergreen", "Base-0", 128, x, 48);
+            // Base-85-1 island with a Base-190-2 plateau at its corner.
+            paint("Evergreen", "Base-85", 48, 40, 48);
+            paint("Evergreen2", "Base-190", 16, 56, 32);
+            // Base-85-2 island with a Base-190-2 plateau at its corner.
+            paint("Evergreen2", "Base-85", 48, 112, 48);
+            paint("Evergreen2", "Base-190", 16, 128, 32);
+            // Shallows meeting a Base-85-1 island with a Base-190-1 plateau at its corner.
+            paint("Evergreen", "Base-65", 48, 184, 48);
+            paint("Evergreen", "Base-85", 32, 176, 48);
+            paint("Evergreen", "Base-190", 16, 184, 40);
+            writeMapPng(*map_, std::getenv("GALAXY_PNG"));
+            std::fprintf(out, "done\n");
+            std::fclose(out);
+        }
+    }
+    // END-TEMP-SMOKE-TEST
     finishMapSave();
     finishRandomMap();
     if (!savingMap() && !generatingRandomMap()) {
@@ -11998,13 +12032,21 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 // Cliffs up to Base-255 are filed apart from those up to Base-190, in Evergreen-190 and Evergreen2-190,
                 // and the sea cliffs from Base-0 up to Base-190-2 in Evergreen2-0.
                 const int evergreenLow = trailingNumber(lower->name);
+                // Water, Base-85-2 and Base-190-2 together are filed apart from the same with Base-85-1, in Evergreen2-0-2.
+                bool secondGrass = false;
+                for (const int corner : ringCell.corners) {
+                    secondGrass = secondGrass || (trailingNumber(levels[static_cast<std::size_t>(corner)]->name) == 85
+                        && lowerText(levels[static_cast<std::size_t>(corner)]->category) == "evergreen2");
+                }
                 const std::string evergreenFolder = !evergreenCoast ? std::string()
+                    : evergreenCliff && evergreenLow == 0 && secondGrass ? upper->category + "-0-2"
                     : evergreenCliff && (evergreenLow == 190 || evergreenLow == 0) ? upper->category + "-" + std::to_string(evergreenLow)
                     : !evergreenCliff || lowerText(lower->category) == lowerText(upper->category) ? upper->category
                     : upper->category + "-" + lower->category;
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
                     : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
+                if (std::getenv("GALAXY_METAL_SMOKE") && pieces.empty()) { std::fprintf(stderr, "MISS %d,%d %s in %s\n", ringCell.x, ringCell.y, piece.c_str(), pieceCategory.c_str()); } // TEMP-PIECE-LOG
                 if (pieces.empty() && ringCell.matched) {
                     continue;
                 }
@@ -12022,6 +12064,7 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 }
                 BrushPiece* transition = pickOne(pieces);
                 loadStamp(transition->stamp, transition->sectionPath, transition->name);
+                if (std::getenv("GALAXY_METAL_SMOKE")) { std::fprintf(stderr, "PIECE %d,%d %s/%s\n", ringCell.x, ringCell.y, transition->category.c_str(), transition->name.c_str()); } // TEMP-PIECE-LOG
                 const SectionStamp* stamp = &*transition->stamp;
                 if (transition->tiles == kFineCellTiles) {
                     // Its flat ground lines up with the same ground around it.

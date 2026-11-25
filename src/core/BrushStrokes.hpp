@@ -731,6 +731,14 @@ private:
     std::vector<int> hop_;
 };
 
+// Evergreen's Base-65 shallows and Base-190-1 plateau: no piece joins them along a side, but a four-way piece
+// sets them across a cell from each other.
+inline bool evergreenFourWayPair(const BrushGraph& graph, int a, int b) {
+    const int low = graph.height(a) < graph.height(b) ? a : b;
+    const int high = low == a ? b : a;
+    return graph.height(low) == 65 && graph.height(high) == 190 && graph.world(low) == "Ever" && graph.world(high) == "Ever";
+}
+
 // Two corners on opposite diagonals have no picture, so a stroke grows or
 // erases a corner until no cell is left like that.
 inline bool cliffDiagonal(int mask) {
@@ -766,6 +774,33 @@ inline std::string dslPieceName(int landMask, int shallowMask) {
         return {};
     }
     return "DSL-Land-" + std::string(cornerRegion(landMask)) + "-Shallow-" + std::string(cornerRegion(shallowMask)) + "-Water-" + std::string(cornerRegion(deepMask));
+}
+
+// Evergreen's three-way sea-cliff pieces: water, Base-85 land and a Base-190 plateau. They take the
+// Base-219 names, and add one layout those lack: the plateau and the water across the cell from each other with
+// land in the other two corners, CC-219-TL-85-BL_and_TR-0-BR.
+inline std::string evergreenCoastalCliffName(int highMask, int midMask) {
+    if (std::string name = coastalCliffName(0, highMask, midMask); !name.empty()) {
+        return name;
+    }
+    const int lowMask = kCornerAll & ~(highMask | midMask);
+    const bool across = (highMask | lowMask) == (kCornerTopLeft | kCornerBottomRight) || (highMask | lowMask) == (kCornerTopRight | kCornerBottomLeft);
+    if ((highMask & midMask) != 0 || cornerCount(highMask) != 1 || cornerCount(midMask) != 2 || cornerCount(lowMask) != 1 || !across) {
+        return {};
+    }
+    return "CC-219-" + std::string(cornerRegion(highMask)) + "-85-" + std::string(cornerRegion(midMask)) + "-0-" + std::string(cornerRegion(lowMask));
+}
+
+// Evergreen's four-way piece: its deep water, Base-65 shallows, Base-85-1 land and Base-190-1 plateau, one in
+// each corner. Q4-TL-85-BL-65-BR-0-TR has the plateau at the top left, land at the bottom left, shallows at the
+// bottom right and deep water at the top right. Its pieces always set the plateau across from the shallows.
+inline std::string fourWayPieceName(int highMask, int landMask, int shallowMask, int deepMask) {
+    if (cornerCount(highMask) != 1 || cornerCount(landMask) != 1 || cornerCount(shallowMask) != 1 || cornerCount(deepMask) != 1
+        || (highMask | landMask | shallowMask | deepMask) != kCornerAll) {
+        return {};
+    }
+    return "Q4-" + std::string(cornerRegion(highMask)) + "-85-" + std::string(cornerRegion(landMask)) + "-65-"
+        + std::string(cornerRegion(shallowMask)) + "-0-" + std::string(cornerRegion(deepMask));
 }
 
 // How many other paints join this one with cliff pieces.
@@ -3422,6 +3457,15 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         }
         return transitionPieceName(style, maskOf(marked), coastLiquid, family);
     }
+    if (distinct == 4) {
+        const bool evergreen = graph.world(sorted[0]) == "Ever" && graph.world(sorted[1]) == "Ever" && graph.world(sorted[2]) == "Ever"
+            && graph.world(sorted[3]) == "Ever";
+        if (evergreen && graph.height(sorted[0]) == 0 && graph.height(sorted[1]) == 65 && graph.height(sorted[2]) == 85
+            && graph.height(sorted[3]) == 190) {
+            return fourWayPieceName(maskOf(sorted[3]), maskOf(sorted[2]), maskOf(sorted[1]), maskOf(sorted[0]));
+        }
+        return {};
+    }
     if (distinct == 3) {
         const std::string tri = triBlendName(graph, corners);
         if (!tri.empty()) {
@@ -3444,10 +3488,11 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         if (middle == 85 && high == 219) {
             return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
         }
-        // Evergreen's water, Base-85-1 and Base-190-1 together, filed with its sea cliffs and named like the Base-219 ones.
-        if (low == 0 && middle == 85 && high == 190 && graph.world(sorted[0]) == "Ever" && graph.world(sorted[1]) == "Ever"
-            && graph.world(sorted[2]) == "Ever") {
-            return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
+        // Evergreen's water, either grass and either Base-190, filed with its sea cliffs and named like the Base-219
+        // ones. Base-85-2 meets the water and a plateau only below Base-190-2.
+        if (low == 0 && middle == 85 && high == 190 && graph.world(sorted[0]) == "Ever" && evergreenWorld(graph.world(sorted[1]))
+            && evergreenWorld(graph.world(sorted[2])) && !(graph.world(sorted[1]) == "Ever2" && graph.world(sorted[2]) == "Ever")) {
+            return evergreenCoastalCliffName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
     }
     return {};
@@ -3930,7 +3975,10 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                     continue;
                 }
                 const int other = levelAfter(node.first + dx, node.second + dy);
-                if (graph.compatible(here, other)) {
+                // Evergreen's shallows and Base-190-1 plateau never share a side, but its four-way pieces set them
+                // across a cell from each other.
+                const bool fourWayDiagonal = dx != 0 && dy != 0 && evergreenFourWayPair(graph, here, other);
+                if (graph.compatible(here, other) || fourWayDiagonal) {
                     continue;
                 }
                 // A painted corner keeps its paint. When the corner beside it is still more than one step away,
@@ -3970,9 +4018,12 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                     // 85. Those are fine when a section draws their layout. Otherwise the
                     // fewest corners change, each moving toward the painted paint.
                     bool allJoined = true;
-                    for (const int first : corners) {
-                        for (const int second : corners) {
-                            allJoined = allJoined && graph.compatible(first, second);
+                    for (std::size_t first = 0; first < 4; ++first) {
+                        for (std::size_t second = 0; second < 4; ++second) {
+                            // Corners 0 and 3, and 1 and 2, sit across the cell from each other.
+                            const bool across = first + second == 3;
+                            allJoined = allJoined && (graph.compatible(corners[first], corners[second])
+                                || (across && evergreenFourWayPair(graph, corners[first], corners[second])));
                         }
                     }
                     if (!allJoined || brushCellValid(graph, corners)) {
