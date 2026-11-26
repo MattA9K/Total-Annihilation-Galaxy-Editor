@@ -3502,6 +3502,18 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         if (middle == 85 && high == 219) {
             return coastalCliffName(low, maskOf(sorted[2]), maskOf(sorted[1]));
         }
+        // Evergreen's water with both grasses: Base-85-1's coast piece for the land corners, with Base-85-2's grass at
+        // the corners after "-Ever2-". Coast-Water-T-Ever2-BL has water along the top, Base-85-1 at the bottom left and
+        // Base-85-2 at the bottom right. They are filed in CoastalCliff/Evergreen-Mix.
+        if (low == 0 && middle == 85 && high == 85 && graph.world(sorted[0]) == "Ever" && evergreenWorld(graph.world(sorted[1]))
+            && evergreenWorld(graph.world(sorted[2])) && graph.world(sorted[1]) != graph.world(sorted[2])) {
+            const int second = graph.world(sorted[1]) == "Ever2" ? sorted[1] : sorted[2];
+            const std::string_view shape = coastPieceName(maskOf(sorted[1]) | maskOf(sorted[2]));
+            if (shape.empty()) {
+                return {};
+            }
+            return std::string(shape) + "-Ever2-" + std::string(cornerRegion(maskOf(second)));
+        }
         // Evergreen's water, either grass and either Base-190, filed with its sea cliffs and named like the Base-219
         // ones. Base-85-2 meets the water and a plateau only below Base-190-2.
         if (low == 0 && middle == 85 && high == 190 && graph.world(sorted[0]) == "Ever" && evergreenWorld(graph.world(sorted[1]))

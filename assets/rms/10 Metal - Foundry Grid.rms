@@ -1,0 +1,125 @@
+/* METAL: Foundry Grid
+   Metal plating islands, with overgrown GreenWorld parks and Lava
+   leaking from broken vents.
+   Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as METAL_BASE-85, and one tile
+   is one square of the map's game size: 16 x 16 map tiles. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain METAL_BASE-0
+
+/* An island for each player, kept two tiles from the others. */
+create_player_lands {
+  terrain_type METAL_BASE-85
+  land_percent 50
+  /* Small maps have room for smaller starting areas only. */
+  if TINY_MAP
+    base_size 1
+  else
+    base_size 2
+  endif
+  other_zone_avoidance_distance 2
+  border_fuzziness 30
+  clumping_factor 15
+}
+
+<TERRAIN_GENERATION>
+/* Overgrown parks. */
+create_terrain GREENWORLD_BASE-85 {
+  base_terrain METAL_BASE-85
+  land_percent 4
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* Lava leaking through. */
+create_terrain LAVA_BASE-86 {
+  base_terrain METAL_BASE-85
+  land_percent 3
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* High ground behind cliffs, kept a tile from the water. */
+create_terrain METAL_BASE-139 {
+  base_terrain METAL_BASE-85
+  land_percent 5
+  number_of_clumps 4
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+<CONNECTION_GENERATION>
+/* Shallow water between the players' islands. */
+create_connect_all_players_land {
+  replace_terrain METAL_BASE-0 METAL_BASE-68
+  terrain_size METAL_BASE-0 0 0
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
+   square is 32 of them. Kinds such as TREES pick what suits the ground. */
+
+/* A start on each player's island. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Metal near each start, and more out in the open. */
+create_object METAL_NODES {
+  number_of_objects 3
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 28
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 2
+  set_scaling_to_map_size
+  min_distance_to_players 40
+  temp_min_distance_group_placement 24
+}
+
+/* A geothermal vent near each start. */
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_place_for_every_player
+  min_distance_to_players 12
+  max_distance_to_players 32
+}
+
+/* Towers. */
+create_object METAL_TOWERS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}
+
+/* Pipes. */
+create_object PIPES {
+  number_of_objects 3
+  set_scaling_to_map_size
+  min_distance_to_players 8
+}
+
+/* Trees in the parks. */
+create_object TREES {
+  number_of_objects 3
+  set_scaling_to_map_size
+  min_distance_to_players 8
+}
+
+/* Spires in the leaks. */
+create_object LAVA_SPIRES {
+  number_of_objects 1
+  set_scaling_to_map_size
+}

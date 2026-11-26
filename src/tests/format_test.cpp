@@ -3525,6 +3525,16 @@ void testBrushCells() {
         expect(joins && lush.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(lush, {0, 0, 1, 1}) == "Blend-WaterEverLush-T",
             "Evergreen water fades into every other water with a Blend-WaterEver piece marking it");
     }
+    {
+        // Evergreen water beside both grasses: Base-85-1's coast shape with Base-85-2's corners named after it.
+        const BrushGraph mix(std::vector<int>{0, 85, 85}, {"Ever", "Ever", "Ever2"});
+        expect(mix.style(0, 1) == TransitionStyle::Coast && mix.style(0, 2) == TransitionStyle::Coast
+            && brushPieceName(mix, {1, 0, 2, 0}) == "Coast-Water-R-Ever2-BL"
+            && brushPieceName(mix, {2, 1, 1, 0}) == "Coast-Water-BR-Ever2-TL"
+            && brushPieceName(mix, {1, 2, 2, 0}) == "Coast-Water-BR-Ever2-BL_and_TR"
+            && brushPieceName(mix, {1, 2, 0, 2}).size() > 0 && brushPieceName(mix, {1, 0, 0, 2}).empty(),
+            "Evergreen water with both grasses has a coast piece for every side and three-land layout");
+    }
     expect(transitionVariation("Blend-AcidDesert-T-02", "Blend-AcidDesert-T") == 2 && transitionVariation("Blend-AcidDesert-T-01", "Blend-Desert-T") < 0
         && transitionVariation("Blend-AcidDesert-T-01", "Blend-Acid-T") < 0 && transitionVariation("Blend-AcidDesert-L-01", "Blend-ArchiAcid-L") < 0,
         "an Acid Desert piece is not the lava, acid, or archipelago sand blend");

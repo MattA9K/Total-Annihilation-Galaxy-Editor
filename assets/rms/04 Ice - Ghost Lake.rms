@@ -1,0 +1,204 @@
+/* ICE: Ghost Lake
+   After Age of Empires II's Ghost Lake: a great frozen lake fills the middle
+   of a snowy land, with every player on the shore around it. Snow-laden pine
+   forests, rolling hills and cliffs on the shore, and floes of ice out on
+   the lake.
+   Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as ICE_BASE-85, and one tile
+   is one square of the map's game size: 16 x 16 map tiles. Sizes from the
+   original are scaled down to match, since its tiles are far smaller. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain ICE_BASE-85
+
+/* The lake in the middle, a little nearer the top and left edges, as in
+   the original. */
+create_land {
+  terrain_type ICE_BASE-0
+  land_percent 24
+  land_position 47 47
+  /* A round heart for the lake, sized to the map, so it stays one lake
+     rather than reaching between the players. */
+  set_circular_base
+  if TINY_MAP
+    base_size 2
+  elseif SMALL_MAP
+    base_size 3
+  elseif MEDIUM_MAP
+    base_size 3
+  elseif LARGE_MAP
+    base_size 4
+  elseif HUGE_MAP
+    base_size 5
+  elseif GIGANTIC_MAP
+    base_size 6
+  else
+    base_size 8
+  endif
+  left_border 15
+  right_border 20
+  top_border 15
+  bottom_border 20
+  border_fuzziness 20
+  clumping_factor 20
+  other_zone_avoidance_distance 2
+  zone 16
+}
+
+/* The players on the snowy shore around it. */
+create_player_lands {
+  terrain_type ICE_BASE-85
+  land_percent 30
+  if TINY_MAP
+    base_size 1
+  else
+    base_size 2
+  endif
+  circle_radius 41 5
+  zone 1
+  other_zone_avoidance_distance 2
+  border_fuzziness 10
+}
+
+<ELEVATION_GENERATION>
+/* Rolling hills: Ice's own hill stamps, out of the players' start areas. */
+create_elevation 7 {
+  base_terrain ICE_BASE-85
+  number_of_clumps 6
+  set_scale_by_groups
+}
+
+<CLIFF_GENERATION>
+/* Cliffs: short ridges of ICE_BASE-170 with cliff faces. Lengths are
+   squares, and the count grows with the map. */
+min_number_of_cliffs 1
+max_number_of_cliffs 3
+min_length_of_cliff 1
+max_length_of_cliff 2
+cliff_curliness 10
+min_distance_cliffs 4
+
+<TERRAIN_GENERATION>
+/* Floes of snow and ice out on the lake, where the original has holes
+   cut for ice fishing. */
+create_terrain ICE_ISLAND-0_8X8 {
+  start_random
+    percent_chance 50
+      number_of_clumps 2
+    percent_chance 50
+      number_of_clumps 3
+  end_random
+  set_scale_by_groups
+}
+
+/* Frozen pools in the snow. */
+create_terrain ICE_POOLS-85 {
+  number_of_clumps 2
+  set_scale_by_groups
+  set_avoid_player_start_areas 2
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
+   square is 32 of them. On Ice ground TREES are Evergreen's snow trees. */
+
+/* A start for each player. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Gold and stone become metal: some near each start, more out on the shore. */
+create_object METAL_NODES {
+  number_of_objects 64
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 128
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 2
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-85
+  min_distance_to_players 36
+  temp_min_distance_group_placement 20
+}
+
+/* Metal on the lake bed, where the original has its fish. */
+create_object METAL_NODES {
+  number_of_objects 2
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-0
+  temp_min_distance_group_placement 12
+}
+
+/* A geothermal vent near each start. */
+create_object GEO_VENTS {
+  number_of_objects 8
+  set_place_for_every_player
+  min_distance_to_players 32
+  max_distance_to_players 128
+}
+
+/* The snow forests: dense stands of snow-laden pines, out from the starts. */
+create_object TREES {
+  number_of_objects 90
+  number_of_groups 0.8
+  group_placement_radius 12
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-85
+  min_distance_to_players 16
+  min_distance_group_placement 10
+}
+
+create_object TREES {
+  number_of_objects 950
+  number_of_groups 0.1
+  group_placement_radius 12
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-85
+  min_distance_to_players 16
+  min_distance_group_placement 10
+}
+
+/* Lone snow pines across the land. */
+create_object TREES {
+  number_of_objects 8
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-85
+  min_distance_to_players 8
+}
+
+/* Straggler pines by each start. */
+create_object TREES {
+  number_of_objects 4
+  set_place_for_every_player
+  terrain_to_place_on ICE_BASE-85
+  min_distance_to_players 8
+  max_distance_to_players 16
+}
+
+/* Ice chunks along the shore and on the floes. */
+create_object ICECHUNKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}
+
+/* Rocks. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}

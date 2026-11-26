@@ -1,0 +1,225 @@
+/* GREENWORLD: Continental
+   After Age of Empires II's Continental: one great GreenWorld continent in a
+   green sea, every player on it, with forests, Lava dirt patches, Lush grass,
+   hills and a few cliffs.
+   Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as GREENWORLD_BASE-85, and one tile
+   is one square of the map's game size: 16 x 16 map tiles. Sizes from the
+   original are scaled down to match, since its tiles are far smaller. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain GREENWORLD_BASE-0
+
+/* The heart of the continent. */
+create_land {
+  terrain_type GREENWORLD_BASE-85
+  land_percent 10
+  base_size 2
+  left_border 25
+  right_border 25
+  top_border 25
+  bottom_border 25
+}
+
+/* The players spread out from it, kept a little way from the map's edges so the
+   sea runs all the way round. The original keeps 6 to 8 percent of the map
+   clear with border_fuzziness 10; squares are so much bigger than its tiles
+   that the borders here are a little wider and kept more strictly. */
+create_player_lands {
+  terrain_type GREENWORLD_BASE-85
+  land_percent 50
+  if TINY_MAP
+    base_size 1
+  else
+    base_size 2
+  endif
+  start_random
+    percent_chance 50
+      left_border 12
+      right_border 9
+    percent_chance 50
+      left_border 9
+      right_border 12
+  end_random
+  start_random
+    percent_chance 50
+      top_border 12
+      bottom_border 9
+    percent_chance 50
+      top_border 9
+      bottom_border 12
+  end_random
+  border_fuzziness 60
+  set_zone_randomly
+  other_zone_avoidance_distance 1
+}
+
+<TERRAIN_GENERATION>
+/* Mixing the water: broad shallows out at sea, and a scatter of small ones. */
+create_terrain GREENWORLD_BASE-68 {
+  base_terrain GREENWORLD_BASE-0
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  land_percent 8
+}
+create_terrain GREENWORLD_BASE-68 {
+  base_terrain GREENWORLD_BASE-0
+  number_of_clumps 6
+  spacing_to_other_terrain_types 1
+  land_percent 2
+}
+
+/* Dirt: bare Lava ground in broad patches. Players still start on grass. */
+create_terrain LAVA_BASE-86 {
+  base_terrain GREENWORLD_BASE-85
+  number_of_clumps 6
+  spacing_to_other_terrain_types 1
+  land_percent 6
+  set_avoid_player_start_areas 1
+}
+
+/* Grass3: richer Lush grass in small patches. */
+create_terrain LUSH_BASE-77 {
+  base_terrain GREENWORLD_BASE-85
+  number_of_clumps 4
+  spacing_to_other_terrain_types 1
+  land_percent 3
+  set_avoid_player_start_areas 1
+}
+
+/* Dirt3: small specks of Lava ground. */
+create_terrain LAVA_BASE-86 {
+  base_terrain GREENWORLD_BASE-85
+  number_of_clumps 4
+  spacing_to_other_terrain_types 1
+  land_percent 2
+  set_avoid_player_start_areas 1
+}
+
+<ELEVATION_GENERATION>
+/* Hills: GreenWorld's own hill stamps, out of the players' start areas. */
+create_elevation 7 {
+  base_terrain GREENWORLD_BASE-85
+  number_of_clumps 5
+  set_scale_by_groups
+}
+
+<CLIFF_GENERATION>
+/* Short cliffs: ridges of GREENWORLD_BASE-219 with cliff faces. Lengths are
+   squares, and the count grows with the map. */
+min_number_of_cliffs 2
+max_number_of_cliffs 3
+min_length_of_cliff 2
+max_length_of_cliff 4
+cliff_curliness 10
+min_distance_cliffs 1
+
+<CONNECTION_GENERATION>
+/* Shallow fords where the sea divides the players. */
+create_connect_all_players_land {
+  replace_terrain GREENWORLD_BASE-0 GREENWORLD_BASE-68
+  terrain_cost GREENWORLD_BASE-0 7
+  terrain_cost GREENWORLD_BASE-68 3
+  terrain_cost GREENWORLD_BASE-85 2
+  terrain_cost LAVA_BASE-86 2
+  terrain_cost LUSH_BASE-77 2
+  terrain_size GREENWORLD_BASE-0 0 0
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
+   square is 32 of them. Kinds such as TREES pick what suits the ground. */
+
+/* A start for each player. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Gold and stone become metal: some near each start, more out on the continent. */
+create_object METAL_NODES {
+  number_of_objects 3
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 26
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 1
+  set_scaling_to_map_size
+  min_distance_to_players 36
+  temp_min_distance_group_placement 20
+}
+
+/* A geothermal vent near each start. */
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_place_for_every_player
+  min_distance_to_players 12
+  max_distance_to_players 32
+}
+
+/* The forests: dense stands of GreenWorld trees out from the starts, a square
+   or so across. */
+create_object TREES {
+  number_of_objects 160
+  number_of_groups 0.5
+  group_placement_radius 18
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on GREENWORLD_BASE-85
+  min_distance_to_players 16
+  min_distance_group_placement 10
+}
+
+/* Palm groves on the dirt: Archipelago's palms on Lava ground. */
+create_object ARCHIPELAGO_PALMS {
+  number_of_objects 20
+  number_of_groups 0.3
+  group_placement_radius 6
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on LAVA_BASE-86
+  min_distance_to_players 12
+}
+
+/* Lush trees in the Lush grass. */
+create_object TREES {
+  number_of_objects 6
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  terrain_to_place_on LUSH_BASE-77
+  min_distance_to_players 12
+}
+
+/* Straggler trees and forage bushes by each start. */
+create_object TREES {
+  number_of_objects 4
+  set_place_for_every_player
+  terrain_to_place_on GREENWORLD_BASE-85
+  min_distance_to_players 8
+  max_distance_to_players 16
+}
+create_object SHRUBS {
+  number_of_objects 6
+  number_of_groups 1
+  group_placement_radius 2
+  set_tight_grouping
+  set_place_for_every_player
+  min_distance_to_players 8
+  max_distance_to_players 14
+}
+
+/* Rocks. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}

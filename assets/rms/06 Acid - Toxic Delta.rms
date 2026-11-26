@@ -1,0 +1,136 @@
+/* ACID: Toxic Delta
+   Islands of olive Acid ground in an acid sea, with Desert sand and a
+   little GreenWorld grass where it has not been eaten away.
+   Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as ACID_BASE-85, and one tile
+   is one square of the map's game size: 16 x 16 map tiles. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain ACID_BASE-0
+
+/* An island for each player, kept two tiles from the others. */
+create_player_lands {
+  terrain_type ACID_BASE-85
+  land_percent 50
+  /* Small maps have room for smaller starting areas only. */
+  if TINY_MAP
+    base_size 1
+  else
+    base_size 2
+  endif
+  other_zone_avoidance_distance 2
+  border_fuzziness 30
+  clumping_factor 15
+}
+
+<TERRAIN_GENERATION>
+/* Desert sand. */
+create_terrain DESERT_BASE-80 {
+  base_terrain ACID_BASE-85
+  land_percent 5
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* Grass the acid has not reached. */
+create_terrain GREENWORLD_BASE-85 {
+  base_terrain ACID_BASE-85
+  land_percent 3
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* The Tile Brush's own stamps for Acid: hills, pools, islands and more.
+   Each fills a block of flat ground of the base it needs. */
+create_terrain ACID_MOUNDS-85_16X16 {
+  number_of_clumps 2
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+
+create_terrain ACID_PUDDLES-85_16X16 {
+  number_of_clumps 2
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+
+create_terrain ACID_HILLS-85_16X16 {
+  number_of_clumps 1
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+
+create_terrain ACID_ISLANDS-0_16X16 {
+  number_of_clumps 2
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+
+<CONNECTION_GENERATION>
+/* Land bridges between the players' islands. */
+create_connect_all_players_land {
+  replace_terrain ACID_BASE-0 ACID_BASE-85
+  terrain_size ACID_BASE-0 0 0
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
+   square is 32 of them. Kinds such as TREES pick what suits the ground. */
+
+/* A start on each player's island. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Metal near each start, and more out in the open. */
+create_object METAL_NODES {
+  number_of_objects 3
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 28
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 2
+  set_scaling_to_map_size
+  min_distance_to_players 40
+  temp_min_distance_group_placement 24
+}
+
+/* A geothermal vent near each start. */
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_place_for_every_player
+  min_distance_to_players 12
+  max_distance_to_players 32
+}
+
+/* Rocks. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}
+
+/* Trees on the grass. */
+create_object TREES {
+  number_of_objects 3
+  set_scaling_to_map_size
+  min_distance_to_players 8
+}
+
+/* Plants on the sand. */
+create_object PLANTS {
+  number_of_objects 3
+  set_scaling_to_map_size
+  min_distance_to_players 8
+}

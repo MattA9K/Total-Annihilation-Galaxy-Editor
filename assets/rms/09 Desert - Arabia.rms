@@ -1,0 +1,167 @@
+/* DESERT: Arabia
+   After Age of Empires II's Arabia: open Desert land with no sea, scattered
+   palm groves, sandy Archipelago patches, a few Lush oases and ponds, and
+   plenty of high ground and cliffs to fight over.
+   Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as DESERT_BASE-80, and one tile
+   is one square of the map's game size: 16 x 16 map tiles. Sizes from the
+   original are scaled down to match, since its tiles are far smaller. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain DESERT_BASE-80
+
+/* A clear start for each player, spread across the open desert. */
+create_player_lands {
+  terrain_type DESERT_BASE-80
+  land_percent 25
+  if TINY_MAP
+    base_size 1
+  else
+    base_size 2
+  endif
+  border_fuzziness 15
+}
+
+<ELEVATION_GENERATION>
+/* Rolling hills: Desert's own hill stamps, out of the players' start areas. */
+create_elevation 7 {
+  base_terrain DESERT_BASE-80
+  number_of_clumps 6
+  set_scale_by_groups
+}
+
+<CLIFF_GENERATION>
+/* Cliffs: short ridges of DESERT_BASE-155 with cliff faces. Lengths are
+   squares, and the count grows with the map. */
+min_number_of_cliffs 3
+max_number_of_cliffs 5
+min_length_of_cliff 2
+max_length_of_cliff 4
+cliff_curliness 25
+min_distance_cliffs 1
+
+<TERRAIN_GENERATION>
+/* Elevated ground: broad rises of DESERT_BASE-155 behind cliffs. */
+create_terrain DESERT_BASE-155 {
+  base_terrain DESERT_BASE-80
+  land_percent 8
+  number_of_clumps 4
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* Peaks of DESERT_BASE-230 on the biggest rises. */
+create_terrain DESERT_BASE-230 {
+  base_terrain DESERT_BASE-155
+  land_percent 1
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+}
+
+/* Desert: a few patches of lighter Archipelago sand across the dirt. */
+create_terrain ARCHIPELAGO_BASE-78 {
+  base_terrain DESERT_BASE-80
+  land_percent 3
+  number_of_clumps 4
+  spacing_to_other_terrain_types 1
+}
+
+/* Grass3: small Lush oases. */
+create_terrain LUSH_BASE-77 {
+  base_terrain DESERT_BASE-80
+  land_percent 1
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 1
+}
+
+/* Ponds out in the desert. */
+create_terrain DESERT_BASE-0 {
+  base_terrain DESERT_BASE-80
+  land_percent 1
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+  set_avoid_player_start_areas 2
+}
+
+/* Rough ground: Desert's rough patch stamps. */
+create_terrain DESERT_ROUGHS-80_8X8 {
+  number_of_clumps 3
+  set_scale_by_groups
+  set_avoid_player_start_areas 1
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
+   square is 32 of them. Kinds such as TREES pick what suits the ground; on
+   Desert ground TREES are Archipelago's palms and trees. */
+
+/* A start for each player. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Gold and stone become metal: some near each start, more out in the desert. */
+create_object METAL_NODES {
+  number_of_objects 3
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 24
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 1
+  set_scaling_to_map_size
+  min_distance_to_players 36
+  temp_min_distance_group_placement 20
+}
+
+/* A geothermal vent near each start. */
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_place_for_every_player
+  min_distance_to_players 12
+  max_distance_to_players 32
+}
+
+/* Palm groves: Arabia's forests, a square or so across, out from the starts. */
+create_object TREES {
+  number_of_objects 160
+  number_of_groups 0.5
+  group_placement_radius 12
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on DESERT_BASE-80
+  min_distance_to_players 18
+  min_distance_group_placement 12
+}
+
+/* Straggler palms by each start. */
+create_object PALMS {
+  number_of_objects 4
+  set_place_for_every_player
+  terrain_to_place_on DESERT_BASE-80
+  min_distance_to_players 8
+  max_distance_to_players 16
+}
+
+/* Trees around the oases. */
+create_object LUSH_TREES {
+  number_of_objects 6
+  set_scaling_to_map_size
+  terrain_to_place_on LUSH_BASE-77
+}
+
+/* Rocks. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}

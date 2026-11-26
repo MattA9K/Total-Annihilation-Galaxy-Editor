@@ -1,0 +1,234 @@
+/* ==================================================================
+   FROSTFALL REACH  -  a Galaxy Editor random map script
+   A continent in a cold green sea: glaciers and ice ridges in the
+   north, a tundra belt, a dry desert heart with mesas and oases,
+   temperate grassland in the south, a jungle in the south-west and
+   an active volcano in the south-east.
+   Best on maps of 16 x 16 game size or larger.
+   ================================================================== */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+/* The sea. */
+base_terrain GREENWORLD_BASE-0
+
+/* The northern glacier, kept in the top third of the map. */
+create_land {
+  terrain_type ICE_BASE-85
+  land_position 50 14
+  base_size 2
+  land_percent 18
+  top_border 5
+  bottom_border 67
+  left_border 7
+  right_border 7
+  border_fuzziness 25
+  clumping_factor 12
+}
+
+/* Tundra: a belt of cold grassland below the ice. */
+create_land {
+  terrain_type GREENWORLD_BASE-85
+  land_position 50 34
+  base_size 1
+  land_percent 9
+  top_border 27
+  bottom_border 57
+  left_border 9
+  right_border 9
+  border_fuzziness 30
+}
+
+/* The desert heart of the continent. */
+create_land {
+  terrain_type DESERT_BASE-80
+  land_position 50 52
+  base_size 2
+  land_percent 16
+  top_border 40
+  bottom_border 35
+  left_border 11
+  right_border 11
+  border_fuzziness 20
+  clumping_factor 14
+}
+
+/* Southern grassland. */
+create_land {
+  terrain_type GREENWORLD_BASE-85
+  land_position 50 78
+  base_size 2
+  land_percent 17
+  top_border 61
+  bottom_border 6
+  left_border 8
+  right_border 8
+  border_fuzziness 30
+}
+
+/* A jungle in the south-west. */
+create_land {
+  terrain_type LUSH_BASE-77
+  land_position 17 81
+  base_size 1
+  land_percent 7
+  top_border 63
+  bottom_border 5
+  left_border 5
+  right_border 62
+  border_fuzziness 35
+}
+
+/* The volcano in the south-east. */
+create_land {
+  terrain_type LAVA_BASE-86
+  land_position 83 82
+  base_size 1
+  land_percent 5
+  top_border 65
+  bottom_border 6
+  left_border 64
+  right_border 5
+  border_fuzziness 35
+}
+
+<TERRAIN_GENERATION>
+/* Ice ridges: long, ragged high ground behind cliffs. */
+create_terrain ICE_BASE-170 {
+  base_terrain ICE_BASE-85
+  land_percent 6
+  number_of_clumps 5
+  clumping_factor 4
+  spacing_to_other_terrain_types 1
+}
+
+/* Mesas rising out of the sand. */
+create_terrain DESERT_BASE-155 {
+  base_terrain DESERT_BASE-80
+  land_percent 3
+  number_of_clumps 3
+  spacing_to_other_terrain_types 1
+}
+
+/* Oases: shallow pools in the desert. */
+create_terrain DESERT_BASE-68 {
+  base_terrain DESERT_BASE-80
+  number_of_tiles 4
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+}
+
+/* Rolling hills in the southern grassland. */
+create_terrain GREENWORLD_BASE-219 {
+  base_terrain GREENWORLD_BASE-85
+  land_percent 2
+  number_of_clumps 3
+  spacing_to_other_terrain_types 2
+}
+
+/* Lakes. */
+create_terrain GREENWORLD_BASE-68 {
+  base_terrain GREENWORLD_BASE-85
+  number_of_tiles 4
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+}
+
+/* Jungle highlands. */
+create_terrain LUSH_BASE-183 {
+  base_terrain LUSH_BASE-77
+  land_percent 1
+  number_of_clumps 1
+  spacing_to_other_terrain_types 1
+}
+
+/* The volcano's cone, with a lava lake below it. */
+create_terrain LAVA_BASE-190 {
+  base_terrain LAVA_BASE-86
+  land_percent 1
+  number_of_clumps 1
+  spacing_to_other_terrain_types 1
+}
+create_terrain LAVA_BASE-41 {
+  base_terrain LAVA_BASE-86
+  number_of_tiles 2
+  number_of_clumps 1
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Distances here are in feature cells: 32 to a game-size square. */
+
+/* Forests: tight groves, wherever trees suit the ground. */
+create_object TREES {
+  number_of_objects 8
+  number_of_groups 2
+  group_variance 3
+  set_tight_grouping
+  set_scaling_to_map_size
+  min_distance_group_placement 10
+  avoid_cliff_zone 2
+}
+
+/* Lone trees and shrubs over the grass. */
+create_object TREES {
+  number_of_objects 3
+  set_scaling_to_map_size
+}
+create_object SHRUBS {
+  number_of_objects 3
+  set_scaling_to_map_size
+  terrain_to_place_on GREENWORLD_BASE-85
+}
+
+/* Ice chunks scattered over the glacier, and piled on the ridges. */
+create_object ICECHUNKS {
+  number_of_objects 4
+  number_of_groups 1
+  group_placement_radius 4
+  set_scaling_to_map_size
+}
+create_object ICECHUNKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  terrain_to_place_on ICE_BASE-170
+}
+
+/* Rocks everywhere: dry rocks in the desert, ice in the north. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 8
+}
+
+/* Desert plants around the sand. */
+create_object PLANTS {
+  number_of_objects 2
+  set_scaling_to_map_size
+  terrain_to_place_on DESERT_BASE-80
+}
+
+/* Jungle undergrowth. */
+create_object FOLIAGE {
+  number_of_objects 6
+  set_scaling_to_map_size
+}
+create_object VINES {
+  number_of_objects 3
+  set_scaling_to_map_size
+}
+
+/* The volcano. */
+create_object LAVA_SPIRES {
+  number_of_objects 1
+  set_scaling_to_map_size
+}
+create_object LAVA_NODES {
+  number_of_objects 1
+  set_scaling_to_map_size
+}

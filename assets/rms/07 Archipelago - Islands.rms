@@ -1,0 +1,301 @@
+/* ARCHIPELAGO: Islands
+   After Age of Empires II's Islands: every player on an island of their own,
+   with small resource islands out at sea between them. Sandy Archipelago
+   islands with palm groves, a little GreenWorld grass and Desert ground, and
+   shallows in the deep water. No land joins the islands: this is a naval map.
+   Galaxy Editor random map script, in the syntax Age of Empires II uses.
+   Terrain names are the Tile Brush bases, such as ARCHIPELAGO_BASE-78, and one tile
+   is one square of the map's game size: 16 x 16 map tiles. Sizes from the
+   original are scaled down to match, since its tiles are far smaller. */
+
+<PLAYER_SETUP>
+random_placement
+
+<LAND_GENERATION>
+base_terrain ARCHIPELAGO_BASE-0
+
+/* An island for each player, with open water between every two. */
+create_player_lands {
+  terrain_type ARCHIPELAGO_BASE-78
+  land_percent 30
+  base_size 1
+  left_border 7
+  right_border 7
+  top_border 7
+  bottom_border 7
+  border_fuzziness 50
+  clumping_factor 15
+  other_zone_avoidance_distance 2
+}
+
+/* Resource islands in the middle of the map: two, three on a 20 x 20 map and
+   four on bigger ones. The original has more, but its sea is roomier. Each is
+   its own land, so the metal below can be put on it by land_id. */
+create_land {
+  terrain_type ARCHIPELAGO_BASE-78
+  land_percent 2
+  base_size 1
+  border_fuzziness 10
+  other_zone_avoidance_distance 2
+  land_id 20
+  left_border 25
+  right_border 25
+  top_border 25
+  bottom_border 25
+  zone 56
+}
+create_land {
+  terrain_type ARCHIPELAGO_BASE-78
+  land_percent 2
+  base_size 1
+  border_fuzziness 10
+  other_zone_avoidance_distance 2
+  land_id 23
+  left_border 25
+  right_border 25
+  top_border 25
+  bottom_border 25
+  zone 57
+}
+if HUGE_MAP
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 21
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 58
+  }
+elseif GIGANTIC_MAP
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 21
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 58
+  }
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 24
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 59
+  }
+elseif MAPSIZE_GIANT
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 21
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 58
+  }
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 24
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 59
+  }
+elseif LUDIKRIS_MAP
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 21
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 58
+  }
+  create_land {
+    terrain_type ARCHIPELAGO_BASE-78
+    land_percent 2
+    base_size 1
+    border_fuzziness 10
+    other_zone_avoidance_distance 2
+    land_id 24
+    left_border 25
+    right_border 25
+    top_border 25
+    bottom_border 25
+    zone 59
+  }
+endif
+
+<TERRAIN_GENERATION>
+/* Mixing the water: shallows here and there in the deep sea. */
+create_terrain ARCHIPELAGO_BASE-68 {
+  base_terrain ARCHIPELAGO_BASE-0
+  number_of_clumps 8
+  spacing_to_other_terrain_types 0
+  land_percent 8
+}
+
+/* A little GreenWorld grass and Desert ground on the islands. */
+create_terrain GREENWORLD_BASE-85 {
+  base_terrain ARCHIPELAGO_BASE-78
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+  land_percent 2
+  set_avoid_player_start_areas 1
+}
+create_terrain DESERT_BASE-80 {
+  base_terrain ARCHIPELAGO_BASE-78
+  number_of_clumps 2
+  spacing_to_other_terrain_types 1
+  land_percent 2
+  set_avoid_player_start_areas 1
+}
+
+<OBJECTS_GENERATION>
+/* Doodads. Here one tile is one feature cell, 16 x 16 pixels: a game-size
+   square is 32 of them. Kinds such as TREES pick what suits the ground. */
+
+/* A start on each player's island. */
+create_object START_POSITION {
+  set_place_for_every_player
+  max_distance_to_players 0
+}
+
+/* Metal on each player's island, and more on the resource islands. */
+create_object METAL_NODES {
+  number_of_objects 4
+  set_place_for_every_player
+  min_distance_to_players 10
+  max_distance_to_players 26
+  temp_min_distance_group_placement 6
+}
+create_object METAL_NODES {
+  number_of_objects 4
+  place_on_specific_land_id 20
+  temp_min_distance_group_placement 4
+}
+create_object METAL_NODES {
+  number_of_objects 4
+  place_on_specific_land_id 23
+  temp_min_distance_group_placement 4
+}
+if HUGE_MAP
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 21
+    temp_min_distance_group_placement 4
+  }
+elseif GIGANTIC_MAP
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 21
+    temp_min_distance_group_placement 4
+  }
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 24
+    temp_min_distance_group_placement 4
+  }
+elseif MAPSIZE_GIANT
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 21
+    temp_min_distance_group_placement 4
+  }
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 24
+    temp_min_distance_group_placement 4
+  }
+elseif LUDIKRIS_MAP
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 21
+    temp_min_distance_group_placement 4
+  }
+  create_object METAL_NODES {
+    number_of_objects 4
+    place_on_specific_land_id 24
+    temp_min_distance_group_placement 4
+  }
+endif
+
+/* Metal on the sea floor in the shallows, where the original has its fish. */
+create_object METAL_NODES {
+  number_of_objects 1
+  set_scaling_to_map_size
+  terrain_to_place_on ARCHIPELAGO_BASE-68
+  temp_min_distance_group_placement 12
+}
+
+/* A geothermal vent near each start. */
+create_object GEO_VENTS {
+  number_of_objects 1
+  set_place_for_every_player
+  min_distance_to_players 12
+  max_distance_to_players 32
+}
+
+/* Forests: groves of Archipelago trees and palms, out from the starts. */
+create_object TREES {
+  number_of_objects 60
+  number_of_groups 0.6
+  set_tight_grouping
+  set_scaling_to_map_size
+  terrain_to_place_on ARCHIPELAGO_BASE-78
+  min_distance_to_players 16
+  min_distance_group_placement 8
+}
+
+/* Straggler palms by each start. */
+create_object PALMS {
+  number_of_objects 4
+  set_place_for_every_player
+  min_distance_to_players 8
+  max_distance_to_players 16
+}
+
+/* A few trees on the grass. */
+create_object TREES {
+  number_of_objects 4
+  set_scaling_to_map_size
+  terrain_to_place_on GREENWORLD_BASE-85
+}
+
+/* Rocks. */
+create_object ROCKS {
+  number_of_objects 3
+  number_of_groups 1
+  group_placement_radius 3
+  set_scaling_to_map_size
+  min_distance_group_placement 12
+  min_distance_to_players 12
+}

@@ -10467,7 +10467,8 @@ void EditorApp::drawRandomMap() {
     if (ImGui::BeginPopup("random-map-examples")) {
         float widest = 0.0f;
         std::vector<std::string> labels;
-        for (const ExampleRandomMapScript& example : kExampleRandomMapScripts) {
+        for (std::size_t i = 0; i < kExampleRandomMapScriptCount; ++i) {
+            const ExampleRandomMapScript& example = kExampleRandomMapScripts[i];
             labels.push_back(std::string(example.world) + "  \xE2\x80\x94  " + example.title);
             widest = std::max(widest, theme::pushButtonWidth(labels.back().c_str()));
         }
@@ -12167,7 +12168,14 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     secondGrass = secondGrass || (trailingNumber(levels[static_cast<std::size_t>(corner)]->name) == 85
                         && lowerText(levels[static_cast<std::size_t>(corner)]->category) == "evergreen2");
                 }
+                // Water with both grasses is filed in Evergreen-Mix.
+                bool firstGrass = false;
+                for (const int corner : ringCell.corners) {
+                    firstGrass = firstGrass || (trailingNumber(levels[static_cast<std::size_t>(corner)]->name) == 85
+                        && lowerText(levels[static_cast<std::size_t>(corner)]->category) == "evergreen");
+                }
                 const std::string evergreenFolder = !evergreenCoast ? std::string()
+                    : !evergreenCliff && evergreenLow == 0 && firstGrass && secondGrass ? std::string("Evergreen-Mix")
                     : evergreenCliff && evergreenLow == 0 && secondGrass ? upper->category + "-0-2"
                     : evergreenCliff && (evergreenLow == 190 || evergreenLow == 0) ? upper->category + "-" + std::to_string(evergreenLow)
                     : !evergreenCliff || lowerText(lower->category) == lowerText(upper->category) ? upper->category
