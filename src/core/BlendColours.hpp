@@ -303,6 +303,22 @@ inline bool quagmireWaterTileIsQuagmire(const std::uint8_t* bytes) {
     return score >= 7 * 1024;
 }
 
+// Evergreen water is teal: green averages about 90 with blue only about 20 above it. GreenWorld's blue
+// water has blue 150 above green, Desert's 44 above, Acid's below green, and Mars, Crystal, Lush and
+// Quagmire water have green under 55 or red above it.
+inline bool evergreenWaterTileIsEvergreen(const std::uint8_t* bytes) {
+    long red = 0;
+    long green = 0;
+    long blue = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        red += color[0];
+        green += color[1];
+        blue += color[2];
+    }
+    return green >= 70 * 1024 && green - blue >= -32 * 1024 && green - blue <= 0 && red - green <= -30 * 1024;
+}
+
 // Quagmire mud is brown: red minus blue averages 50 to 53 on its Base-85 tiles, against 30 or less on
 // GreenWorld, Acid, Crystal, Ice and Metal Base-85. Mars is as red but redder than green by 47 or more,
 // where Quagmire's red leads its green by about 25.
@@ -433,6 +449,16 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Quagmire / Crystal water", "Quagmire/Base-0", "Crystal/Base-0", quagmireWaterTileIsQuagmire},
     {"Quagmire / Acid water", "Quagmire/Base-0", "Acid/Base-0", quagmireWaterTileIsQuagmire},
     {"Quagmire / Lush water", "Quagmire/Base-0", "Lush/Base-27", quagmireWaterTileIsQuagmire},
+    {"Evergreen / GreenWorld water", "Evergreen/Base-0", "GreenWorld/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Ice water", "Evergreen/Base-0", "Ice/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Metal water", "Evergreen/Base-0", "Metal/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Desert water", "Evergreen/Base-0", "Desert/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Archipelago water", "Evergreen/Base-0", "Archipelago/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Mars water", "Evergreen/Base-0", "Mars/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Crystal water", "Evergreen/Base-0", "Crystal/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Acid water", "Evergreen/Base-0", "Acid/Base-0", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Lush water", "Evergreen/Base-0", "Lush/Base-27", evergreenWaterTileIsEvergreen},
+    {"Evergreen / Quagmire water", "Evergreen/Base-0", "Quagmire/Base-0", evergreenWaterTileIsEvergreen},
 };
 
 }  // namespace galaxy

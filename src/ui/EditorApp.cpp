@@ -13846,6 +13846,15 @@ void EditorApp::ensureBrushPaints() {
     } else if (lowerText(brushWorld_) != "lava") {
         wanted.push_back(PartnerWant{"Quagmire", "Base-0"});
     }
+    // Evergreen water fades into the same waters, and into Quagmire's.
+    if (isEvergreenWorld(brushWorld_)) {
+        for (const PartnerWant water : {PartnerWant{"GreenWorld", "Base-0"}, PartnerWant{"Desert", "Base-0"}, PartnerWant{"Mars", "Base-0"},
+                 PartnerWant{"Crystal", "Base-0"}, PartnerWant{"Acid", "Base-0"}, PartnerWant{"Lush", "Base-27"}}) {
+            wanted.push_back(water);
+        }
+    } else if (lowerText(brushWorld_) != "lava") {
+        wanted.push_back(PartnerWant{"Evergreen", "Base-0"});
+    }
     for (const PartnerWant& want : wanted) {
         for (const TilesetSection& section : source->sections) {
             if (!isBaseBrushTile(section.world, section.name) || lowerText(section.category) != lowerText(want.world)
@@ -15288,6 +15297,15 @@ void EditorApp::ensureBrushPaints() {
             rememberTwoWayColour("blend-waterquagcrystal-", quagmireWater, paintWorldAt("Crystal", 0), quagmireWaterTileIsQuagmire);
             rememberTwoWayColour("blend-waterquagacid-", quagmireWater, paintWorldAt("Acid", 0), quagmireWaterTileIsQuagmire);
             rememberTwoWayColour("blend-waterquaglush-", quagmireWater, paintWorldAt("Lush", 27), quagmireWaterTileIsQuagmire);
+            // Evergreen water's, into the same waters and Quagmire's.
+            const BrushPaint* evergreenWater = paintWorldAt("Ever", 0);
+            rememberTwoWayColour("blend-waterevergreen-", evergreenWater, waterOf({"Green", "Ice", "Metal"}, 0), evergreenWaterTileIsEvergreen);
+            rememberTwoWayColour("blend-watereverdesert-", evergreenWater, waterOf({"Desert", "Archi"}, 0), evergreenWaterTileIsEvergreen);
+            rememberTwoWayColour("blend-waterevermars-", evergreenWater, paintWorldAt("Mars", 0), evergreenWaterTileIsEvergreen);
+            rememberTwoWayColour("blend-waterevercrystal-", evergreenWater, paintWorldAt("Crystal", 0), evergreenWaterTileIsEvergreen);
+            rememberTwoWayColour("blend-watereveracid-", evergreenWater, paintWorldAt("Acid", 0), evergreenWaterTileIsEvergreen);
+            rememberTwoWayColour("blend-watereverlush-", evergreenWater, paintWorldAt("Lush", 27), evergreenWaterTileIsEvergreen);
+            rememberTwoWayColour("blend-watereverquag-", evergreenWater, paintWorldAt("Quag", 0), evergreenWaterTileIsEvergreen);
         }
         // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
         // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.

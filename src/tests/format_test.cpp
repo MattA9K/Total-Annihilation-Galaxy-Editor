@@ -3509,6 +3509,21 @@ void testBrushCells() {
         "Acid joins Desert land with its own blend, which marks Acid");
     expect(brushPieceName(BrushGraph(std::vector<int>{85, 80}, {"Acid", "Desert"}), {0, 0, 1, 1}) == "Blend-AcidDesert-T",
         "Acid still marks the blend when it is the first paint");
+    {
+        // Evergreen water fades into every other water, Quagmire's included, and the piece marks it.
+        bool joins = true;
+        for (const char* other : {"Green", "Ice", "Metal", "Desert", "Archi", "Mars", "Crystal", "Acid", "Quag"}) {
+            const BrushGraph waters(std::vector<int>{0, 0}, {"Ever", other});
+            const std::string family = std::string_view(other) == "Ice" || std::string_view(other) == "Metal" ? "Green"
+                : std::string_view(other) == "Archi" ? "Desert" : other;
+            joins = joins && waters.style(0, 1) == TransitionStyle::WorldBlend && waters.compatible(0, 1)
+                && brushPieceName(waters, {0, 0, 1, 1}) == "Blend-WaterEver" + family + "-T"
+                && brushPieceName(BrushGraph(std::vector<int>{0, 0}, {other, "Ever"}), {1, 1, 0, 0}) == "Blend-WaterEver" + family + "-T";
+        }
+        const BrushGraph lush(std::vector<int>{0, 27}, {"Ever", "Lush"});
+        expect(joins && lush.style(0, 1) == TransitionStyle::WorldBlend && brushPieceName(lush, {0, 0, 1, 1}) == "Blend-WaterEverLush-T",
+            "Evergreen water fades into every other water with a Blend-WaterEver piece marking it");
+    }
     expect(transitionVariation("Blend-AcidDesert-T-02", "Blend-AcidDesert-T") == 2 && transitionVariation("Blend-AcidDesert-T-01", "Blend-Desert-T") < 0
         && transitionVariation("Blend-AcidDesert-T-01", "Blend-Acid-T") < 0 && transitionVariation("Blend-AcidDesert-L-01", "Blend-ArchiAcid-L") < 0,
         "an Acid Desert piece is not the lava, acid, or archipelago sand blend");

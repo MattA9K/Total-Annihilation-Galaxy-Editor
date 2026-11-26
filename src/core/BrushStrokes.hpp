@@ -525,6 +525,11 @@ inline bool waterBlendsWithSand(std::string_view world) {
 inline bool quagmireWaterPartner(std::string_view world) {
     return blueWaterWorld(world) || sandWaterWorld(world) || world == "Mars" || world == "Crystal" || world == "Acid";
 }
+// The waters Evergreen Base-0 fades into with a Blend-WaterEver piece: every water Quagmire's fades into,
+// and Quagmire's. Lush's Base-27 water does too, through its own rule.
+inline bool evergreenWaterPartner(std::string_view world) {
+    return quagmireWaterPartner(world) || world == "Quag";
+}
 
 // The lands both Evergreen grasses blend into: every Base-85 land, Lava Base-86, Archipelago Base-78,
 // Lush Base-77 and Desert Base-80, and the other Evergreen grass.
@@ -610,10 +615,11 @@ public:
                                 || ((sandWaterWorld(wa) != sandWaterWorld(wb)) && (sandWaterWorld(wa) ? waterBlendsWithSand(wb) : waterBlendsWithSand(wa)))
                                 || ((wa == "Mars") != (wb == "Mars") && (wa == "Mars" ? waterBlendsWithMars(wb) : waterBlendsWithMars(wa)))
                                 || namedPair("Crystal", "Acid")
-                                || ((wa == "Quag") != (wb == "Quag") && quagmireWaterPartner(wa == "Quag" ? wb : wa)));
+                                || ((wa == "Quag") != (wb == "Quag") && quagmireWaterPartner(wa == "Quag" ? wb : wa))
+                                || ((wa == "Ever") != (wb == "Ever") && evergreenWaterPartner(wa == "Ever" ? wb : wa)));
                         // Ordered by height: the blue, sand or Mars water is the Base-0 side and Lush the Base-27 side.
                         const bool lushWater = rule.lowerHeight == 0 && rule.upperHeight == 27
-                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag") && wb == "Lush";
+                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag" || wa == "Ever") && wb == "Lush";
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
@@ -3154,6 +3160,14 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         int marked = sorted[1];
         std::string family;
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && (graph.world(sorted[0]) == "Ever") != (graph.world(sorted[1]) == "Ever")) {
+            // Evergreen water beside another land's water, Quagmire's included. The mask marks the Evergreen
+            // water, and the other water is named for its family as for Quagmire: Blend-WaterEverGreen-T has
+            // Evergreen water along the top and the blue water along the bottom.
+            marked = graph.world(sorted[0]) == "Ever" ? sorted[0] : sorted[1];
+            const std::string_view other = graph.world(marked == sorted[0] ? sorted[1] : sorted[0]);
+            family = "WaterEver" + std::string(blueWaterWorld(other) ? "Green" : sandWaterWorld(other) ? "Desert" : other);
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
             && (graph.world(sorted[0]) == "Quag") != (graph.world(sorted[1]) == "Quag")) {
             // Quagmire water beside another land's water. The mask marks the Quagmire water, and the other
             // water is named for its family: Blend-WaterQuagGreen-T has Quagmire water along the top and the
