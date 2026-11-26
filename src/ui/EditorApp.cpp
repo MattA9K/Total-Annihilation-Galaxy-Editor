@@ -13385,7 +13385,8 @@ void EditorApp::ensureBrushPaints() {
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
         || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
-        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire" || isEvergreenWorld(brushWorld_);
+        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire" || isEvergreenWorld(brushWorld_)
+        || lowerText(brushWorld_) == "snowyevergreen";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         std::string sectionKind;
@@ -14016,6 +14017,19 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Evergreen", "Base-85"});
         wanted.push_back(PartnerWant{"Evergreen2", "Base-85"});
     }
+    // SnowyEvergreen Base-85 blends into the ground of every other land, both Evergreen grasses among them,
+    // and every one of those lands blends into it.
+    if (lowerText(brushWorld_) == "snowyevergreen") {
+        for (const PartnerWant& partner : kEvergreenPartners) {
+            wanted.push_back(partner);
+        }
+        wanted.push_back(PartnerWant{"Evergreen", "Base-85"});
+        wanted.push_back(PartnerWant{"Evergreen2", "Base-85"});
+    } else if (isEvergreenWorld(brushWorld_)
+               || std::any_of(std::begin(kEvergreenPartners), std::end(kEvergreenPartners),
+                              [&](const PartnerWant& partner) { return lowerText(brushWorld_) == lowerText(partner.world); })) {
+        wanted.push_back(PartnerWant{"SnowyEvergreen", "Base-85"});
+    }
     // Quagmire water fades into every other land's water: Archipelago and Desert share one water, read as
     // Desert's, GreenWorld's stands for the blue water it shares with Ice and Metal, and Lush's stands at Base-27.
     if (lowerText(brushWorld_) == "quagmire") {
@@ -14023,7 +14037,7 @@ void EditorApp::ensureBrushPaints() {
                  PartnerWant{"Crystal", "Base-0"}, PartnerWant{"Acid", "Base-0"}, PartnerWant{"Lush", "Base-27"}}) {
             wanted.push_back(water);
         }
-    } else if (lowerText(brushWorld_) != "lava") {
+    } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
         wanted.push_back(PartnerWant{"Quagmire", "Base-0"});
     }
     // Evergreen water fades into the same waters, and into Quagmire's.
@@ -14032,7 +14046,7 @@ void EditorApp::ensureBrushPaints() {
                  PartnerWant{"Crystal", "Base-0"}, PartnerWant{"Acid", "Base-0"}, PartnerWant{"Lush", "Base-27"}}) {
             wanted.push_back(water);
         }
-    } else if (lowerText(brushWorld_) != "lava") {
+    } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
         wanted.push_back(PartnerWant{"Evergreen", "Base-0"});
     }
     for (const PartnerWant& want : wanted) {
@@ -15393,7 +15407,16 @@ void EditorApp::ensureBrushPaints() {
                     rememberTwoWayColour(prefix.c_str(), evergreen2Land, paintWorldAt(partner.word, partner.height), evergreen2TileIsEvergreen2);
                 }
             }
+            // SnowyEvergreen's blends into every other land's ground, both Evergreen grasses among them.
+            const BrushPaint* snowLand = paintWorldAt("Snow", 85);
+            for (const EvergreenPartner& partner : kEvergreenLands) {
+                const std::string prefix = "blend-snow" + lowerText(partner.word) + "-";
+                rememberTwoWayColour(prefix.c_str(), snowLand, paintWorldAt(partner.word, partner.height), snowTileIsSnow);
+            }
             const auto landOf = [&](const std::string& word) -> const BrushPaint* {
+                if (word == "Snow") {
+                    return snowLand;
+                }
                 for (const EvergreenPartner& partner : kEvergreenLands) {
                     if (word == partner.word) {
                         return paintWorldAt(partner.word, partner.height);
@@ -15410,7 +15433,7 @@ void EditorApp::ensureBrushPaints() {
                 }
                 const std::vector<std::string> pieceWorlds = blendPieceWorlds(piece.name);
                 const bool ours = std::any_of(pieceWorlds.begin(), pieceWorlds.end(), [](const std::string& world) {
-                    return world == "Quagmire" || world == "Evergreen" || world == "Evergreen2";
+                    return world == "Quagmire" || world == "Evergreen" || world == "Evergreen2" || world == "SnowyEvergreen";
                 });
                 if (!ours) {
                     continue;
@@ -18063,7 +18086,7 @@ void EditorApp::drawTileBrush() {
     // Evergreen2 is Evergreen's second grass, listed as Evergreen.
     const char* shownWorld = isEvergreenWorld(brushWorld_) ? "Evergreen" : brushWorld_.c_str();
     if (ImGui::BeginCombo("Tileset", shownWorld)) {
-        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen", "SnowyEvergreen"}) {
             const bool selected = std::string_view(shownWorld) == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;

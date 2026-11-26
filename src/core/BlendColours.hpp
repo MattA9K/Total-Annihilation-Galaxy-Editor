@@ -292,6 +292,20 @@ inline bool evergreen2TileIsEvergreen2(const std::uint8_t* bytes) {
     return greenBlue >= 48 * 1024 && redGreen >= -33 * 1024;
 }
 
+// SnowyEvergreen is white snow over grass, brighter than every land it blends into but Ice and
+// Archipelago. Its Base-85 tiles average 213 to 235 in brightness, against 149 or less on the rest, and red
+// minus blue is 3 to 11 on them: Ice is bluer, at -39 to -36, and Archipelago's sand redder, at 28 to 31.
+inline bool snowTileIsSnow(const std::uint8_t* bytes) {
+    int brightness = 0;
+    int redBlue = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        brightness += static_cast<int>(color[0]) + static_cast<int>(color[1]) + static_cast<int>(color[2]);
+        redBlue += static_cast<int>(color[0]) - static_cast<int>(color[2]);
+    }
+    return brightness >= 3 * 180 * 1024 && redBlue >= -16 * 1024 && redBlue <= 19 * 1024;
+}
+
 // Quagmire water is an olive mud, the only water whose red outweighs its blue: red minus blue averages
 // 35 to 48 on its Base-0 and stroke tiles, and -21 or less on every other land's water.
 inline bool quagmireWaterTileIsQuagmire(const std::uint8_t* bytes) {
@@ -459,6 +473,19 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Evergreen / Acid water", "Evergreen/Base-0", "Acid/Base-0", evergreenWaterTileIsEvergreen},
     {"Evergreen / Lush water", "Evergreen/Base-0", "Lush/Base-27", evergreenWaterTileIsEvergreen},
     {"Evergreen / Quagmire water", "Evergreen/Base-0", "Quagmire/Base-0", evergreenWaterTileIsEvergreen},
+    {"SnowyEvergreen / GreenWorld", "SnowyEvergreen/Base-85", "GreenWorld/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Mars", "SnowyEvergreen/Base-85", "Mars/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Acid", "SnowyEvergreen/Base-85", "Acid/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Crystal", "SnowyEvergreen/Base-85", "Crystal/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Ice", "SnowyEvergreen/Base-85", "Ice/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Metal", "SnowyEvergreen/Base-85", "Metal/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Quagmire", "SnowyEvergreen/Base-85", "Quagmire/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Lava", "SnowyEvergreen/Base-85", "Lava/Base-86", snowTileIsSnow},
+    {"SnowyEvergreen / Archipelago", "SnowyEvergreen/Base-85", "Archipelago/Base-78", snowTileIsSnow},
+    {"SnowyEvergreen / Lush", "SnowyEvergreen/Base-85", "Lush/Base-77", snowTileIsSnow},
+    {"SnowyEvergreen / Desert", "SnowyEvergreen/Base-85", "Desert/Base-80", snowTileIsSnow},
+    {"SnowyEvergreen / Evergreen", "SnowyEvergreen/Base-85", "Evergreen/Base-85", snowTileIsSnow},
+    {"SnowyEvergreen / Evergreen Base-85-2", "SnowyEvergreen/Base-85", "Evergreen2/Base-85", snowTileIsSnow},
 };
 
 }  // namespace galaxy

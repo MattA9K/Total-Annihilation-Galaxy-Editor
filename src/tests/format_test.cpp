@@ -3511,6 +3511,32 @@ void testBrushCells() {
     expect(brushPieceName(BrushGraph(std::vector<int>{85, 80}, {"Acid", "Desert"}), {0, 0, 1, 1}) == "Blend-AcidDesert-T",
         "Acid still marks the blend when it is the first paint");
     {
+        // SnowyEvergreen blends into the ground of every other land, and the piece marks the snow.
+        struct Ground {
+            const char* world;
+            int height;
+        };
+        bool joins = true;
+        std::string wrong;
+        for (const Ground ground : {Ground{"Green", 85}, Ground{"Mars", 85}, Ground{"Acid", 85}, Ground{"Crystal", 85}, Ground{"Ice", 85},
+                 Ground{"Metal", 85}, Ground{"Quag", 85}, Ground{"Lava", 86}, Ground{"Archi", 78}, Ground{"Lush", 77}, Ground{"Desert", 80},
+                 Ground{"Ever", 85}, Ground{"Ever2", 85}}) {
+            const bool snowFirst = ground.height >= 85;
+            const BrushGraph pair = snowFirst ? BrushGraph(std::vector<int>{85, ground.height}, {"Snow", ground.world})
+                                              : BrushGraph(std::vector<int>{ground.height, 85}, {ground.world, "Snow"});
+            const int snow = snowFirst ? 0 : 1;
+            const std::string name = brushPieceName(pair, {snow, snow, 1 - snow, 1 - snow});
+            if (pair.style(0, 1) != TransitionStyle::WorldBlend || name != "Blend-Snow" + std::string(ground.world) + "-T") {
+                joins = false;
+                wrong += " " + std::string(ground.world) + ":" + name;
+            }
+        }
+        expect(joins, "SnowyEvergreen blends into every other land's ground with a Blend-Snow piece marking the snow:" + wrong);
+        expect(blendWorldName("SnowyEvergreen") == "Snow" && blendWorldName("Evergreen") == "Ever", "SnowyEvergreen is its own land, not Evergreen");
+        const BrushGraph tri(std::vector<int>{85, 85, 85}, {"Snow", "Green", "Mars"});
+        expect(brushPieceName(tri, {0, 0, 1, 2}) == "Blend-Tri-Snow-T-Green-L-Mars", "a SnowyEvergreen three-way piece is named with the snow as its pivot");
+    }
+    {
         // Evergreen water fades into every other water, Quagmire's included, and the piece marks it.
         bool joins = true;
         for (const char* other : {"Green", "Ice", "Metal", "Desert", "Archi", "Mars", "Crystal", "Acid", "Quag"}) {
