@@ -355,6 +355,13 @@ bool isBaseBrushTile(std::string_view world, std::string_view name) {
 // pieces are filed under GreenLand and still belong to the GreenWorld brush.
 // The folder of Lava's shore pieces from Base-76 up to Base-86.
 const std::string kLavaShoreFolder = "Lava-76";
+// SnowyEvergreen's cliffs from Base-189 up to Base-255, apart from its Base-85 to Base-189 ravines.
+const std::string kSnowPeakFolder = "SnowyEvergreen-189";
+// SnowyEvergreen's snow, Base-65 shallows and deep water join through the pieces in SnowyEvergreen-65, apart from
+// its frozen water's shallow coasts, which share their names.
+const std::string kSnowShallowFolder = "SnowyEvergreen-65";
+// SnowyEvergreen's sea cliffs from Base-0 up to Base-189, and its pieces with water, snow and Base-189 together.
+const std::string kSnowSeaCliffFolder = "SnowyEvergreen-0";
 
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
     const std::string left = lowerText(category);
@@ -12186,8 +12193,28 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 // Lava's shore from Base-76 up to Base-86 is filed in Lava-76, apart from its Base-190 cliffs.
                 const bool lavaShore = lowerText(lower->category) == "lava" && lowerText(upper->category) == "lava"
                     && trailingNumber(lower->name) == 76 && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff;
+                // SnowyEvergreen's cliffs from Base-189 up to Base-255 are filed in SnowyEvergreen-189.
+                const bool snowPeak = lowerText(lower->category) == "snowyevergreen" && lowerText(upper->category) == "snowyevergreen"
+                    && trailingNumber(lower->name) == 189 && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff;
+                // Any cell holding SnowyEvergreen's Base-65 shallows takes its piece from SnowyEvergreen-65.
+                bool snowShallow = false;
+                for (const int corner : ringCell.corners) {
+                    const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
+                    snowShallow = snowShallow || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 65);
+                }
+                // Any SnowyEvergreen cell holding both its water and its Base-189 takes its piece from SnowyEvergreen-0.
+                bool snowWater = false;
+                bool snowPlateau = false;
+                for (const int corner : ringCell.corners) {
+                    const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
+                    snowWater = snowWater || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 0);
+                    snowPlateau = snowPlateau || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 189);
+                }
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
                     : lavaShore ? kLavaShoreFolder
+                    : snowWater && snowPlateau ? kSnowSeaCliffFolder
+                    : snowPeak ? kSnowPeakFolder
+                    : snowShallow ? kSnowShallowFolder
                     : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
                 if (pieces.empty() && ringCell.matched) {
@@ -13488,7 +13515,11 @@ void EditorApp::ensureBrushPaints() {
         const bool evergreenBase = isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen");
         // Lava's shore from Base-76 up to Base-86 has a folder of its own.
         const bool lavaShore = lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76";
-        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !lavaShore && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
+        // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces and its sea cliffs.
+        const bool snowPeak = lowerText(brushWorld_) == "snowyevergreen"
+            && (lowerText(section.category) == lowerText(kSnowPeakFolder) || lowerText(section.category) == lowerText(kSnowShallowFolder)
+                || lowerText(section.category) == lowerText(kSnowSeaCliffFolder));
+        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !lavaShore && !snowPeak && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection

@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 41>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 41> rules = {{
+inline const std::array<BrushTransitionRule, 45>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 45> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -328,6 +328,8 @@ inline const std::array<BrushTransitionRule, 41>& brushTransitionRules() {
         {68, 85, TransitionStyle::ShallowCoast},
         // Evergreen's Base-65 shallows meet both its grasses directly.
         {65, 85, TransitionStyle::ShallowCoast},
+        // SnowyEvergreen's Base-75 frozen water meets its snow. The graph applies this only to SnowyEvergreen.
+        {75, 85, TransitionStyle::ShallowCoast},
         {68, 78, TransitionStyle::ShallowCoast},
         {78, 85, TransitionStyle::WorldBlend},
         {0, 219, TransitionStyle::CoastalCliffDeep},
@@ -345,6 +347,12 @@ inline const std::array<BrushTransitionRule, 41>& brushTransitionRules() {
         {86, 190, TransitionStyle::Cliff},
         // Lava's cracked Base-76 below its Base-86. The graph applies this only to Lava.
         {76, 86, TransitionStyle::Cliff},
+        // SnowyEvergreen's snow rises to its Base-189 through the Snow_Ravine cliffs. No other land stands at 189.
+        {85, 189, TransitionStyle::Cliff},
+        // and its Base-189 to its Base-255 through the Snow_Ravine190 cliffs.
+        {189, 255, TransitionStyle::Cliff},
+        // and its Base-0 water straight to its Base-189 through the Snow_High_Coast sea cliffs.
+        {0, 189, TransitionStyle::Cliff},
         {78, 194, TransitionStyle::Cliff},
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
@@ -663,11 +671,19 @@ public:
                         // from Base-85 to Base-255.
                         const bool evergreenCliff = wa == "Ever" && wb == "Ever2" && (rule.lowerHeight == 85 || rule.lowerHeight == 0) && rule.upperHeight == 190;
                         // Only Evergreen's water rises to its Base-190 plateaus.
-                        const bool noSeaCliff = rule.lowerHeight == 0 && rule.upperHeight == 190 && !(wa == "Ever" && evergreenWorld(wb));
-                        const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb)) && rule.lowerHeight == 85 && rule.upperHeight == 255;
+                        // SnowyEvergreen's water rises to its Base-189 the same way.
+                        const bool noSeaCliff = (rule.lowerHeight == 0 && rule.upperHeight == 190 && !(wa == "Ever" && evergreenWorld(wb)))
+                            || (rule.lowerHeight == 0 && rule.upperHeight == 189 && !(wa == "Snow" && wb == "Snow"));
+                        // Neither Evergreen nor SnowyEvergreen has a cliff straight from Base-85 to Base-255.
+                        const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb) || wa == "Snow" || wb == "Snow")
+                            && rule.lowerHeight == 85 && rule.upperHeight == 255;
                         // Only Evergreen's grasses meet its Base-65 shallows.
-                        const bool evergreen2Shallows = rule.lowerHeight == 65 && rule.upperHeight == 85 && named && !(evergreenWorld(wa) && evergreenWorld(wb));
-                        if (evergreenSkip || evergreen2Shallows || noSeaCliff) {
+                        // SnowyEvergreen's snow meets the same shallows through its own shallow coasts.
+                        const bool evergreen2Shallows = rule.lowerHeight == 65 && rule.upperHeight == 85 && named && !(evergreenWorld(wa) && evergreenWorld(wb))
+                            && !(wa == "Snow" && wb == "Snow");
+                        // Only SnowyEvergreen's snow meets its Base-75 frozen water.
+                        const bool snowFrozen = rule.lowerHeight == 75 && rule.upperHeight == 85 && !(wa == "Snow" && wb == "Snow");
+                        if (evergreenSkip || evergreen2Shallows || noSeaCliff || snowFrozen) {
                             continue;
                         }
                         const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;
@@ -842,10 +858,11 @@ inline int cliffPartnerCount(const BrushGraph& graph, int level) {
 inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, int highLevel, int highMask) {
     const std::string piece(cliffPieceName(highMask));
     // Evergreen files each pair of grounds' cliffs in a folder of its own, so its names stay plain, and so does
-    // Lava, whose Base-76 shore up to Base-86 is filed in Lava-76.
+    // Lava, whose Base-76 shore up to Base-86 is filed in Lava-76, and SnowyEvergreen, whose ravines rise to Base-189.
     if (piece.empty() || piece.rfind("Cliff-", 0) != 0 || cliffPartnerCount(graph, lowLevel) <= 1 || graph.height(highLevel) == 219
         || (evergreenWorld(graph.world(lowLevel)) && evergreenWorld(graph.world(highLevel)))
-        || (graph.world(lowLevel) == "Lava" && graph.world(highLevel) == "Lava")) {
+        || (graph.world(lowLevel) == "Lava" && graph.world(highLevel) == "Lava")
+        || (graph.world(lowLevel) == "Snow" && graph.world(highLevel) == "Snow")) {
         return piece;
     }
     return "Cliff-" + std::to_string(graph.height(highLevel)) + "-" + piece.substr(6);
@@ -3537,9 +3554,10 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         if (low == 0 && middle == 68 && (high == 85 || high == 80 || high == 78)) {
             return dslPieceName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
-        // Evergreen's deep water, Base-65 shallows and either grass, each grass with its own pieces. Evergreen
-        // has no piece for one land corner and one shallow corner beside two deep ones.
-        if (low == 0 && middle == 65 && high == 85 && evergreenWorld(graph.world(sorted[2]))) {
+        // Evergreen's deep water, Base-65 shallows and either grass, each grass with its own pieces, and the same with
+        // SnowyEvergreen's snow. Neither has a piece for one land corner and one shallow corner beside two deep ones.
+        const bool snowShallows = graph.world(sorted[0]) == "Snow" && graph.world(sorted[1]) == "Snow" && graph.world(sorted[2]) == "Snow";
+        if (low == 0 && middle == 65 && high == 85 && (evergreenWorld(graph.world(sorted[2])) || snowShallows)) {
             if (cornerCount(maskOf(sorted[2])) == 1 && cornerCount(maskOf(sorted[1])) == 1) {
                 return {};
             }
@@ -3564,6 +3582,11 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         // ones. Base-85-2 meets the water and a plateau only below Base-190-2.
         if (low == 0 && middle == 85 && high == 190 && graph.world(sorted[0]) == "Ever" && evergreenWorld(graph.world(sorted[1]))
             && evergreenWorld(graph.world(sorted[2])) && !(graph.world(sorted[1]) == "Ever2" && graph.world(sorted[2]) == "Ever")) {
+            return evergreenCoastalCliffName(maskOf(sorted[2]), maskOf(sorted[1]));
+        }
+        // SnowyEvergreen's water, snow and Base-189, from its Snow_low2high_coast pieces, named the same way.
+        if (low == 0 && middle == 85 && high == 189 && graph.world(sorted[0]) == "Snow" && graph.world(sorted[1]) == "Snow"
+            && graph.world(sorted[2]) == "Snow") {
             return evergreenCoastalCliffName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
     }
@@ -4134,12 +4157,14 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                                 const bool unmoved = slots.find(keyOf(cx + (corner & 1), cy + (corner >> 1))) == slots.end();
                                 const bool otherGrass = evergreenMix && unmoved && current != level && candidate == host
                                     && evergreenWorld(graph.world(current)) && evergreenWorld(graph.world(candidate));
-                                // Evergreen's DSL pieces leave out one land and one shallow corner beside two deep ones,
+                                // Evergreen's and SnowyEvergreen's DSL pieces leave out one land and one shallow corner beside two deep ones,
                                 // so a deep corner may rise to the shallows between it and the painted land rather than
                                 // to the land itself, which would only meet the next cell the same way.
                                 const int lowHeight = std::min(graph.height(current), graph.height(level));
                                 const int highHeight = std::max(graph.height(current), graph.height(level));
-                                const bool between = evergreenWorld(graph.world(candidate)) && evergreenWorld(graph.world(current))
+                                const auto stepped = [](std::string_view world) { return evergreenWorld(world) || world == "Snow"; };
+                                const bool between = stepped(graph.world(candidate)) && stepped(graph.world(current))
+                                    && sameBrushLand(graph.world(candidate), graph.world(current))
                                     && graph.height(candidate) > lowHeight && graph.height(candidate) < highHeight
                                     && graph.style(std::min(candidate, current), std::max(candidate, current)) != TransitionStyle::None;
                                 if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost || otherGrass || between)) {

@@ -3535,6 +3535,14 @@ void testBrushCells() {
         expect(blendWorldName("SnowyEvergreen") == "Snow" && blendWorldName("Evergreen") == "Ever", "SnowyEvergreen is its own land, not Evergreen");
         const BrushGraph tri(std::vector<int>{85, 85, 85}, {"Snow", "Green", "Mars"});
         expect(brushPieceName(tri, {0, 0, 1, 2}) == "Blend-Tri-Snow-T-Green-L-Mars", "a SnowyEvergreen three-way piece is named with the snow as its pivot");
+        // Its water has its own coast into the snow, and its Base-75 frozen water meets the snow alone.
+        const BrushGraph shore(std::vector<int>{0, 75, 85}, {"Snow", "Snow", "Snow"});
+        expect(shore.style(0, 2) == TransitionStyle::Coast && shore.style(1, 2) == TransitionStyle::ShallowCoast
+                && shore.style(0, 1) == TransitionStyle::None && brushPieceName(shore, {0, 0, 2, 2}) == "Coast-Water-T"
+                && brushPieceName(shore, {1, 1, 2, 2}) == "ShallowCoast-Water-T",
+            "SnowyEvergreen water and frozen water each meet the snow with their own coast");
+        const BrushGraph foreignFrozen(std::vector<int>{75, 85}, {"Snow", "Ever"});
+        expect(foreignFrozen.style(0, 1) == TransitionStyle::None, "SnowyEvergreen's frozen water does not meet another land's ground");
     }
     {
         // Evergreen water fades into every other water, Quagmire's included, and the piece marks it.
@@ -3569,6 +3577,40 @@ void testBrushCells() {
             && lava.style(0, 1) == TransitionStyle::None && other.style(0, 1) == TransitionStyle::None
             && brushPieceName(lava, {2, 1, 1, 1}) == "Cliff-High-TL" && brushPieceName(lava, {3, 2, 2, 2}) == "Cliff-High-TL",
             "Lava Base-76 rises to Base-86 through its own shore, and Lava's names stay plain");
+    }
+    {
+        // SnowyEvergreen's snow rises to Base-189 through its ravines, with plain cliff names, and no other land's
+        // Base-85 climbs to it.
+        const BrushGraph snow(std::vector<int>{0, 75, 85, 85, 189}, {"Snow", "Snow", "Snow", "Green", "Snow"});
+        expect(snow.style(2, 4) == TransitionStyle::Cliff && snow.style(3, 4) == TransitionStyle::None
+            && snow.style(1, 4) == TransitionStyle::None
+            && brushPieceName(snow, {4, 2, 2, 2}) == "Cliff-High-TL" && brushPieceName(snow, {4, 4, 2, 2}) == "Cliff-High-T",
+            "SnowyEvergreen Base-85 rises to Base-189 through its ravines, with plain names");
+        // Its water rises straight to Base-189 in a sea cliff, and another land's water does not.
+        const BrushGraph sea(std::vector<int>{0, 85, 189}, {"Snow", "Snow", "Snow"});
+        const BrushGraph foreign(std::vector<int>{0, 189}, {"Green", "Snow"});
+        expect(snow.style(0, 4) == TransitionStyle::Cliff && foreign.style(0, 1) == TransitionStyle::None
+            && brushPieceName(sea, {2, 0, 0, 0}) == "Cliff-High-TL" && brushPieceName(sea, {2, 2, 0, 0}) == "Cliff-High-T"
+            && brushPieceName(sea, {0, 1, 1, 2}) == "CC-219-BR-85-BL_and_TR-0-TL"
+            && brushPieceName(sea, {0, 0, 1, 2}) == "CC-219-BR-85-BL-0-T"
+            && brushPieceName(sea, {0, 2, 1, 2}) == "CC-219-R-85-BL-0-TL"
+            && brushPieceName(sea, {1, 1, 0, 2}).empty(),
+            "SnowyEvergreen water rises to Base-189 in sea cliffs, with three-way pieces where they meet the snow");
+        BrushTestLattice ravine(5, 5, 2, snow);
+        ravine.paint(2, 2, 1, 4);
+        expect(ravine.piece(2, 2) == "Base-189" && ravine.piece(2, 1) == "Cliff-High-B" && ravine.piece(1, 2) == "Cliff-High-R"
+            && ravine.piece(1, 1) == "Cliff-High-BR" && ravine.piece(3, 3) == "Cliff-High-TL",
+            "Base-189 painted on SnowyEvergreen's snow is ringed by ravine cliffs");
+        const BrushGraph peak(std::vector<int>{85, 189, 255}, {"Snow", "Snow", "Snow"});
+        expect(peak.style(0, 1) == TransitionStyle::Cliff && peak.style(1, 2) == TransitionStyle::Cliff
+            && peak.style(0, 2) == TransitionStyle::None && brushPieceName(peak, {2, 1, 1, 1}) == "Cliff-High-TL",
+            "SnowyEvergreen Base-189 rises to Base-255, and Base-85 only reaches Base-255 through Base-189");
+        const BrushGraph shallows(std::vector<int>{0, 65, 75, 85}, {"Snow", "Snow", "Snow", "Snow"});
+        expect(shallows.style(0, 1) == TransitionStyle::ShallowDeep && shallows.style(1, 3) == TransitionStyle::ShallowCoast
+            && shallows.style(2, 3) == TransitionStyle::ShallowCoast && shallows.style(1, 2) == TransitionStyle::None
+            && brushPieceName(shallows, {3, 3, 0, 1}) == "DSL-Land-T-Shallow-BR-Water-BL"
+            && brushPieceName(shallows, {3, 1, 0, 0}).empty(),
+            "SnowyEvergreen's snow meets its Base-65 shallows, which meet its deep water, with Evergreen's DSL layouts");
     }
     expect(transitionVariation("Blend-AcidDesert-T-02", "Blend-AcidDesert-T") == 2 && transitionVariation("Blend-AcidDesert-T-01", "Blend-Desert-T") < 0
         && transitionVariation("Blend-AcidDesert-T-01", "Blend-Acid-T") < 0 && transitionVariation("Blend-AcidDesert-L-01", "Blend-ArchiAcid-L") < 0,
