@@ -3535,6 +3535,15 @@ void testBrushCells() {
             && brushPieceName(mix, {1, 2, 0, 2}).size() > 0 && brushPieceName(mix, {1, 0, 0, 2}).empty(),
             "Evergreen water with both grasses has a coast piece for every side and three-land layout");
     }
+    {
+        // Lava's cracked Base-76 rises to Base-86 with plain cliff names, and its Base-190 cliffs keep theirs.
+        const BrushGraph lava(std::vector<int>{41, 76, 86, 190}, {"Lava", "Lava", "Lava", "Lava"});
+        const BrushGraph other(std::vector<int>{76, 86}, {"Lava", "Green"});
+        expect(lava.style(1, 2) == TransitionStyle::Cliff && lava.style(2, 3) == TransitionStyle::Cliff
+            && lava.style(0, 1) == TransitionStyle::None && other.style(0, 1) == TransitionStyle::None
+            && brushPieceName(lava, {2, 1, 1, 1}) == "Cliff-High-TL" && brushPieceName(lava, {3, 2, 2, 2}) == "Cliff-High-TL",
+            "Lava Base-76 rises to Base-86 through its own shore, and Lava's names stay plain");
+    }
     expect(transitionVariation("Blend-AcidDesert-T-02", "Blend-AcidDesert-T") == 2 && transitionVariation("Blend-AcidDesert-T-01", "Blend-Desert-T") < 0
         && transitionVariation("Blend-AcidDesert-T-01", "Blend-Acid-T") < 0 && transitionVariation("Blend-AcidDesert-L-01", "Blend-ArchiAcid-L") < 0,
         "an Acid Desert piece is not the lava, acid, or archipelago sand blend");

@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 40>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 40> rules = {{
+inline const std::array<BrushTransitionRule, 41>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 41> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -343,6 +343,8 @@ inline const std::array<BrushTransitionRule, 40>& brushTransitionRules() {
         {85, 170, TransitionStyle::Cliff},
         {85, 139, TransitionStyle::Cliff},
         {86, 190, TransitionStyle::Cliff},
+        // Lava's cracked Base-76 below its Base-86. The graph applies this only to Lava.
+        {76, 86, TransitionStyle::Cliff},
         {78, 194, TransitionStyle::Cliff},
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
@@ -673,7 +675,8 @@ public:
                             || (rule.lowerHeight == 77 && rule.upperHeight == 85 && !lush85)
                             || (rule.lowerHeight == 80 && rule.upperHeight == 85 && !desert85)
                             || (rule.lowerHeight == 78 && rule.upperHeight == 80 && !archiDesert)
-                            || (rule.lowerHeight == 77 && rule.upperHeight == 80 && !lushDesert)) {
+                            || (rule.lowerHeight == 77 && rule.upperHeight == 80 && !lushDesert)
+                            || (rule.lowerHeight == 76 && rule.upperHeight == 86 && !namedPair("Lava", "Lava"))) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
@@ -826,9 +829,11 @@ inline int cliffPartnerCount(const BrushGraph& graph, int level) {
 // tileset do not share a file.
 inline std::string cliffTransitionName(const BrushGraph& graph, int lowLevel, int highLevel, int highMask) {
     const std::string piece(cliffPieceName(highMask));
-    // Evergreen files each pair of grounds' cliffs in a folder of its own, so its names stay plain.
+    // Evergreen files each pair of grounds' cliffs in a folder of its own, so its names stay plain, and so does
+    // Lava, whose Base-76 shore up to Base-86 is filed in Lava-76.
     if (piece.empty() || piece.rfind("Cliff-", 0) != 0 || cliffPartnerCount(graph, lowLevel) <= 1 || graph.height(highLevel) == 219
-        || (evergreenWorld(graph.world(lowLevel)) && evergreenWorld(graph.world(highLevel)))) {
+        || (evergreenWorld(graph.world(lowLevel)) && evergreenWorld(graph.world(highLevel)))
+        || (graph.world(lowLevel) == "Lava" && graph.world(highLevel) == "Lava")) {
         return piece;
     }
     return "Cliff-" + std::to_string(graph.height(highLevel)) + "-" + piece.substr(6);

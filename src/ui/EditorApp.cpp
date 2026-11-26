@@ -353,6 +353,9 @@ bool isBaseBrushTile(std::string_view world, std::string_view name) {
 
 // Pieces for one tileset live in a category such as GreenWorld or Lava. River
 // pieces are filed under GreenLand and still belong to the GreenWorld brush.
+// The folder of Lava's shore pieces from Base-76 up to Base-86.
+const std::string kLavaShoreFolder = "Lava-76";
+
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
     const std::string left = lowerText(category);
     const std::string right = lowerText(world);
@@ -12180,7 +12183,11 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     : evergreenCliff && (evergreenLow == 190 || evergreenLow == 0) ? upper->category + "-" + std::to_string(evergreenLow)
                     : !evergreenCliff || lowerText(lower->category) == lowerText(upper->category) ? upper->category
                     : upper->category + "-" + lower->category;
+                // Lava's shore from Base-76 up to Base-86 is filed in Lava-76, apart from its Base-190 cliffs.
+                const bool lavaShore = lowerText(lower->category) == "lava" && lowerText(upper->category) == "lava"
+                    && trailingNumber(lower->name) == 76 && graph.style(ringCell.level, ringCell.upper) == TransitionStyle::Cliff;
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
+                    : lavaShore ? kLavaShoreFolder
                     : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
                 if (pieces.empty() && ringCell.matched) {
@@ -13478,7 +13485,9 @@ void EditorApp::ensureBrushPaints() {
         // shared water are loaded, since either grass can meet that water.
         // Evergreen2-Evergreen holds the cliffs from the first grass up to the second grass's plateau.
         const bool evergreenBase = isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen");
-        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
+        // Lava's shore from Base-76 up to Base-86 has a folder of its own.
+        const bool lavaShore = lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76";
+        if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !lavaShore && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
             && !marsFeatureSection && !marsIslandSection && !iceHillSection && !icePoolSection
@@ -14420,10 +14429,19 @@ void EditorApp::ensureBrushPaints() {
             // sit near Mars and GreenWorld Base-85, so the picture keeps the corner on lava.
             if (lavaCliffLow != nullptr && lavaCliffHigh != nullptr && lavaCliffLow != lavaCliffHigh) {
                 for (const BrushPiece& piece : brushPieces_) {
-                    if (blendWorldName(piece.category) != "Lava" || !lowerText(piece.name).starts_with("cliff-")) {
+                    if (blendWorldName(piece.category) != "Lava" || !lowerText(piece.name).starts_with("cliff-")
+                        || lowerText(piece.category) == lowerText(kLavaShoreFolder)) {
                         continue;
                     }
                     rememberPath(piece.sectionPath, lavaCliffHigh->category, lavaCliffHigh->name, true, lavaCliffLow->category, lavaCliffLow->name);
+                }
+            }
+            // The cracked shore in Lava-76 rises from Base-76 to Base-86 instead.
+            if (const BrushPaint* shoreLow = lavaPaintAt(76), *shoreHigh = lavaPaintAt(86); shoreLow != nullptr && shoreHigh != nullptr) {
+                for (const BrushPiece& piece : brushPieces_) {
+                    if (lowerText(piece.category) == lowerText(kLavaShoreFolder) && lowerText(piece.name).starts_with("cliff-")) {
+                        rememberPath(piece.sectionPath, shoreHigh->category, shoreHigh->name, true, shoreLow->category, shoreLow->name);
+                    }
                 }
             }
             // Green and Acid are the same height, so a blend tile cannot be split by
