@@ -11,6 +11,7 @@
 #include "core/SlopeBrush.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/Version.hpp"
+#include "format/BmpImage.hpp"
 #include "format/GafImage.hpp"
 #include "format/TaPalette.hpp"
 #include "platform/FileDialog.hpp"
@@ -3040,6 +3041,9 @@ void EditorApp::reloadTilesets() {
     selectedSection_ = -1;
     favoriteSelection_.clear();
     favoriteSelectionArchive_.clear();
+    tilesetSelection_.clear();
+    tilesetSelectionArchive_.clear();
+    tileSelectionAnchor_[0] = tileSelectionAnchor_[1] = -1;
     ghostFor_ = -1;
     destroyTexture(ghostTexture_);
     for (auto& entry : featureSprites_) {
@@ -5209,7 +5213,9 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                         for (int n = 0; n < pageCount; ++n) {
                             const int index = shown[static_cast<std::size_t>(n)];
                             const CachedSection& cached = sections_[static_cast<std::size_t>(index)];
-                            const bool selected = favorites ? favoriteSelection_.count(index) != 0 : selectedSection_ == index;
+                            const bool selected = favorites
+                                ? favoriteSelection_.count(index) != 0
+                                : tilesetSelection_.count(index) != 0 || (tilesetSelection_.empty() && selectedSection_ == index);
                             ImGui::PushID(index);
                             ImGui::BeginGroup();
                             if (selected) {
@@ -5232,15 +5238,10 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                 const float suffixWidth = ImGui::CalcTextSize(sizeSuffix.c_str()).x;
                                 caption = fitLabel(cached.name, std::max(8.0f, labelLimit - suffixWidth)) + sizeSuffix;
                             }
-                            const bool extendSelection = favorites && ImGui::GetIO().KeyCtrl;
+                            const ImGuiIO& clickIo = ImGui::GetIO();
+                            const bool extendSelection = clickIo.KeyCtrl || clickIo.KeySuper || clickIo.KeyShift;
                             if (cached.preview == 0 && ImGui::Selectable(caption.c_str(), selected, 0, ImVec2(std::max(cardWidth, ImGui::CalcTextSize(caption.c_str()).x), image))) {
-                                if (favorites) {
-                                    selectFavoriteTile(archiveIndex, index, extendSelection);
-                                } else {
-                                    selectedSection_ = index;
-                                    pasteArmed_ = false;
-                                    brushName_.clear();
-                                }
+                                clickSidebarTile(favorites, archiveIndex, shown, n);
                             }
                             const ImVec2 buttonMin = ImGui::GetItemRectMin();
                             const ImVec2 buttonMax = ImGui::GetItemRectMax();
@@ -5263,7 +5264,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                 theme::drawBadge(badge, favorites ? theme::BadgeIcon::Trash : theme::BadgeIcon::AddToFavorites, overBadge);
                             }
                             if (pressed && extendSelection) {
-                                selectFavoriteTile(archiveIndex, index, true);
+                                clickSidebarTile(favorites, archiveIndex, shown, n);
                             } else if (pressed && overBadge) {
                                 if (favorites) {
                                     requestDeleteFavorite(archiveIndex, cached);
@@ -5271,13 +5272,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                     openAddToFavorites(cached.stamp, cached.name);
                                 }
                             } else if (pressed) {
-                                if (favorites) {
-                                    selectFavoriteTile(archiveIndex, index, false);
-                                } else {
-                                    selectedSection_ = index;
-                                    pasteArmed_ = false;
-                                    brushName_.clear();
-                                }
+                                clickSidebarTile(favorites, archiveIndex, shown, n);
                             }
                             if (overBadge) {
                                 ImGui::SetTooltip("%s", favorites ? "delete tile from favorites" : "add to favorites");
@@ -5303,12 +5298,15 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                             const float itemRight = ImGui::GetItemRectMax().x;
                             // A right-click on a tile that is not part of the selection selects
                             // that tile alone, so Delete applies to the tile under the pointer.
-                            if (favorites && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup)) {
-                                if (favoriteSelection_.count(index) == 0) {
-                                    favoriteSelection_.clear();
-                                    favoriteSelectionArchive_.clear();
-                                    favoriteSelection_.insert(index);
-                                    favoriteSelectionArchive_[index] = archiveIndex;
+                            if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup)) {
+                                std::set<int>& tabSelection = favorites ? favoriteSelection_ : tilesetSelection_;
+                                std::unordered_map<int, std::size_t>& tabArchives = favorites ? favoriteSelectionArchive_ : tilesetSelectionArchive_;
+                                if (tabSelection.count(index) == 0) {
+                                    tabSelection.clear();
+                                    tabArchives.clear();
+                                    tabSelection.insert(index);
+                                    tabArchives[index] = archiveIndex;
+                                    tileSelectionAnchor_[favorites ? 1 : 0] = index;
                                 }
                             }
                             if (ImGui::BeginPopupContextItem("tile-file")) {
@@ -5328,6 +5326,15 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                 }
                                 if (ImGui::MenuItem("Rename file")) {
                                     requestRenameTile(archiveIndex, cached);
+                                }
+                                ImGui::Separator();
+                                const std::size_t menuCount = (favorites ? favoriteSelection_ : tilesetSelection_).size();
+                                const std::string countSuffix = menuCount > 1 ? " (" + std::to_string(menuCount) + ")" : std::string();
+                                if (ImGui::MenuItem((theme::withEllipsis(menuCount > 1 ? "Export tiles as BMP" : "Export tile as BMP") + countSuffix).c_str())) {
+                                    pendingTileExport_ = favorites ? 2 : 1;
+                                }
+                                if (ImGui::MenuItem(("Copy full path and filename" + countSuffix).c_str())) {
+                                    copySidebarTilePaths(favorites);
                                 }
                                 if (favorites && !favoriteSelection_.empty()) {
                                     ImGui::Separator();
@@ -5360,6 +5367,10 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
         }
         ImGui::Separator();
         ImGui::PopID();
+    }
+    if (pendingTileExport_ != 0 && pendingTileExport_ == (favorites ? 2 : 1)) {
+        pendingTileExport_ = 0;
+        exportSidebarTilesBmp(favorites);
     }
     if (visibleArchives == 0 && !query.empty()) {
         if (favorites) {
@@ -6242,6 +6253,10 @@ void EditorApp::drawMap() {
                 if (favoriteSelection_.size() <= 1) {
                     favoriteSelection_.clear();
                     favoriteSelectionArchive_.clear();
+                }
+                if (tilesetSelection_.size() <= 1) {
+                    tilesetSelection_.clear();
+                    tilesetSelectionArchive_.clear();
                 }
                 selectedSection_ = -1;
             }
@@ -8901,6 +8916,171 @@ void EditorApp::selectFavoriteTile(std::size_t archiveIndex, int sectionIndex, b
     brushName_.clear();
 }
 
+void EditorApp::clickSidebarTile(bool favorites, std::size_t archiveIndex, const std::vector<int>& shown, int position) {
+    if (position < 0 || position >= static_cast<int>(shown.size())) {
+        return;
+    }
+    const int sectionIndex = shown[static_cast<std::size_t>(position)];
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool toggle = io.KeyCtrl || io.KeySuper;
+    const bool range = io.KeyShift && !toggle;
+    int& anchor = tileSelectionAnchor_[favorites ? 1 : 0];
+    std::set<int>& selection = favorites ? favoriteSelection_ : tilesetSelection_;
+    std::unordered_map<int, std::size_t>& archives = favorites ? favoriteSelectionArchive_ : tilesetSelectionArchive_;
+    if (range) {
+        const auto from = std::find(shown.begin(), shown.end(), anchor);
+        if (from != shown.end()) {
+            int first = static_cast<int>(from - shown.begin());
+            int last = position;
+            if (first > last) {
+                std::swap(first, last);
+            }
+            selection.clear();
+            archives.clear();
+            for (int i = first; i <= last; ++i) {
+                const int listed = shown[static_cast<std::size_t>(i)];
+                selection.insert(listed);
+                archives[listed] = archiveIndex;
+            }
+            statusNote_ = std::to_string(selection.size()) + " tiles selected";
+            return;
+        }
+        // No anchor in this category: a Shift-click acts as a plain click.
+    }
+    anchor = sectionIndex;
+    if (favorites) {
+        selectFavoriteTile(archiveIndex, sectionIndex, toggle);
+        return;
+    }
+    if (toggle) {
+        if (tilesetSelection_.erase(sectionIndex) != 0) {
+            tilesetSelectionArchive_.erase(sectionIndex);
+            if (selectedSection_ == sectionIndex) {
+                selectedSection_ = -1;
+            }
+        } else {
+            tilesetSelection_.insert(sectionIndex);
+            tilesetSelectionArchive_[sectionIndex] = archiveIndex;
+        }
+        return;
+    }
+    tilesetSelection_.clear();
+    tilesetSelectionArchive_.clear();
+    tilesetSelection_.insert(sectionIndex);
+    tilesetSelectionArchive_[sectionIndex] = archiveIndex;
+    selectedSection_ = sectionIndex;
+    pasteArmed_ = false;
+    brushName_.clear();
+}
+
+std::vector<std::pair<int, std::size_t>> EditorApp::sidebarTileSelection(bool favorites) const {
+    const std::set<int>& selection = favorites ? favoriteSelection_ : tilesetSelection_;
+    const std::unordered_map<int, std::size_t>& archives = favorites ? favoriteSelectionArchive_ : tilesetSelectionArchive_;
+    std::vector<std::pair<int, std::size_t>> chosen;
+    for (const int sectionIndex : selection) {
+        const auto archive = archives.find(sectionIndex);
+        if (sectionIndex < 0 || sectionIndex >= static_cast<int>(sections_.size()) || archive == archives.end()) {
+            continue;
+        }
+        chosen.emplace_back(sectionIndex, archive->second);
+    }
+    return chosen;
+}
+
+std::string EditorApp::sidebarTileFullPath(std::size_t archiveIndex, const CachedSection& section) const {
+    if (archiveIndex >= tilesets_.archives().size()) {
+        return section.name + ".sct";
+    }
+    const TilesetArchive& archive = tilesets_.archives()[archiveIndex];
+    std::string inside = "sections/" + section.world + "/" + section.category + "/" + section.name + ".sct";
+    for (const TilesetSection& listed : archive.sections) {
+        if (listed.world == section.world && listed.category == section.category && listed.name == section.name) {
+            inside = listed.archivePath;
+            break;
+        }
+    }
+    std::replace(inside.begin(), inside.end(), '\\', '/');
+    while (!inside.empty() && inside.front() == '/') {
+        inside.erase(inside.begin());
+    }
+    std::error_code error;
+    std::filesystem::path base = std::filesystem::absolute(archive.path, error);
+    if (error) {
+        base = archive.path;
+    }
+    return base.lexically_normal().generic_string() + "/" + inside;
+}
+
+void EditorApp::copySidebarTilePaths(bool favorites) {
+    const auto chosen = sidebarTileSelection(favorites);
+    if (chosen.empty()) {
+        return;
+    }
+    std::string lines;
+    for (const auto& [sectionIndex, archiveIndex] : chosen) {
+        if (!lines.empty()) {
+            lines += '\n';
+        }
+        lines += sidebarTileFullPath(archiveIndex, sections_[static_cast<std::size_t>(sectionIndex)]);
+    }
+    ImGui::SetClipboardText(lines.c_str());
+    statusNote_ = chosen.size() == 1 ? "Copied " + lines : "Copied " + std::to_string(chosen.size()) + " tile paths";
+    error_.clear();
+}
+
+void EditorApp::exportSidebarTilesBmp(bool favorites) {
+    const auto chosen = sidebarTileSelection(favorites);
+    if (chosen.empty()) {
+        return;
+    }
+    const std::filesystem::path start = tileExportFolder_.empty() ? suggestedOpenDirectory() : tileExportFolder_;
+    const auto folder = chooseFolderDialog(chosen.size() == 1 ? "Choose where to save the tile BMP" : "Choose where to save the tile BMPs", start);
+    if (!folder) {
+        return;
+    }
+    tileExportFolder_ = *folder;
+    std::set<std::string> usedNames;
+    int written = 0;
+    int skipped = 0;
+    std::string lastError;
+    for (const auto& [sectionIndex, archiveIndex] : chosen) {
+        (void)archiveIndex;
+        const CachedSection& section = sections_[static_cast<std::size_t>(sectionIndex)];
+        const PaletteImage picture = sectionImage(section.stamp);
+        if (picture.width <= 0 || picture.height <= 0 || section.stamp.tileImages.empty()) {
+            ++skipped;
+            continue;
+        }
+        std::string base = section.name.empty() ? std::string("tile") : section.name;
+        for (char& c : base) {
+            if (c == '/' || c == '\\' || c == ':' || static_cast<unsigned char>(c) < 32) {
+                c = '_';
+            }
+        }
+        std::string filename = base + ".bmp";
+        for (int copy = 2; usedNames.count(lowerText(filename)) != 0; ++copy) {
+            filename = base + " (" + std::to_string(copy) + ").bmp";
+        }
+        usedNames.insert(lowerText(filename));
+        try {
+            writeFileBytes(*folder / filename, encodeBmp24(picture.width, picture.height, picture.pixels.data(), kTaPalette));
+            ++written;
+        } catch (const std::exception& ex) {
+            ++skipped;
+            lastError = ex.what();
+        }
+    }
+    statusNote_ = "Exported " + std::to_string(written) + (written == 1 ? " tile" : " tiles") + " as BMP to " + folder->string();
+    if (skipped > 0) {
+        statusNote_ += " (" + std::to_string(skipped) + " skipped)";
+    }
+    if (!lastError.empty()) {
+        error_ = lastError;
+    } else {
+        error_.clear();
+    }
+}
+
 void EditorApp::requestDeleteFavorite(std::size_t archiveIndex, const CachedSection& section) {
     deleteFavorites_.clear();
     if (archiveIndex >= tilesets_.archives().size()) {
@@ -9159,6 +9339,9 @@ void EditorApp::refreshFavoritesArchive(const std::filesystem::path& path) {
             }
             if (favoriteSelection_.erase(sectionIndex) != 0) {
                 favoriteSelectionArchive_.erase(sectionIndex);
+            }
+            if (tilesetSelection_.erase(sectionIndex) != 0) {
+                tilesetSelectionArchive_.erase(sectionIndex);
             }
             if (ghostFor_ == sectionIndex) {
                 destroyTexture(ghostTexture_);
@@ -10646,6 +10829,8 @@ bool EditorApp::draw() {
             selectedSection_ = -1;
             favoriteSelection_.clear();
             favoriteSelectionArchive_.clear();
+            tilesetSelection_.clear();
+            tilesetSelectionArchive_.clear();
         }
     }
 

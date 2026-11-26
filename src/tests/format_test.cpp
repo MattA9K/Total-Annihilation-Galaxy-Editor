@@ -16,6 +16,7 @@
 #include "core/TilesetLibrary.hpp"
 #include "core/UpdateCheck.hpp"
 #include "core/Version.hpp"
+#include "format/BmpImage.hpp"
 #include "format/GafImage.hpp"
 #include "format/HpiArchive.hpp"
 #include "format/MapFile.hpp"
@@ -7617,7 +7618,43 @@ void testDocumentNames() {
     expect(activeIndexAfterClose(3, 0, 2) == 0, "closing a tab to the right keeps the same map current");
 }
 
+std::uint32_t le32(const std::vector<std::uint8_t>& b, std::size_t at) {
+    return static_cast<std::uint32_t>(b[at]) | (static_cast<std::uint32_t>(b[at + 1]) << 8)
+        | (static_cast<std::uint32_t>(b[at + 2]) << 16) | (static_cast<std::uint32_t>(b[at + 3]) << 24);
+}
+
+void testBmp24Writer() {
+    // 3 x 2 pixels: each row is 9 bytes, padded to 12.
+    const std::uint8_t palette[4][3] = {{0, 0, 0}, {10, 20, 30}, {40, 50, 60}, {70, 80, 90}};
+    const std::uint8_t indices[6] = {1, 2, 3, 3, 2, 1};
+    const std::vector<std::uint8_t> bmp = galaxy::encodeBmp24(3, 2, indices, palette);
+    expect(bmp.size() == 54 + 24, "BMP size is headers plus two padded rows");
+    expect(bmp[0] == 'B' && bmp[1] == 'M', "BMP signature");
+    expect(le32(bmp, 2) == bmp.size(), "BMP file size field");
+    expect(le32(bmp, 10) == 54, "BMP pixel data offset");
+    expect(le32(bmp, 14) == 40, "BMP info header size");
+    expect(le32(bmp, 18) == 3 && le32(bmp, 22) == 2, "BMP width and positive (bottom-up) height");
+    expect(bmp[26] == 1 && bmp[27] == 0 && bmp[28] == 24 && bmp[29] == 0, "BMP planes and 24 bits per pixel");
+    expect(le32(bmp, 30) == 0, "BMP is uncompressed");
+    expect(le32(bmp, 34) == 24, "BMP image size field");
+    // The first stored row is the bottom row of the picture: indices 3, 2, 1, as BGR.
+    const std::uint8_t bottom[12] = {90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0};
+    const std::uint8_t top[12] = {30, 20, 10, 60, 50, 40, 90, 80, 70, 0, 0, 0};
+    expect(std::equal(bottom, bottom + 12, bmp.begin() + 54), "BMP stores the bottom row first, BGR, zero padded");
+    expect(std::equal(top, top + 12, bmp.begin() + 66), "BMP stores the top row last, BGR, zero padded");
+
+    // A row of 4 pixels is 12 bytes and needs no padding.
+    const std::uint8_t wide[4] = {0, 1, 2, 3};
+    expect(galaxy::encodeBmp24(4, 1, wide, palette).size() == 54 + 12, "BMP row of 4 pixels has no padding");
+    // A 1 x 1 tile section picture through the TA palette.
+    std::vector<std::uint8_t> tile(32 * 32, 9);
+    const std::vector<std::uint8_t> tileBmp = galaxy::encodeBmp24(32, 32, tile.data(), galaxy::kTaPalette);
+    expect(tileBmp.size() == 54 + 32 * 96, "32 x 32 tile BMP size");
+    expect(tileBmp[54] == galaxy::kTaPalette[9][2] && tileBmp[56] == galaxy::kTaPalette[9][0], "tile BMP uses the TA palette");
+}
+
 int main() {
+    testBmp24Writer();
     testDocumentNames();
     testRmsReader();
     testRandomMapGenerator();

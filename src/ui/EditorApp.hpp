@@ -222,6 +222,16 @@ private:
     // Plain click selects one favorite and arms it for the map. Ctrl-click, which
     // is Command-click on macOS, adds or removes that tile from the selection.
     void selectFavoriteTile(std::size_t archiveIndex, int sectionIndex, bool extend);
+    // Tile lists on the Tilesets and Favorites tabs: a plain click selects one tile and
+    // arms it, Command/Ctrl-click toggles one, Shift-click selects the range from the
+    // last clicked tile within the same category. shown is the category in display order.
+    void clickSidebarTile(bool favorites, std::size_t archiveIndex, const std::vector<int>& shown, int position);
+    // The selected tiles of one tab as (section index into sections_, archive index) pairs, in index order.
+    std::vector<std::pair<int, std::size_t>> sidebarTileSelection(bool favorites) const;
+    // archive path + "/" + path inside it, e.g. /x/Foo.hpi/sections/World/Cat/Name.sct.
+    std::string sidebarTileFullPath(std::size_t archiveIndex, const CachedSection& section) const;
+    void copySidebarTilePaths(bool favorites);
+    void exportSidebarTilesBmp(bool favorites);
     void requestRenameTile(std::size_t archiveIndex, const CachedSection& section);
     void drawRenameTile();
     // Reads one tileset archive from disk again and drops the pictures cached from it.
@@ -777,6 +787,14 @@ private:
     // menu remove every tile in it, from each archive, in one rewrite per archive.
     std::set<int> favoriteSelection_;
     std::unordered_map<int, std::size_t> favoriteSelectionArchive_;
+    // Tiles chosen on the Tilesets tab, kept like favoriteSelection_.
+    std::set<int> tilesetSelection_;
+    std::unordered_map<int, std::size_t> tilesetSelectionArchive_;
+    // The tile a Shift-click range starts from, per tab: 0 Tilesets, 1 Favorites.
+    int tileSelectionAnchor_[2] = {-1, -1};
+    // Set by the tile menu; the export runs after the list is drawn. 0 none, 1 Tilesets, 2 Favorites.
+    int pendingTileExport_ = 0;
+    std::filesystem::path tileExportFolder_;
     struct FavoriteDelete {
         std::filesystem::path archive;
         std::string sectionPath;
