@@ -10651,6 +10651,48 @@ bool EditorApp::draw() {
     if (loadingTilesets()) {
         continueLoadingTilesets(std::chrono::milliseconds(16));
     }
+    // TEMP-SMOKE-TEST
+    if (std::getenv("GALAXY_METAL_SMOKE") && !loadingTilesets()) {
+        static bool done = false;
+        if (!done) {
+            done = true;
+            std::FILE* out = std::fopen(std::getenv("GALAXY_METAL_SMOKE"), "w");
+            const auto paint = [&](const char* world, const char* name, int size, int x, int y) {
+                brushWorld_ = world;
+                ensureBrushPaints();
+                brushName_ = name;
+                brushSize_ = size;
+                statusNote_.clear();
+                error_.clear();
+                paintBrushStroke(x, y);
+                std::fprintf(out, "  %s %s %d at %d,%d: %s %s\n", world, name, size, x, y, statusNote_.c_str(), error_.c_str());
+            };
+            const auto river = [&](const char* name, BrushKind kind, int cx, int cy) {
+                brushName_ = name;
+                statusNote_.clear();
+                error_.clear();
+                const RiverPlan plan = riverPlanAt(cx, cy, kind);
+                paintRiver(cx * 16 + 8, cy * 16 + 8, kind);
+                std::fprintf(out, "  %s at cell %d,%d: %s | %s %s\n", name, cx, cy, plan.reason.c_str(), statusNote_.c_str(), error_.c_str());
+            };
+            addDocument(createBlankMap(256, 128), 171);
+            for (int x : {64, 192}) paint("SnowyEvergreen", "Base-85", 128, x, 64);
+            paint("SnowyEvergreen", "Base-75", 32, 176, 48);
+            river("River", BrushKind::River, 9, 4);
+            river("River", BrushKind::River, 12, 4);
+            river("River", BrushKind::River, 12, 1);
+            river("River", BrushKind::River, 9, 1);
+            river("River", BrushKind::River, 10, 4);
+            river("River", BrushKind::River, 10, 5);
+            river("River", BrushKind::River, 9, 6);
+            river("River", BrushKind::River, 9, 7);
+            river("River", BrushKind::River, 14, 4);
+            writeMapPng(*map_, std::getenv("GALAXY_PNG"));
+            std::fprintf(out, "done\n");
+            std::fclose(out);
+        }
+    }
+    // END-TEMP-SMOKE-TEST
     finishMapSave();
     finishRandomMap();
     if (!savingMap() && !generatingRandomMap()) {
@@ -12223,6 +12265,7 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     : snowShallow ? kSnowShallowFolder
                     : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
                 const std::vector<BrushPiece*> pieces = piecesFor(pieceCategory, piece, cell);
+                if (std::getenv("GALAXY_METAL_SMOKE") && pieces.empty()) { std::fprintf(stderr, "MISS %d,%d %s in %s\n", ringCell.x, ringCell.y, piece.c_str(), pieceCategory.c_str()); } // TEMP-PIECE-LOG
                 if (pieces.empty() && ringCell.matched) {
                     continue;
                 }
@@ -12240,6 +12283,7 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 }
                 BrushPiece* transition = pickOne(pieces);
                 loadStamp(transition->stamp, transition->sectionPath, transition->name);
+                if (std::getenv("GALAXY_METAL_SMOKE")) { std::fprintf(stderr, "PIECE %d,%d %s/%s\n", ringCell.x, ringCell.y, transition->category.c_str(), transition->name.c_str()); } // TEMP-PIECE-LOG
                 const SectionStamp* stamp = &*transition->stamp;
                 if (transition->tiles == kFineCellTiles) {
                     // Its flat ground lines up with the same ground around it.

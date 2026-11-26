@@ -5371,7 +5371,9 @@ void testRivers() {
     expect(galaxy::classifyRiverLabel("Base-68").kind == galaxy::RiverCell::Kind::Other && galaxy::classifyRiverLabel("Base-68").label == "Base-68", "Base-68 does not");
     expect(galaxy::classifyRiverLabel("Base-219").kind == galaxy::RiverCell::Kind::Other, "Base-219 does not");
     expect(galaxy::classifyRiverLabel("Coast-Water-B-01").kind == galaxy::RiverCell::Kind::Coast, "a straight coast takes a mouth");
-    expect(galaxy::classifyRiverLabel("Coast-Water-BR-01").kind == galaxy::RiverCell::Kind::Other, "a coast corner does not");
+    expect(galaxy::classifyRiverLabel("Coast-Water-BR-01").kind == galaxy::RiverCell::Kind::Coast
+        && galaxy::classifyRiverLabel("Coast-Water-BR-01").waterSide == (kRiverBottom | kRiverRight),
+        "a coast corner is a shore corner, which takes a river only in a tileset with corner mouths");
 
     // Placing the first river cell.
     RiverTestGrid lone(5, 5, "Base-85");
@@ -5481,6 +5483,28 @@ void testRivers() {
     expect(frozen.at(2, 1) == "River-Vertical-01" && frozen.at(2, 2) == "River-End-T-01", "the river runs on and ends at its new cell");
     frozen.river(3, 2, ends);
     expect(frozen.at(2, 2) == "River-T-R-01" && frozen.at(3, 2) == "River-End-L-01", "a turn bends the old end and ends at the new cell");
+
+    // Corner mouths: a shore corner, Coast-Water-TR, takes River-Mouth-TR where the tileset has it, and the river leaves
+    // through its bottom and left, ending in the land on both sides.
+    expect(galaxy::coastWaterCorner("Coast-Water-TR-02") == (kRiverTop | kRiverRight) && galaxy::coastWaterCorner("Coast-Water-T-01") == 0
+        && galaxy::coastWaterCorner("Coast-Water-T-Ever2-BL") == 0, "a shore corner names its water corner");
+    expect(galaxy::parseRiverPiece("River-Mouth-TR-02").mouth && galaxy::parseRiverPiece("River-Mouth-TR-02").sides == (kRiverBottom | kRiverLeft),
+        "River-Mouth-TR leaves through the bottom and the left");
+    RiverTestGrid lake(5, 5, "Base-85");
+    lake.at(2, 2) = "Coast-Water-TR-01";
+    lake.at(2, 1) = "Coast-Water-R-01";
+    lake.at(3, 2) = "Coast-Water-T-01";
+    const auto noCorners = [](std::string_view key) { return !galaxy::sameRiverKey(key, "River-Base") && !galaxy::riverLowerText(key).starts_with("river-mouth-tr"); };
+    expect(!lake.river(2, 2, noCorners).allowed() && lake.at(2, 2) == "Coast-Water-TR-01", "a shore corner takes no river without a corner mouth");
+    expect(lake.river(2, 2, ends).allowed() && lake.at(2, 2) == "River-Mouth-TR-01" && lake.at(2, 3) == "River-End-T-01" && lake.at(1, 2) == "River-End-R-01",
+        "a corner mouth's river ends in the land on both its sides");
+    expect(lake.river(2, 1, ends).allowed() && lake.at(2, 1) == "River-Mouth-R-01" && lake.at(1, 1) == "Base-85",
+        "a straight mouth beside another river leaves the land between for the brush to join");
+    RiverTestGrid tight(5, 5, "Base-85");
+    tight.at(2, 2) = "Coast-Water-TR-01";
+    tight.at(1, 2) = "Base-189";
+    const galaxy::RiverPlan blocked = tight.river(2, 2, ends);
+    expect(!blocked.allowed() && tight.at(2, 2) == "Coast-Water-TR-01" && tight.at(2, 3) == "Base-85", "a corner mouth needs land or a river on both sides");
     RiverTestGrid crossing(5, 5, "Base-85");
     crossing.at(2, 2) = "RiverIntersect-4way-01";
     const auto noFour = [](std::string_view) { return false; };

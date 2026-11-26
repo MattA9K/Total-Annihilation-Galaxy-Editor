@@ -124,6 +124,12 @@ inline char riverLetterOfSide(int side) {
     }
 }
 
+// A shore corner, as the two sides that meet there: kRiverTop | kRiverRight is the top right.
+inline bool riverCorner(int sides) {
+    return sides == (kRiverTop | kRiverLeft) || sides == (kRiverTop | kRiverRight) || sides == (kRiverBottom | kRiverLeft)
+        || sides == (kRiverBottom | kRiverRight);
+}
+
 enum class LineFamily { River, Ridge };
 
 struct RiverPiece {
@@ -228,7 +234,20 @@ inline RiverPiece parseRiverPiece(std::string_view name) {
             return piece;
         }
         if (restLower.starts_with("mouth-")) {
-            const int water = riverSideOfLetter(rest.substr(6));
+            const std::string_view where = rest.substr(6);
+            // A corner mouth, River-Mouth-TR: the water fills the top right corner and the river leaves through
+            // both sides away from it.
+            if (where.size() == 2) {
+                const int corner = riverSideOfLetter(where.substr(0, 1)) | riverSideOfLetter(where.substr(1, 1));
+                if (!riverCorner(corner)) {
+                    return RiverPiece{};
+                }
+                piece.valid = true;
+                piece.mouth = true;
+                piece.sides = kRiverAllSides & ~corner;
+                return piece;
+            }
+            const int water = riverSideOfLetter(where);
             if (water == 0) {
                 return RiverPiece{};
             }
@@ -356,7 +375,20 @@ inline std::string riverKeyForSides(int sides) {
     return "River-L-B";
 }
 
+// "TR" for the top right corner.
+inline std::string riverCornerLetters(int sides) {
+    if (!riverCorner(sides)) {
+        return {};
+    }
+    return std::string(1, riverLetterOfSide(sides & (kRiverTop | kRiverBottom))) + riverLetterOfSide(sides & (kRiverLeft | kRiverRight));
+}
+
+// River-Mouth-T for water along the top. A tileset can also have corner mouths, River-Mouth-TR for water in the top
+// right corner, with the river leaving through the bottom and the left.
 inline std::string riverMouthKey(int waterSide) {
+    if (riverCorner(waterSide)) {
+        return "River-Mouth-" + riverCornerLetters(waterSide);
+    }
     if (waterSide != kRiverTop && waterSide != kRiverRight && waterSide != kRiverBottom && waterSide != kRiverLeft) {
         return {};
     }
@@ -468,14 +500,28 @@ inline int coastWaterSide(std::string_view name) {
     return riverSideOfLetter(std::string_view(key).substr(prefix.size()));
 }
 
+// Coast-Water-TR has water in its top right corner only: kRiverTop | kRiverRight. Other coasts give 0.
+inline int coastWaterCorner(std::string_view name) {
+    const std::string key = riverLowerText(riverKeyOf(name));
+    constexpr std::string_view prefix = "coast-water-";
+    if (!key.starts_with(prefix) || key.size() != prefix.size() + 2) {
+        return 0;
+    }
+    const std::string_view letters = std::string_view(key).substr(prefix.size());
+    const int corner = riverSideOfLetter(letters.substr(0, 1)) | riverSideOfLetter(letters.substr(1, 1));
+    return riverCorner(corner) ? corner : 0;
+}
+
 // What a 16 x 16 cell on the map holds, as far as rivers care.
 struct RiverCell {
-    // Coast and Cliff are the straight edges where a river or a ridge can start.
+    // Coast and Cliff are the straight edges where a river or a ridge can start. A coast can also be a shore corner,
+    // where only a tileset with corner mouths starts a river.
     enum class Kind { Other, Land, Coast, Cliff, River, Ridge };
     Kind kind = Kind::Other;
     // A readable name for tooltips, such as "Base-68". Empty when the cell is not recognised.
     std::string label;
-    // The side with water on a Coast cell, or high ground on a Cliff cell.
+    // The side with water on a Coast cell, or high ground on a Cliff cell. On a shore corner, the two sides that meet at
+    // its water corner.
     int waterSide = 0;
     RiverPiece piece;
 };
@@ -487,7 +533,7 @@ inline RiverCell classifyRiverLabel(std::string_view label) {
         cell.kind = RiverCell::Kind::Land;
         return cell;
     }
-    const int water = coastWaterSide(label);
+    const int water = coastWaterSide(label) != 0 ? coastWaterSide(label) : coastWaterCorner(label);
     if (water != 0) {
         cell.kind = RiverCell::Kind::Coast;
         cell.waterSide = water;
@@ -593,7 +639,11 @@ inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lo
     if (here.kind == RiverCell::Kind::Land) {
         centre = parseLinePiece(lineKeyForSides(family, 0));
     } else if (here.kind == river_detail::mouthKind(family)) {
-        centre = parseLinePiece(lineMouthKey(family, here.waterSide));
+        // A shore corner takes a river only where the tileset has a corner mouth for it.
+        const std::string mouth = lineMouthKey(family, here.waterSide);
+        if (!riverCorner(here.waterSide) || (!ridge && available && available(mouth))) {
+            centre = parseLinePiece(mouth);
+        }
     } else if (here.kind == lineKind) {
         if (here.piece.bridge) {
             plan.reason = ridge ? "A ridge spacer is already here" : "A river bridge is already here";
@@ -663,6 +713,39 @@ inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lo
     if (here.kind != lineKind || !sameRiverKey(here.piece.key, wanted.key)) {
         placed[{x, y}] = wanted;
         plan.edits.push_back(RiverEdit{x, y, wanted.key});
+    }
+
+    // In a tileset whose rivers end, a new mouth's river ends in the land beside it, so no open river is left at the
+    // mouth's side. A land cell beside another river is left for the brush to join. A corner mouth needs land or a
+    // river on both its sides.
+    const bool endsHere = !ridge && available && !available("River-Base") && available("River-End-T");
+    if (endsHere && wanted.mouth && here.kind != lineKind) {
+        for (const auto& [side, step] : kRiverNeighbours) {
+            if ((wanted.sides & side) == 0) {
+                continue;
+            }
+            const int nx = x + step.first;
+            const int ny = y + step.second;
+            const RiverCell next = cellAt(nx, ny);
+            const bool joins = next.kind == lineKind && river_detail::permits(next.piece, oppositeRiverSide(side));
+            if (next.kind != RiverCell::Kind::Land) {
+                if (!joins && riverCorner(here.waterSide)) {
+                    plan.edits.clear();
+                    plan.reason = "A river from a shore corner needs land or a river on both sides away from the water";
+                    return plan;
+                }
+                continue;
+            }
+            bool besideRiver = false;
+            for (const auto& [otherSide, otherStep] : kRiverNeighbours) {
+                besideRiver = besideRiver || (otherSide != oppositeRiverSide(side) && cellAt(nx + otherStep.first, ny + otherStep.second).kind == lineKind);
+            }
+            const std::string end = std::string("River-End-") + riverLetterOfSide(oppositeRiverSide(side));
+            if (!besideRiver && available(end)) {
+                placed[{nx, ny}] = parseLinePiece(end);
+                plan.edits.push_back(RiverEdit{nx, ny, end});
+            }
+        }
     }
 
     // Plain neighbours that now meet this cell take the shape that matches.
