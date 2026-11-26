@@ -73,7 +73,7 @@ create_terrain GREENWORLD_BASE-68 {
 }
 
 /* Dirt: bare Lava ground in broad patches. Players still start on grass. */
-create_terrain LAVA_BASE-86 {
+create_terrain QUAGMIRE_BASE-85 {
   base_terrain GREENWORLD_BASE-85
   number_of_clumps 6
   spacing_to_other_terrain_types 1
@@ -82,7 +82,7 @@ create_terrain LAVA_BASE-86 {
 }
 
 /* Grass3: richer Lush grass in small patches. */
-create_terrain LUSH_BASE-77 {
+create_terrain EVERGREEN_BASE-85 {
   base_terrain GREENWORLD_BASE-85
   number_of_clumps 4
   spacing_to_other_terrain_types 1
@@ -91,7 +91,7 @@ create_terrain LUSH_BASE-77 {
 }
 
 /* Dirt3: small specks of Lava ground. */
-create_terrain LAVA_BASE-86 {
+create_terrain QUAGMIRE_BASE-85 {
   base_terrain GREENWORLD_BASE-85
   number_of_clumps 4
   spacing_to_other_terrain_types 1
@@ -120,12 +120,12 @@ min_distance_cliffs 1
 <CONNECTION_GENERATION>
 /* Shallow fords where the sea divides the players. */
 create_connect_all_players_land {
-  replace_terrain GREENWORLD_BASE-0 GREENWORLD_BASE-68
+  replace_terrain GREENWORLD_BASE-219 GREENWORLD_BASE-85 
   terrain_cost GREENWORLD_BASE-0 7
   terrain_cost GREENWORLD_BASE-68 3
   terrain_cost GREENWORLD_BASE-85 2
-  terrain_cost LAVA_BASE-86 2
-  terrain_cost LUSH_BASE-77 2
+  terrain_cost QUAGMIRE_BASE-85 2
+  terrain_cost EVERGREEN_BASE-85 2
   terrain_size GREENWORLD_BASE-0 0 0
 }
 
@@ -182,7 +182,7 @@ create_object ARCHIPELAGO_PALMS {
   group_placement_radius 6
   set_tight_grouping
   set_scaling_to_map_size
-  terrain_to_place_on LAVA_BASE-86
+  terrain_to_place_on QUAGMIRE_BASE-85
   min_distance_to_players 12
 }
 
@@ -192,7 +192,7 @@ create_object TREES {
   number_of_groups 1
   group_placement_radius 3
   set_scaling_to_map_size
-  terrain_to_place_on LUSH_BASE-77
+  terrain_to_place_on EVERGREEN_BASE-85  
   min_distance_to_players 12
 }
 
