@@ -7253,6 +7253,10 @@ void testStartsAndResources() {
         expect(tileIsLevel(heights, 6, 4, 1, 1) && tileIsLevel(heights, 6, 4, 0, 0), "a tile with four equal heights is level");
         expect(!tileIsLevel(heights, 6, 4, 2, 0) && !tileIsLevel(heights, 6, 4, 3, 1), "a tile with one raised height cell is not level");
         expect(tileIsLevel(heights, 5, 4, 4, 0) == (heights[4] == heights[9]), "a tile cut by the map's edge checks only its cells inside");
+        expect(footprintIsLevel(heights, 6, 4, 0, 0, 3, 4), "a 3 x 4 footprint on flat ground is level");
+        expect(!footprintIsLevel(heights, 6, 4, 1, 0, 3, 2), "a footprint with one raised height cell is not level");
+        expect(footprintIsLevel(heights, 6, 4, 3, 1, 3, 2), "a footprint wholly on the hilltop is level");
+        expect(!footprintIsLevel(heights, 6, 4, 4, 2, 4, 4), "a footprint past the map's edge is not level");
         {
             // A node on the hill at (4, 1) moves to the nearest flat, free spot at level 40.
             std::vector<std::uint8_t> occupied(24, 0);

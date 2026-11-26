@@ -10094,7 +10094,6 @@ void EditorApp::finishRandomMap() {
         const RandomMapStampPlan& plan = job.plan;
         const RmsObjectSettings& objects = job.objects;
         const std::vector<RmsMessage>& stampNotes = job.stampNotes;
-        const std::size_t groundStamps = job.groundStamps;
         // Every section is read before the map changes, so a missing file leaves the map alone.
         std::unordered_map<std::string, SectionStamp> loaded;
         for (const RandomMapStamp& stamp : plan.stamps) {
@@ -10114,12 +10113,7 @@ void EditorApp::finishRandomMap() {
             randomMapResult_ = text(Text::RandomMapNeedsMap);
             return;
         }
-        // The painted ground before hills and other stamps go on: the level each feature was placed for.
-        std::vector<std::uint8_t> groundBeforeStamps;
         for (std::size_t index = 0; index < plan.stamps.size(); ++index) {
-            if (index == groundStamps) {
-                groundBeforeStamps = map_->heights;
-            }
             const RandomMapStamp& stamp = plan.stamps[index];
             const SectionStamp& section = loaded.at(stamp.sectionPath);
             if (stamp.fill > 0 && section.tileWidth > 0 && section.tileHeight > 0
@@ -10134,9 +10128,6 @@ void EditorApp::finishRandomMap() {
                 stampSection(*map_, section, stamp.tileX, stamp.tileY, &deduper_, 100);
             }
         }
-        if (groundBeforeStamps.empty()) {
-            groundBeforeStamps = map_->heights;
-        }
         std::optional<TilePatch> after = captureTilePatch(*map_, 0, 0, map_->tileWidth, map_->tileHeight);
         PlacementChange change;
         change.before = std::move(*before);
@@ -10148,14 +10139,14 @@ void EditorApp::finishRandomMap() {
         EditorCommand command;
         command.terrain = std::move(change);
         int featuresSkipped = 0;
-        int nodesOnHills = 0;
-        int nodesMoved = 0;
+        int nodesUneven = 0;
+        int ventsUneven = 0;
         int treesOnSlopes = 0;
         if (outcome.placesObjects) {
             // A script with <OBJECTS_GENERATION> replaces every feature on the map.
-            // A metal node that a hill or other stamp has since raised off flat ground is
-            // moved to the nearest flat spot on its own ground, since no metal extractor
-            // can be built on a slope. One with nowhere to go is left out.
+            // A metal node or geothermal vent goes only where every height under its
+            // footprint is the same, since no extractor or plant can be built on a slope.
+            // One on uneven ground is left out.
             std::unordered_map<std::string, const RmsFeature*> byName;
             for (const RmsFeature& feature : objects.features) {
                 byName.emplace(lowerText(feature.name), &feature);
@@ -10177,7 +10168,6 @@ void EditorApp::finishRandomMap() {
                 }
             };
             std::vector<FeaturePlacement> placements;
-            std::vector<const RmsPlacedFeature*> onHills;
             placements.reserve(outcome.features.size());
             for (const RmsPlacedFeature& feature : outcome.features) {
                 const auto found = byName.find(lowerText(feature.name));
@@ -10199,31 +10189,17 @@ void EditorApp::finishRandomMap() {
                         continue;
                     }
                 }
-                if (found != byName.end() && featureIsDoodad(*found->second, DoodadKind::MetalNodes)) {
+                if (found != byName.end()) {
+                    const bool metal = featureIsDoodad(*found->second, DoodadKind::MetalNodes);
+                    const bool vent = !metal && featureIsDoodad(*found->second, DoodadKind::GeoVents);
                     const auto [w, h] = footprintOf(feature.name);
-                    if (footprintRise(map_->heights, cellsWide, cellsHigh, feature.x, feature.y, w, h) > kMetalNodeMaxRise) {
-                        onHills.push_back(&feature);
+                    if ((metal || vent) && !footprintIsLevel(map_->heights, cellsWide, cellsHigh, feature.x, feature.y, w, h)) {
+                        ++(metal ? nodesUneven : ventsUneven);
                         continue;
                     }
                 }
                 placements.push_back(FeaturePlacement{feature.x, feature.y, feature.name});
                 take(feature.x, feature.y, feature.name);
-            }
-            for (const RmsPlacedFeature* feature : onHills) {
-                const auto [w, h] = footprintOf(feature->name);
-                const std::size_t at = static_cast<std::size_t>(std::clamp(feature->y, 0, cellsHigh - 1)) * static_cast<std::size_t>(cellsWide)
-                    + static_cast<std::size_t>(std::clamp(feature->x, 0, cellsWide - 1));
-                const int level = at < groundBeforeStamps.size() ? groundBeforeStamps[at] : 0;
-                int x = 0;
-                int y = 0;
-                if (findFlatSpot(map_->heights, occupied, cellsWide, cellsHigh, w, h, feature->x, feature->y, level, kMetalNodeMaxRise,
-                                 kMetalNodeMoveRadius, x, y)) {
-                    placements.push_back(FeaturePlacement{x, y, feature->name});
-                    take(x, y, feature->name);
-                    ++nodesMoved;
-                } else {
-                    ++nodesOnHills;
-                }
             }
             command.featureBatch = replaceMapFeatures(*map_, placements, &featuresSkipped);
             selectedFeatures_.clear();
@@ -10258,15 +10234,17 @@ void EditorApp::finishRandomMap() {
             randomMapNotes_.push_back(RmsMessage{0, std::to_string(plan.missingCells) + " cells had no piece in the tileset (" + names
                                                          + "), so they were filled with their most common base."});
         }
-        if (nodesMoved > 0) {
-            randomMapNotes_.push_back(RmsMessage{0, std::to_string(nodesMoved) + (nodesMoved == 1 ? " metal node" : " metal nodes")
-                                                         + " ended up on a hill or other slope, so " + (nodesMoved == 1 ? "it was" : "they were")
-                                                         + " moved to the nearest flat ground."});
+        if (nodesUneven > 0) {
+            randomMapNotes_.push_back(RmsMessage{0, std::to_string(nodesUneven) + (nodesUneven == 1 ? " metal node" : " metal nodes")
+                                                         + " landed where the heights under " + (nodesUneven == 1 ? "it" : "them")
+                                                         + " were not all the same, where no metal extractor can be built, so "
+                                                         + (nodesUneven == 1 ? "it was" : "they were") + " left out."});
         }
-        if (nodesOnHills > 0) {
-            randomMapNotes_.push_back(RmsMessage{0, std::to_string(nodesOnHills) + (nodesOnHills == 1 ? " metal node" : " metal nodes")
-                                                         + " ended up on a hill or other slope with no flat ground of " + (nodesOnHills == 1 ? "its" : "their")
-                                                         + " own nearby, so " + (nodesOnHills == 1 ? "it was" : "they were") + " left out."});
+        if (ventsUneven > 0) {
+            randomMapNotes_.push_back(RmsMessage{0, std::to_string(ventsUneven) + (ventsUneven == 1 ? " geothermal vent" : " geothermal vents")
+                                                         + " landed where the heights under " + (ventsUneven == 1 ? "it" : "them")
+                                                         + " were not all the same, where no geothermal plant can be built, so "
+                                                         + (ventsUneven == 1 ? "it was" : "they were") + " left out."});
         }
         if (treesOnSlopes > 0) {
             randomMapNotes_.push_back(RmsMessage{0, std::to_string(treesOnSlopes) + (treesOnSlopes == 1 ? " tree" : " trees")
@@ -10281,7 +10259,7 @@ void EditorApp::finishRandomMap() {
         statusNote_ = "Generated a random map: " + std::to_string(outcome.lands) + (outcome.lands == 1 ? " land, " : " lands, ")
             + std::to_string(outcome.terrains) + (outcome.terrains == 1 ? " terrain, " : " terrains, ")
             + std::to_string(outcome.connections) + (outcome.connections == 1 ? " connection" : " connections")
-            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped + nodesOnHills + treesOnSlopes)) + " features" : std::string())
+            + (outcome.placesObjects ? ", " + std::to_string(outcome.features.size() - static_cast<std::size_t>(featuresSkipped + nodesUneven + ventsUneven + treesOnSlopes)) + " features" : std::string())
             + (outcome.placesStarts ? ", " + std::to_string(outcome.starts.size()) + (outcome.starts.size() == 1 ? " start" : " starts") : std::string());
         error_.clear();
     } catch (const std::exception& ex) {

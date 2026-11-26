@@ -161,6 +161,10 @@ int footprintRise(const std::vector<std::uint8_t>& heights, int width, int heigh
 // Whether the 32 x 32 tile holding feature cell (x, y) is level: its four 16 x 16
 // height cells all share one height. Cells past the map's edge are left out.
 bool tileIsLevel(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y);
+// Whether every height cell under a w x h footprint at feature cell (x, y) shares one
+// height, as a metal extractor or geothermal plant needs. False when any of it is past
+// the map's edge.
+bool footprintIsLevel(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y, int w, int h);
 // Metal nodes on ground that rises more than this, such as a hill, are removed: a metal
 // extractor cannot be built there.
 inline constexpr int kMetalNodeMaxRise = 16;

@@ -2534,6 +2534,23 @@ int footprintRise(const std::vector<std::uint8_t>& heights, int width, int heigh
     return high >= low ? high - low : 0;
 }
 
+bool footprintIsLevel(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y, int w, int h) {
+    if (x < 0 || y < 0 || w < 1 || h < 1 || x + w > width || y + h > height
+        || static_cast<std::size_t>(y + h - 1) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x + w - 1) >= heights.size()) {
+        return false;
+    }
+    const std::uint8_t first = heights[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)];
+    for (int cy = y; cy < y + h; ++cy) {
+        const std::size_t row = static_cast<std::size_t>(cy) * static_cast<std::size_t>(width);
+        for (int cx = x; cx < x + w; ++cx) {
+            if (heights[row + static_cast<std::size_t>(cx)] != first) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool tileIsLevel(const std::vector<std::uint8_t>& heights, int width, int height, int x, int y) {
     const int left = x & ~1;
     const int top = y & ~1;
