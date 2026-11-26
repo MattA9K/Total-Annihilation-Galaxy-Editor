@@ -362,6 +362,8 @@ const std::string kSnowPeakFolder = "SnowyEvergreen-189";
 const std::string kSnowShallowFolder = "SnowyEvergreen-65";
 // SnowyEvergreen's sea cliffs from Base-0 up to Base-189, and its pieces with water, snow and Base-189 together.
 const std::string kSnowSeaCliffFolder = "SnowyEvergreen-0";
+// Its cliffs from the Base-75 frozen water up to Base-189, and its pieces with frozen water, snow and Base-189.
+const std::string kSnowFrozenCliffFolder = "SnowyEvergreen-75";
 
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
     const std::string left = lowerText(category);
@@ -12202,17 +12204,21 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
                     snowShallow = snowShallow || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 65);
                 }
-                // Any SnowyEvergreen cell holding both its water and its Base-189 takes its piece from SnowyEvergreen-0.
+                // Any SnowyEvergreen cell holding both its water and its Base-189 takes its piece from SnowyEvergreen-0, and
+                // one holding its frozen water and Base-189 from SnowyEvergreen-75.
                 bool snowWater = false;
+                bool snowFrozen = false;
                 bool snowPlateau = false;
                 for (const int corner : ringCell.corners) {
                     const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
                     snowWater = snowWater || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 0);
+                    snowFrozen = snowFrozen || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 75);
                     snowPlateau = snowPlateau || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 189);
                 }
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
                     : lavaShore ? kLavaShoreFolder
                     : snowWater && snowPlateau ? kSnowSeaCliffFolder
+                    : snowFrozen && snowPlateau ? kSnowFrozenCliffFolder
                     : snowPeak ? kSnowPeakFolder
                     : snowShallow ? kSnowShallowFolder
                     : armedLevel >= 0 ? levels[static_cast<std::size_t>(armedLevel)]->category : lower->category;
@@ -13182,9 +13188,14 @@ void EditorApp::ensureRiverCatalog() {
         }
         addSection(river.sectionPath, river.name);
     }
+    // SnowyEvergreen's rivers are frozen: they start on the shores of its Base-75 frozen water, the ShallowCoast pieces
+    // in its own folder, read here as coasts. Its open water's coasts and its Base-65 shallows' coasts take no river.
+    const bool frozenRivers = lowerText(brushWorld_) == "snowyevergreen";
     for (const BrushPiece& piece : brushPieces_) {
         const std::string lowered = lowerText(piece.name);
-        if (lowered.starts_with("coast-") || lowered.starts_with("cliff-")) {
+        if (frozenRivers && lowered.starts_with("shallowcoast-") && lowerText(piece.category) == "snowyevergreen") {
+            addSection(piece.sectionPath, piece.name.substr(std::string_view("Shallow").size()));
+        } else if ((lowered.starts_with("coast-") && !frozenRivers) || lowered.starts_with("cliff-")) {
             addSection(piece.sectionPath, piece.name);
         }
     }
@@ -13515,10 +13526,10 @@ void EditorApp::ensureBrushPaints() {
         const bool evergreenBase = isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen");
         // Lava's shore from Base-76 up to Base-86 has a folder of its own.
         const bool lavaShore = lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76";
-        // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces and its sea cliffs.
+        // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces, its sea cliffs and its frozen water's cliffs.
         const bool snowPeak = lowerText(brushWorld_) == "snowyevergreen"
             && (lowerText(section.category) == lowerText(kSnowPeakFolder) || lowerText(section.category) == lowerText(kSnowShallowFolder)
-                || lowerText(section.category) == lowerText(kSnowSeaCliffFolder));
+                || lowerText(section.category) == lowerText(kSnowSeaCliffFolder) || lowerText(section.category) == lowerText(kSnowFrozenCliffFolder));
         if (!brushCategoryMatches(section.category, brushWorld_) && !evergreenBase && !lavaShore && !snowPeak && !blend && !greenHill && !greenIsland && !lavaHill && !lushPool
             && !archipelagoHill && !archipelagoLowHill && !archipelagoIsland && !lavaPoolSection && !lavaIsleSection
             && !marsHillSection && !marsPoolSection && !marsRoughSection
@@ -18216,7 +18227,11 @@ void EditorApp::drawTileBrush() {
         if (ImGui::IsItemHovered()) {
             const char* hint = "Use this tile as the brush";
             std::string hintText;
-            if (paint.kind == BrushKind::River) {
+            if (paint.kind == BrushKind::River && lowerText(brushWorld_) == "snowyevergreen") {
+                hint = "Paint frozen rivers on Base-85, starting at a straight frozen shore or beside another river\nRivers join the rivers beside them and end where they stop";
+            } else if (paint.kind == BrushKind::Bridge && lowerText(brushWorld_) == "snowyevergreen") {
+                hint = "Place a crossing on a frozen river\nCrossings go on straight rivers, bends, 3-way junctions and 4-way crossings";
+            } else if (paint.kind == BrushKind::River) {
                 hint = lowerText(brushWorld_) == "lush"
                     ? "Paint rivers on Base-77 and straight coasts\nAn even-height Base-255 range gets a mountain pass\nRivers join the rivers beside them"
                     : "Paint rivers on Base-85 and straight coasts\nRivers join the rivers beside them";

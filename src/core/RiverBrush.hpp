@@ -199,6 +199,17 @@ inline RiverPiece parseRiverPiece(std::string_view name) {
             piece.sides = kRiverAllSides;
             return piece;
         }
+        // A bridge on a 3-way junction, RiverB-3way-T-R-B, where a tileset has one.
+        if (riverLowerText(key.substr(7)).starts_with("3way-")) {
+            const int sides = riverSidesFromLetters(key.substr(12));
+            if (sides <= 0) {
+                return RiverPiece{};
+            }
+            piece.valid = true;
+            piece.bridge = true;
+            piece.sides = sides;
+            return piece;
+        }
         const int sides = riverSidesFromShape(key.substr(7));
         if (sides <= 0) {
             return RiverPiece{};
@@ -224,6 +235,17 @@ inline RiverPiece parseRiverPiece(std::string_view name) {
             piece.valid = true;
             piece.mouth = true;
             piece.sides = oppositeRiverSide(water);
+            return piece;
+        }
+        // A river that stops: River-End-T leaves through the top and ends inside the cell.
+        if (restLower.starts_with("end-")) {
+            const int side = riverSideOfLetter(rest.substr(4));
+            if (side == 0) {
+                return RiverPiece{};
+            }
+            piece.valid = true;
+            piece.flexible = true;
+            piece.sides = side;
             return piece;
         }
         const int sides = riverSidesFromShape(rest);
@@ -341,8 +363,8 @@ inline std::string riverMouthKey(int waterSide) {
     return std::string("River-Mouth-") + riverLetterOfSide(waterSide);
 }
 
-// "River-Horizontal" -> "RiverB-Horizontal". Straights, the four bends, and a 4-way
-// crossing have a bridge. Ponds, 3-way junctions and mouths give an empty name.
+// "River-Horizontal" -> "RiverB-Horizontal". Straights, the four bends, 3-way junctions and a 4-way
+// crossing have a bridge. Ponds, ends and mouths give an empty name.
 inline std::string riverBridgeKey(const RiverPiece& piece) {
     if (!piece.valid || piece.bridge || piece.mouth) {
         return {};
@@ -351,7 +373,10 @@ inline std::string riverBridgeKey(const RiverPiece& piece) {
     if (lowered == "riverintersect-4way") {
         return "RiverB-4way";
     }
-    if (!lowered.starts_with("river-") || lowered == "river-base") {
+    if (lowered.starts_with("riverintersect-3way-")) {
+        return "RiverB-3way-" + piece.key.substr(20);
+    }
+    if (!lowered.starts_with("river-") || lowered == "river-base" || lowered.starts_with("river-end-")) {
         return {};
     }
     return "RiverB-" + piece.key.substr(6);
@@ -608,11 +633,28 @@ inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lo
         return sides;
     };
 
+    // A tileset whose rivers have ends stops a river that leaves a cell through one side with River-End-X there.
+    const auto withEnd = [&](int sides) {
+        const std::string key = lineKeyForSides(family, sides);
+        const bool oneSide = sides == kRiverTop || sides == kRiverRight || sides == kRiverBottom || sides == kRiverLeft;
+        if (!ridge && oneSide && available) {
+            const std::string end = std::string("River-End-") + riverLetterOfSide(sides);
+            if (available(end)) {
+                return parseLinePiece(end);
+            }
+        }
+        return parseLinePiece(key);
+    };
     RiverPiece wanted = centre;
     if (centre.flexible) {
         const int sides = joinedSides(x, y, centre);
+        // A tileset whose rivers end and have no pond starts a river at a shore or beside another river.
+        if (!ridge && sides == 0 && here.kind != lineKind && available && !available("River-Base") && available("River-End-T")) {
+            plan.reason = "Rivers here start at a shore or beside another river\nThen each river ends where it stops";
+            return plan;
+        }
         // A lone cell that is already drawn keeps its shape.
-        wanted = (sides == 0 && here.kind == lineKind) ? centre : parseLinePiece(lineKeyForSides(family, sides));
+        wanted = (sides == 0 && here.kind == lineKind) ? centre : withEnd(sides);
     }
     // A tileset without a pond starts a lone river as a straight run.
     if (available && !available(wanted.key) && sameRiverKey(wanted.key, "River-Base") && available("River-Horizontal")) {
@@ -638,7 +680,7 @@ inline RiverPlan planLine(LineFamily family, int x, int y, const RiverLookup& lo
         if (sides == 0) {
             continue;
         }
-        const RiverPiece rebuilt = parseLinePiece(lineKeyForSides(family, sides));
+        const RiverPiece rebuilt = withEnd(sides);
         if (!sameRiverKey(next.piece.key, rebuilt.key)) {
             placed[{nx, ny}] = rebuilt;
             plan.edits.push_back(RiverEdit{nx, ny, rebuilt.key});

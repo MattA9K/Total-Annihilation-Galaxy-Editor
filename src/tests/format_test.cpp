@@ -3583,7 +3583,6 @@ void testBrushCells() {
         // Base-85 climbs to it.
         const BrushGraph snow(std::vector<int>{0, 75, 85, 85, 189}, {"Snow", "Snow", "Snow", "Green", "Snow"});
         expect(snow.style(2, 4) == TransitionStyle::Cliff && snow.style(3, 4) == TransitionStyle::None
-            && snow.style(1, 4) == TransitionStyle::None
             && brushPieceName(snow, {4, 2, 2, 2}) == "Cliff-High-TL" && brushPieceName(snow, {4, 4, 2, 2}) == "Cliff-High-T",
             "SnowyEvergreen Base-85 rises to Base-189 through its ravines, with plain names");
         // Its water rises straight to Base-189 in a sea cliff, and another land's water does not.
@@ -3596,6 +3595,15 @@ void testBrushCells() {
             && brushPieceName(sea, {0, 2, 1, 2}) == "CC-219-R-85-BL-0-TL"
             && brushPieceName(sea, {1, 1, 0, 2}).empty(),
             "SnowyEvergreen water rises to Base-189 in sea cliffs, with three-way pieces where they meet the snow");
+        // Its frozen water rises to Base-189 the same way.
+        const BrushGraph frozen(std::vector<int>{75, 85, 189}, {"Snow", "Snow", "Snow"});
+        const BrushGraph foreignFrozen(std::vector<int>{75, 189}, {"Green", "Snow"});
+        expect(frozen.style(0, 2) == TransitionStyle::Cliff && foreignFrozen.style(0, 1) == TransitionStyle::None
+            && snow.style(1, 4) == TransitionStyle::Cliff
+            && brushPieceName(frozen, {2, 0, 0, 0}) == "Cliff-High-TL"
+            && brushPieceName(frozen, {0, 1, 1, 2}) == "CC-219-BR-85-BL_and_TR-0-TL"
+            && brushPieceName(frozen, {0, 2, 1, 2}) == "CC-219-R-85-BL-0-TL",
+            "SnowyEvergreen frozen water rises to Base-189 in cliffs, with three-way pieces where they meet the snow");
         BrushTestLattice ravine(5, 5, 2, snow);
         ravine.paint(2, 2, 1, 4);
         expect(ravine.piece(2, 2) == "Base-189" && ravine.piece(2, 1) == "Cliff-High-B" && ravine.piece(1, 2) == "Cliff-High-R"
@@ -5263,8 +5271,8 @@ struct RiverTestGrid {
         return galaxy::classifyRiverLabel(at(x, y));
     }
 
-    galaxy::RiverPlan river(int x, int y) {
-        const galaxy::RiverPlan plan = galaxy::planRiver(x, y, [&](int cx, int cy) { return look(cx, cy); });
+    galaxy::RiverPlan river(int x, int y, const std::function<bool(std::string_view)>& available = {}) {
+        const galaxy::RiverPlan plan = galaxy::planRiver(x, y, [&](int cx, int cy) { return look(cx, cy); }, available);
         apply(plan);
         return plan;
     }
@@ -5281,8 +5289,8 @@ struct RiverTestGrid {
         return plan;
     }
 
-    galaxy::RiverPlan bridge(int x, int y) {
-        const galaxy::RiverPlan plan = galaxy::planRiverBridge(x, y, [&](int cx, int cy) { return look(cx, cy); });
+    galaxy::RiverPlan bridge(int x, int y, const std::function<bool(std::string_view)>& available = {}) {
+        const galaxy::RiverPlan plan = galaxy::planRiverBridge(x, y, [&](int cx, int cy) { return look(cx, cy); }, available);
         apply(plan);
         return plan;
     }
@@ -5340,7 +5348,11 @@ void testRivers() {
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-T-R-01")) == "RiverB-T-R", "a bridge over River-T-R is RiverB-T-R");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Base-01")).empty(), "a pond has no bridge");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-4way-01")) == "RiverB-4way", "a 4-way crossing takes RiverB-4way");
-    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-3way-T-L-R-01")).empty(), "a 3-way junction has no bridge");
+    expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("RiverIntersect-3way-T-L-R-01")) == "RiverB-3way-T-L-R", "a 3-way junction's bridge is RiverB-3way");
+    expect(galaxy::parseRiverPiece("RiverB-3way-T-R-B-02").bridge && galaxy::parseRiverPiece("RiverB-3way-T-R-B-02").sides == (kRiverTop | kRiverRight | kRiverBottom),
+        "RiverB-3way-T-R-B is a bridge reaching three sides");
+    expect(galaxy::parseRiverPiece("River-End-L-03").flexible && galaxy::parseRiverPiece("River-End-L-03").sides == kRiverLeft
+        && galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-End-L-03")).empty(), "River-End-L leaves through the left and takes no bridge");
     const galaxy::RiverPiece fourBridge = galaxy::parseRiverPiece("RiverB-4way-02");
     expect(fourBridge.valid && fourBridge.bridge && !fourBridge.flexible && fourBridge.sides == galaxy::kRiverAllSides, "RiverB-4way joins every side");
     expect(galaxy::riverBridgeKey(galaxy::parseRiverPiece("River-Mouth-B-01")).empty(), "a mouth has no bridge");
@@ -5448,7 +5460,27 @@ void testRivers() {
     fork.river(1, 2);
     fork.river(3, 2);
     fork.river(2, 1);
-    expect(!fork.bridge(2, 2).allowed() && fork.at(2, 2) == "RiverIntersect-3way-T-L-R-01", "a 3-way junction takes no bridge");
+    const auto noThree = [](std::string_view key) { return !galaxy::riverLowerText(key).starts_with("riverb-3way-"); };
+    expect(!fork.bridge(2, 2, noThree).allowed() && fork.at(2, 2) == "RiverIntersect-3way-T-L-R-01", "a 3-way junction takes no bridge without a section");
+    expect(fork.bridge(2, 2).allowed() && fork.at(2, 2) == "RiverB-3way-T-L-R-01", "a 3-way junction takes RiverB-3way where the tileset has it");
+
+    // Rivers with ends, such as SnowyEvergreen's frozen ones: they start at a shore or beside a river, and stop with
+    // River-End-X where they stop.
+    const auto ends = [](std::string_view key) { return !galaxy::sameRiverKey(key, "River-Base"); };
+    RiverTestGrid frozen(5, 4, "Base-85");
+    for (int x = 0; x < 5; ++x) {
+        frozen.at(x, 0) = "Coast-Water-T-01";
+    }
+    const galaxy::RiverPlan inland = frozen.river(2, 2, ends);
+    expect(!inland.allowed() && inland.reason.find("start at a shore") != std::string::npos && frozen.at(2, 2) == "Base-85",
+        "a river with ends does not start alone inland");
+    frozen.river(2, 0, ends);
+    frozen.river(2, 1, ends);
+    expect(frozen.at(2, 0) == "River-Mouth-T-01" && frozen.at(2, 1) == "River-End-T-01", "a river below a mouth ends there");
+    frozen.river(2, 2, ends);
+    expect(frozen.at(2, 1) == "River-Vertical-01" && frozen.at(2, 2) == "River-End-T-01", "the river runs on and ends at its new cell");
+    frozen.river(3, 2, ends);
+    expect(frozen.at(2, 2) == "River-T-R-01" && frozen.at(3, 2) == "River-End-L-01", "a turn bends the old end and ends at the new cell");
     RiverTestGrid crossing(5, 5, "Base-85");
     crossing.at(2, 2) = "RiverIntersect-4way-01";
     const auto noFour = [](std::string_view) { return false; };
@@ -5458,7 +5490,7 @@ void testRivers() {
     const galaxy::RiverPlan crossed = galaxy::planRiverBridge(2, 2, [&](int cx, int cy) { return crossing.look(cx, cy); }, hasFour);
     expect(crossed.allowed() && crossed.edits.size() == 1 && crossed.edits[0].key == "RiverB-4way", "a 4-way with a bridge section takes RiverB-4way");
     RiverTestGrid acidStart(3, 3, "Base-85");
-    const auto noPond = [](std::string_view key) { return !galaxy::sameRiverKey(key, "River-Base"); };
+    const auto noPond = [](std::string_view key) { return !galaxy::sameRiverKey(key, "River-Base") && !galaxy::riverLowerText(key).starts_with("river-end-"); };
     const galaxy::RiverPlan started = galaxy::planRiver(1, 1, [&](int cx, int cy) { return acidStart.look(cx, cy); }, noPond);
     expect(started.allowed() && started.edits.size() == 1 && started.edits[0].key == "River-Horizontal", "a tileset without a pond starts a river as a straight run");
     RiverTestGrid desertRiver(3, 3, "Base-80");

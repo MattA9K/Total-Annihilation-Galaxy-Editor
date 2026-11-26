@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 45>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 45> rules = {{
+inline const std::array<BrushTransitionRule, 46>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 46> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -353,6 +353,8 @@ inline const std::array<BrushTransitionRule, 45>& brushTransitionRules() {
         {189, 255, TransitionStyle::Cliff},
         // and its Base-0 water straight to its Base-189 through the Snow_High_Coast sea cliffs.
         {0, 189, TransitionStyle::Cliff},
+        // and its Base-75 frozen water to its Base-189 through the Frozen_Cliff pieces.
+        {75, 189, TransitionStyle::Cliff},
         {78, 194, TransitionStyle::Cliff},
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
@@ -673,7 +675,7 @@ public:
                         // Only Evergreen's water rises to its Base-190 plateaus.
                         // SnowyEvergreen's water rises to its Base-189 the same way.
                         const bool noSeaCliff = (rule.lowerHeight == 0 && rule.upperHeight == 190 && !(wa == "Ever" && evergreenWorld(wb)))
-                            || (rule.lowerHeight == 0 && rule.upperHeight == 189 && !(wa == "Snow" && wb == "Snow"));
+                            || ((rule.lowerHeight == 0 || rule.lowerHeight == 75) && rule.upperHeight == 189 && !(wa == "Snow" && wb == "Snow"));
                         // Neither Evergreen nor SnowyEvergreen has a cliff straight from Base-85 to Base-255.
                         const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb) || wa == "Snow" || wb == "Snow")
                             && rule.lowerHeight == 85 && rule.upperHeight == 255;
@@ -3584,8 +3586,10 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
             && evergreenWorld(graph.world(sorted[2])) && !(graph.world(sorted[1]) == "Ever2" && graph.world(sorted[2]) == "Ever")) {
             return evergreenCoastalCliffName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
-        // SnowyEvergreen's water, snow and Base-189, from its Snow_low2high_coast pieces, named the same way.
-        if (low == 0 && middle == 85 && high == 189 && graph.world(sorted[0]) == "Snow" && graph.world(sorted[1]) == "Snow"
+        // SnowyEvergreen's water, snow and Base-189, from its Snow_low2high_coast pieces, named the same way, and the
+        // same with its Base-75 frozen water from its Frozen_Shore2Cliff pieces, which keep the Base-0 names in their
+        // own folder.
+        if ((low == 0 || low == 75) && middle == 85 && high == 189 && graph.world(sorted[0]) == "Snow" && graph.world(sorted[1]) == "Snow"
             && graph.world(sorted[2]) == "Snow") {
             return evergreenCoastalCliffName(maskOf(sorted[2]), maskOf(sorted[1]));
         }
