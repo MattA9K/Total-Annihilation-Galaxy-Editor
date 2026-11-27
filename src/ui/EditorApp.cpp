@@ -12,6 +12,7 @@
 #include "core/MetalBridge.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/Version.hpp"
+#include "core/TouchpadPan.hpp"
 #include "format/BmpImage.hpp"
 #include "format/GafImage.hpp"
 #include "format/TaPalette.hpp"
@@ -125,6 +126,22 @@ struct RandomMapJob {
 };
 
 namespace {
+
+// Which GLFW backend gives this run its scroll events; on Linux this matches how GLFW 3.4 picks one.
+ScrollPlatform currentScrollPlatform() {
+#if defined(__APPLE__)
+    return ScrollPlatform::MacOS;
+#elif defined(_WIN32)
+    return ScrollPlatform::Windows;
+#else
+    static const ScrollPlatform platform = [] {
+        const char* session = std::getenv("XDG_SESSION_TYPE");
+        const bool wayland = session != nullptr && std::string_view(session) == "wayland" && std::getenv("WAYLAND_DISPLAY") != nullptr;
+        return wayland ? ScrollPlatform::Wayland : ScrollPlatform::X11;
+    }();
+    return platform;
+#endif
+}
 
 ImU32 featureColor(std::string_view name) {
     if (name.find("Tree") != std::string_view::npos) {
@@ -5791,7 +5808,15 @@ void EditorApp::drawMap() {
     }
 
     ImGuiIO& io = ImGui::GetIO();
-    if (hovered && io.MouseWheel != 0.0f && !(io.KeyAlt && placementStamp() != nullptr)) {
+    const bool stampRotating = io.KeyAlt && placementStamp() != nullptr;
+    // Shift + two fingers on a touchpad (both scroll axes) pans the map instead of zooming.
+    if (hovered && io.KeyShift && !stampRotating && (io.MouseWheel != 0.0f || io.MouseWheelH != 0.0f)) {
+        const PanDelta pan = touchpadPanDelta(io.MouseWheelH, io.MouseWheel, scrollPixelsPerUnit(currentScrollPlatform()));
+        panX_ += pan.x;
+        panY_ += pan.y;
+        fit_ = false;
+    }
+    if (hovered && io.MouseWheel != 0.0f && !io.KeyShift && !stampRotating) {
         const float previous = zoom_;
         const float factor = io.MouseWheel > 0.0f ? 1.1f : 1.0f / 1.1f;
         zoom_ = std::clamp(zoom_ * factor, 0.02f, 16.0f);

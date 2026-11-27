@@ -15,6 +15,7 @@
 #include "core/SlopeBrush.hpp"
 #include "core/TextPreview.hpp"
 #include "core/TilesetLibrary.hpp"
+#include "core/TouchpadPan.hpp"
 #include "core/UpdateCheck.hpp"
 #include "core/Version.hpp"
 #include "format/BmpImage.hpp"
@@ -3630,6 +3631,10 @@ void testBrushCells() {
             && brushPieceName(waterWorld, {0, 0, 1, 1}) == "Blend-WaterWWorldGreen-T" && brushPieceName(waterWorld, {2, 0, 2, 0}) == "Blend-WaterWWorldMetal2-R"
             && brushPieceName(waterWorld, {3, 3, 3, 0}) == "Blend-WaterWWorldEver-BR" && brushPieceName(waterWorld, {0, 4, 4, 4}) == "Blend-WaterWWorldLush-TL",
             "WaterWorld's water fades 2-way into every other water, Metal2's and Lush's among them");
+        const BrushGraph reef(std::vector<int>{0, 0, 70}, {"WWorld", "Green", "WWorld"}, false, "WWorld");
+        expect(reef.style(0, 2) == TransitionStyle::ShallowDeep && reef.style(1, 2) == TransitionStyle::None
+            && brushPieceName(reef, {2, 2, 0, 0}) == "ShallowDeep-Shallow-T",
+            "WaterWorld's Base-70 reef joins its own Base-0 and no other water");
         const BrushGraph lavaMetal(std::vector<int>{41, 85, 86, 85}, {"Lava", "Metal", "Lava", "Green"}, false, "Lava");
         expect(lavaMetal.style(0, 1) == TransitionStyle::Coast && lavaMetal.style(0, 3) == TransitionStyle::None
             && brushPieceName(lavaMetal, {1, 1, 0, 0}, "Water") == "Coast-Water-B",
@@ -7939,7 +7944,27 @@ void testBmp24Writer() {
     expect(tileBmp[54] == galaxy::kTaPalette[9][2] && tileBmp[56] == galaxy::kTaPalette[9][0], "tile BMP uses the TA palette");
 }
 
+void testTouchpadPan() {
+    using galaxy::ScrollPlatform;
+    using galaxy::scrollPixelsPerUnit;
+    using galaxy::touchpadPanDelta;
+    const galaxy::PanDelta mac = touchpadPanDelta(0.3f, -1.2f, scrollPixelsPerUnit(ScrollPlatform::MacOS));
+    expect(std::fabs(mac.x - 3.0f) < 1e-4f && std::fabs(mac.y + 12.0f) < 1e-4f,
+        "macOS touchpad offsets (scaled by 0.1 in GLFW) pan by the fingers' points");
+    const galaxy::PanDelta right = touchpadPanDelta(1.0f, 0.0f, 10.0f);
+    expect(right.x > 0.0f && right.y == 0.0f, "a positive horizontal offset moves the map right only");
+    const galaxy::PanDelta down = touchpadPanDelta(0.0f, 1.0f, 10.0f);
+    expect(down.x == 0.0f && down.y > 0.0f, "a positive vertical offset moves the map down only");
+    const galaxy::PanDelta none = touchpadPanDelta(0.0f, 0.0f, 50.0f);
+    expect(none.x == 0.0f && none.y == 0.0f, "no scroll does not pan");
+    expect(scrollPixelsPerUnit(ScrollPlatform::Wayland) == scrollPixelsPerUnit(ScrollPlatform::MacOS),
+        "Wayland and macOS offsets are both a tenth of a point");
+    expect(scrollPixelsPerUnit(ScrollPlatform::Windows) > scrollPixelsPerUnit(ScrollPlatform::X11),
+        "a whole Windows wheel notch moves further than one X11 click");
+}
+
 int main() {
+    testTouchpadPan();
     testBmp24Writer();
     testDocumentNames();
     testRmsReader();
