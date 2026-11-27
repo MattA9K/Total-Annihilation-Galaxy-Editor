@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 49>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 49> rules = {{
+inline const std::array<BrushTransitionRule, 50>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 50> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -327,6 +327,9 @@ inline const std::array<BrushTransitionRule, 49>& brushTransitionRules() {
         {0, 65, TransitionStyle::ShallowDeep},
         // WaterWorld's reef shallows stand at Base-70 and join its Base-0. The graph applies this only to WaterWorld.
         {0, 70, TransitionStyle::ShallowDeep},
+        // WaterWorld's Base-1 sea floor, barely different from its Base-0 and about as deep, joins its Base-0 the
+        // same way. The graph applies this only to WaterWorld.
+        {0, 1, TransitionStyle::ShallowDeep},
         {68, 85, TransitionStyle::ShallowCoast},
         // Evergreen's Base-65 shallows meet both its grasses directly.
         {65, 85, TransitionStyle::ShallowCoast},
@@ -750,7 +753,7 @@ public:
                             || (rule.lowerHeight == 77 && rule.upperHeight == 80 && !lushDesert)
                             || (rule.lowerHeight == 76 && rule.upperHeight == 86 && !namedPair("Lava", "Lava"))
                             || (rule.lowerHeight == 41 && rule.upperHeight == 85 && !(wa == "Lava" && wb == "Metal"))
-                            || (rule.lowerHeight == 0 && rule.upperHeight == 70 && !(wa == "WWorld" && wb == "WWorld"))) {
+                            || ((rule.lowerHeight == 0 && (rule.upperHeight == 70 || rule.upperHeight == 1)) && !(wa == "WWorld" && wb == "WWorld"))) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;

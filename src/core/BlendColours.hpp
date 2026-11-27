@@ -345,6 +345,16 @@ inline bool waterWorldTileIsWaterWorld(const std::uint8_t* bytes) {
     return blue * 2 >= 457L * 1024;
 }
 
+// WaterWorld's Base-1 sea floor is a touch redder than its Base-0 water: red averages 39 to 49 on a floor tile and
+// 36 to 38 on a water tile, with green and blue within a few points of each other.
+inline bool waterWorldFloorTileIsFloor(const std::uint8_t* bytes) {
+    long red = 0;
+    for (int i = 0; i < 1024; ++i) {
+        red += kTaPalette[bytes[i]][0];
+    }
+    return red * 2 >= 77L * 1024;
+}
+
 inline bool metal2WaterTileIsMetal2(const std::uint8_t* bytes) {
     long sum = 0;
     for (int i = 0; i < 1024; ++i) {
@@ -517,6 +527,7 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"WaterWorld / Quagmire water", "WaterWorld/Base-0", "Quagmire/Base-0", waterWorldTileIsWaterWorld},
     {"WaterWorld / Evergreen water", "WaterWorld/Base-0", "Evergreen/Base-0", waterWorldTileIsWaterWorld},
     {"WaterWorld / Metal2 water", "WaterWorld/Base-0", "Metal2/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld floor / water", "WaterWorld/Base-1", "WaterWorld/Base-0", waterWorldFloorTileIsFloor},
     {"SnowyEvergreen / GreenWorld", "SnowyEvergreen/Base-85", "GreenWorld/Base-85", snowTileIsSnow},
     {"SnowyEvergreen / Mars", "SnowyEvergreen/Base-85", "Mars/Base-85", snowTileIsSnow},
     {"SnowyEvergreen / Acid", "SnowyEvergreen/Base-85", "Acid/Base-85", snowTileIsSnow},

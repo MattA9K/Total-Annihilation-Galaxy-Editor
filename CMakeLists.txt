@@ -92,6 +92,7 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${VERSION_CPP}.
 
 add_library(galaxy_format STATIC
     src/format/HpiArchive.cpp
+    src/format/BmpImage.cpp
     src/format/MapFile.cpp
     src/format/SctSection.cpp
     src/format/GafImage.cpp
@@ -145,6 +146,12 @@ add_executable(galaxy_add_base_tile EXCLUDE_FROM_ALL tools/add_base_tile.cpp)
 target_link_libraries(galaxy_add_base_tile PRIVATE galaxy_format)
 target_compile_options(galaxy_add_base_tile PRIVATE -Wall -Wextra -Wpedantic)
 
+# One land's coast pieces from a folder of another archive, named by their land corners:
+# galaxy_add_coast_tiles <favorites.hpi> <source.hpi> <folder> <world> <height offset> <skip from> <out.hpi>
+add_executable(galaxy_add_coast_tiles EXCLUDE_FROM_ALL tools/add_coast_tiles.cpp)
+target_link_libraries(galaxy_add_coast_tiles PRIVATE galaxy_format)
+target_compile_options(galaxy_add_coast_tiles PRIVATE -Wall -Wextra -Wpedantic)
+
 # Pictures the editor needs before it reads a single file (the splash and the
 # window icon) are compiled into the executable. Reconfigure after replacing one.
 set(EMBED_CPP "${CMAKE_BINARY_DIR}/generated/EmbeddedImages.cpp")
@@ -174,6 +181,49 @@ embed_image(GalaxyCjk "${CMAKE_SOURCE_DIR}/assets/fonts/GalaxyCjk.ttf")
 file(WRITE "${EMBED_CPP}.new" "${EMBED_BODY}}  // namespace galaxy\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${EMBED_CPP}.new" "${EMBED_CPP}")
 
+# The Random Map Generator's example scripts, one file each in assets/rms, compiled
+# into the executable. A file is named "NN World - Title.rms": NN sets its place in
+# the Example Scripts menu, and the first one is the script a new install starts with.
+# Editing, adding or removing a file is picked up by the next build.
+set(EXAMPLE_SCRIPTS_CPP "${CMAKE_BINARY_DIR}/generated/ExampleScripts.cpp")
+file(GLOB EXAMPLE_SCRIPT_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/rms/*.rms" "${CMAKE_SOURCE_DIR}/assets/rms/*.RMS")
+list(REMOVE_DUPLICATES EXAMPLE_SCRIPT_FILES)
+list(SORT EXAMPLE_SCRIPT_FILES)
+set(EXAMPLE_SCRIPTS_BODY "#include \"ui/ExampleScripts.hpp\"\n\nnamespace galaxy {\n\n")
+set(EXAMPLE_SCRIPTS_TABLE "")
+set(EXAMPLE_SCRIPT_COUNT 0)
+foreach(SCRIPT_FILE IN LISTS EXAMPLE_SCRIPT_FILES)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SCRIPT_FILE}")
+    # The extension is cut by hand: NAME_WE stops at the first dot, which a title may have.
+    get_filename_component(SCRIPT_NAME "${SCRIPT_FILE}" NAME)
+    string(REGEX REPLACE "\\.[Rr][Mm][Ss]$" "" SCRIPT_NAME "${SCRIPT_NAME}")
+    string(REGEX REPLACE "^[0-9]+[ _-]*" "" SCRIPT_NAME "${SCRIPT_NAME}")
+    string(FIND "${SCRIPT_NAME}" " - " SPLIT)
+    if(SPLIT LESS 0)
+        message(WARNING "${SCRIPT_FILE} is not named \"NN World - Title.rms\". It was left out of the examples.")
+        continue()
+    endif()
+    string(SUBSTRING "${SCRIPT_NAME}" 0 ${SPLIT} SCRIPT_WORLD)
+    math(EXPR TITLE_START "${SPLIT} + 3")
+    string(SUBSTRING "${SCRIPT_NAME}" ${TITLE_START} -1 SCRIPT_TITLE)
+    foreach(FIELD SCRIPT_WORLD SCRIPT_TITLE)
+        string(REPLACE "\\" "\\\\" ${FIELD} "${${FIELD}}")
+        string(REPLACE "\"" "\\\"" ${FIELD} "${${FIELD}}")
+    endforeach()
+    # The text goes in as bytes, so nothing in a script can end the string early.
+    file(READ "${SCRIPT_FILE}" HEX HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," BYTES "${HEX}")
+    set(EXAMPLE_SCRIPTS_BODY "${EXAMPLE_SCRIPTS_BODY}static const unsigned char kExampleScript${EXAMPLE_SCRIPT_COUNT}[] = {${BYTES}0x00};\n")
+    string(APPEND EXAMPLE_SCRIPTS_TABLE "    {\"${SCRIPT_WORLD}\", \"${SCRIPT_TITLE}\", reinterpret_cast<const char*>(kExampleScript${EXAMPLE_SCRIPT_COUNT})},\n")
+    math(EXPR EXAMPLE_SCRIPT_COUNT "${EXAMPLE_SCRIPT_COUNT} + 1")
+endforeach()
+if(EXAMPLE_SCRIPT_COUNT EQUAL 0)
+    message(WARNING "assets/rms has no example scripts. The Random Map Generator will start with an empty script.")
+    string(APPEND EXAMPLE_SCRIPTS_TABLE "    {\"\", \"\", \"\"},\n")
+endif()
+file(WRITE "${EXAMPLE_SCRIPTS_CPP}.new" "${EXAMPLE_SCRIPTS_BODY}\nconst ExampleRandomMapScript kExampleRandomMapScripts[] = {\n${EXAMPLE_SCRIPTS_TABLE}};\nconst std::size_t kExampleRandomMapScriptCount = ${EXAMPLE_SCRIPT_COUNT};\n\n}  // namespace galaxy\n")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${EXAMPLE_SCRIPTS_CPP}.new" "${EXAMPLE_SCRIPTS_CPP}")
+
 # stb_image is third-party code, so it is built without the project warnings.
 set_source_files_properties(src/ui/StbImage.cpp "${EMBED_CPP}" PROPERTIES COMPILE_OPTIONS "-w")
 
@@ -188,7 +238,8 @@ add_executable(GalaxyEditor
     src/ui/Splash.cpp
     src/ui/LanguagePicker.cpp
     src/ui/StbImage.cpp
-    "${EMBED_CPP}")
+    "${EMBED_CPP}"
+    "${EXAMPLE_SCRIPTS_CPP}")
 target_link_libraries(GalaxyEditor PRIVATE galaxy_format imgui Threads::Threads)
 target_compile_options(GalaxyEditor PRIVATE -Wall -Wextra -Wpedantic)
 

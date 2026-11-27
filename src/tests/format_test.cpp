@@ -3635,6 +3635,10 @@ void testBrushCells() {
         expect(reef.style(0, 2) == TransitionStyle::ShallowDeep && reef.style(1, 2) == TransitionStyle::None
             && brushPieceName(reef, {2, 2, 0, 0}) == "ShallowDeep-Shallow-T",
             "WaterWorld's Base-70 reef joins its own Base-0 and no other water");
+        const BrushGraph floor(std::vector<int>{0, 1, 70}, {"WWorld", "WWorld", "WWorld"}, false, "WWorld");
+        expect(floor.style(0, 1) == TransitionStyle::ShallowDeep && floor.style(1, 2) == TransitionStyle::None
+            && brushPieceName(floor, {1, 0, 1, 0}) == "ShallowDeep-Shallow-L",
+            "WaterWorld's Base-1 floor joins its Base-0 water, and reaches its reef only through the water");
         const BrushGraph lavaMetal(std::vector<int>{41, 85, 86, 85}, {"Lava", "Metal", "Lava", "Green"}, false, "Lava");
         expect(lavaMetal.style(0, 1) == TransitionStyle::Coast && lavaMetal.style(0, 3) == TransitionStyle::None
             && brushPieceName(lavaMetal, {1, 1, 0, 0}, "Water") == "Coast-Water-B",

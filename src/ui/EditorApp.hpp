@@ -310,8 +310,12 @@ private:
     // While the random map generator collects stamp brushes, the catalog skips the
     // pictures and blend partners that only painting by hand needs.
     bool brushCatalogStampsOnly_ = false;
-    bool mountainArmed() const { return brushName_ == "Horizontal Mtn" || brushName_ == "Vertical Mtn"; }
-    bool mountainVertical() const { return brushName_ == "Vertical Mtn"; }
+    // Lush's mountains, and WaterWorld's reefs, which grow the same way from 16 x 16 pieces on its Base-0 water.
+    bool reefArmed() const { return brushName_ == "Horizontal Reef" || brushName_ == "Vertical Reef"; }
+    bool mountainArmed() const { return brushName_ == "Horizontal Mtn" || brushName_ == "Vertical Mtn" || reefArmed(); }
+    bool mountainVertical() const { return brushName_ == "Vertical Mtn" || brushName_ == "Vertical Reef"; }
+    // The side of one mountain piece: 32 tiles for Lush's mountains, 16 for WaterWorld's reefs.
+    int mountainSpan() const { return reefArmed() ? 16 : 32; }
     // The tiles the mountain covers: the whole mountain while dragging, otherwise the
     // first two pieces centered on the cell corner nearest the pointer.
     void mountainFootprint(int tileX, int tileY, int& x, int& y, int& width, int& height) const;

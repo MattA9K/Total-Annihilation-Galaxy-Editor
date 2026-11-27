@@ -387,6 +387,9 @@ const std::string kMetalSeaCliffFolder = "Metal-0";
 // The coasts from Lava's Base-41 up to Metal's Base-85, from Lava-Metal.hpi's Coast_ pieces. They are named like
 // water coasts, Coast-Water-T and Coast-Land-BR, whichever brush paints them.
 const std::string kLavaMetalFolder = "Lava-Metal";
+// WaterWorld's pieces between its Base-0 water and its Base-1 sea floor. They share their ShallowDeep names with the
+// reef's, so they have a folder of their own.
+const std::string kWaterWorldFloorFolder = "WaterWorld-1";
 
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
     const std::string left = lowerText(category);
@@ -3813,7 +3816,8 @@ void EditorApp::drawToolbar() {
         // A hill keeps the size named on its button.
         const int hillTiles = hillSpan();
         const bool fixedSize = lineBrushArmed() || hillTiles > 0;
-        const std::string currentSize = mountainArmed() ? std::string(mountainVertical() ? "32x64" : "64x32")
+        const std::string currentSize = mountainArmed()
+            ? (mountainVertical() ? brushRectLabel(mountainSpan(), mountainSpan() * 2) : brushRectLabel(mountainSpan() * 2, mountainSpan()))
             : hillTiles > 0 ? brushRectLabel(hillTiles, hillSpanHigh())
             : brushSizeLabel(fixedSize ? kBrushCellTiles : brushSize_);
         if (fixedSize) {
@@ -3844,7 +3848,10 @@ void EditorApp::drawToolbar() {
             if (hillTiles > 0 && duneArmed()) {
                 sizeTip = "Dunes-80 paints one 16 x 16 cell at a time";
             } else if (hillTiles > 0 && mountainArmed()) {
-                sizeTip = mountainVertical() ? "Vertical Mtn starts at 32 x 64 and grows 32 tiles at a time as you drag up or down"
+                sizeTip = reefArmed()
+                    ? (mountainVertical() ? "Vertical Reef starts at 16 x 32 and grows 16 tiles at a time as you drag up or down"
+                        : "Horizontal Reef starts at 32 x 16 and grows 16 tiles at a time as you drag left or right")
+                    : mountainVertical() ? "Vertical Mtn starts at 32 x 64 and grows 32 tiles at a time as you drag up or down"
                     : "Horizontal Mtn starts at 64 x 32 and grows 32 tiles at a time as you drag left or right";
             } else if (const HillSection* group = hillTiles > 0 ? groupHill() : nullptr) {
                 groupTip = brushVaries()
@@ -6943,8 +6950,9 @@ void EditorApp::drawMap() {
         } else if (mountainStroke_) {
             ImGui::SetTooltip("%s %d x %d\nDrag past either end to make it longer\nHeight %d", brushName_.c_str(), hillWidth, hillHeight, hoverHeight_);
         } else {
-            ImGui::SetTooltip("%s\nClick to place a %d x %d mountain on Lush Base-77\nKeep dragging %s to make it longer\nEsc cancels\nHeight %d",
-                brushName_.c_str(), hillWidth, hillHeight, mountainVertical() ? "up or down" : "left or right", hoverHeight_);
+            ImGui::SetTooltip("%s\nClick to place a %d x %d %s\nKeep dragging %s to make it longer\nEsc cancels\nHeight %d",
+                brushName_.c_str(), hillWidth, hillHeight, reefArmed() ? "reef on WaterWorld Base-0" : "mountain on Lush Base-77",
+                mountainVertical() ? "up or down" : "left or right", hoverHeight_);
         }
     } else if (hovered && hillTiles > 0) {
         const bool rough = brushName_.rfind("Rough", 0) == 0;
@@ -12293,7 +12301,14 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     metal139 = metal139 || (isMetalWorld(paint->category) && trailingNumber(paint->name) == 139);
                 }
                 const std::string metalFolder = metalWater && metal139 ? kMetalSeaCliffFolder : metal2Corner ? "Metal2" : "Metal";
+                // A cell holding WaterWorld's Base-1 sea floor takes its piece from WaterWorld-1.
+                bool waterWorldFloor = false;
+                for (const int corner : ringCell.corners) {
+                    const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
+                    waterWorldFloor = waterWorldFloor || (lowerText(paint->category) == "waterworld" && trailingNumber(paint->name) == 1);
+                }
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
+                    : waterWorldFloor ? kWaterWorldFloorFolder
                     : lavaMetalCoast ? kLavaMetalFolder
                     : metalCell ? metalFolder
                     : lavaShore ? kLavaShoreFolder
@@ -12424,7 +12439,7 @@ int EditorApp::hillSpan() const {
         return 16;
     }
     if (mountainArmed()) {
-        return 32;
+        return mountainSpan();
     }
     if (duneArmed()) {
         return 16;
@@ -12930,29 +12945,35 @@ bool EditorApp::hillCanPlace(int originX, int originY, int width, int height, st
 
 void EditorApp::mountainFootprint(int tileX, int tileY, int& x, int& y, int& width, int& height) const {
     const bool vertical = mountainVertical();
+    const int span = mountainSpan();
     if (mountainStroke_) {
         x = mountainX_;
         y = mountainY_;
-        width = vertical ? 32 : mountainPieces_ * 32;
-        height = vertical ? mountainPieces_ * 32 : 32;
+        width = vertical ? span : mountainPieces_ * span;
+        height = vertical ? mountainPieces_ * span : span;
         return;
     }
     const int cell = kBrushCellTiles;
-    width = vertical ? 32 : 64;
-    height = vertical ? 64 : 32;
+    width = vertical ? span : span * 2;
+    height = vertical ? span * 2 : span;
     x = (tileX + cell / 2) / cell * cell - width / 2;
     y = (tileY + cell / 2) / cell * cell - height / 2;
+    // A reef is one 16 x 16 cell across, so its narrow side sits on the cell under the cursor.
+    if (span == cell) {
+        (vertical ? x : y) = (vertical ? tileX : tileY) / cell * cell;
+    }
 }
 
 bool EditorApp::mountainCanPlace(int x, int y, int width, int height, std::string& refusal) const {
+    const bool reef = reefArmed();
     if (!map_ || x < 0 || y < 0 || x + width > map_->tileWidth || y + height > map_->tileHeight) {
-        refusal = "The mountain is outside the map";
+        refusal = reef ? "The reef is outside the map" : "The mountain is outside the map";
         return false;
     }
     for (int ty = y; ty < y + height; ++ty) {
         for (int tx = x; tx < x + width; ++tx) {
-            if (!tileIsLushBase77(tx, ty)) {
-                refusal = brushName_ + " only goes on Lush Base-77";
+            if (reef ? !tileMatchesBase(tx, ty, "WaterWorld", "base-0", 0, false) : !tileIsLushBase77(tx, ty)) {
+                refusal = brushName_ + (reef ? " only goes on WaterWorld Base-0" : " only goes on Lush Base-77");
                 return false;
             }
         }
@@ -12984,7 +13005,7 @@ const SectionStamp* EditorApp::mountainPiece(std::string_view prefix) {
             break;
         }
     }
-    if (!chosen->stamp || chosen->stamp->tileWidth != 32 || chosen->stamp->tileHeight != 32) {
+    if (!chosen->stamp || chosen->stamp->tileWidth != mountainSpan() || chosen->stamp->tileHeight != mountainSpan()) {
         return nullptr;
     }
     return &*chosen->stamp;
@@ -13019,11 +13040,11 @@ void EditorApp::startMountain(int tileX, int tileY) {
         if (auto change = stampSectionChange(*map_, *first, x, y, &deduper_, 100)) {
             changes.push_back(std::move(*change));
         }
-        if (auto change = stampSectionChange(*map_, *last, vertical ? x : x + 32, vertical ? y + 32 : y, &deduper_, 100)) {
+        if (auto change = stampSectionChange(*map_, *last, vertical ? x : x + mountainSpan(), vertical ? y + mountainSpan() : y, &deduper_, 100)) {
             changes.push_back(std::move(*change));
         }
         if (changes.empty()) {
-            statusNote_ = "The mountain is already here";
+            statusNote_ = reefArmed() ? "The reef is already here" : "The mountain is already here";
             return;
         }
         rememberPlacements(std::move(changes));
@@ -13045,25 +13066,26 @@ void EditorApp::extendMountain(int tileX, int tileY) {
     }
     // Positions along the mountain: x for Horizontal Mtn, y for Vertical Mtn.
     const bool vertical = mountainVertical();
+    const int span = mountainSpan();
     const int pointer = vertical ? tileY : tileX;
     int& start = vertical ? mountainY_ : mountainX_;
     const int across = vertical ? mountainX_ : mountainY_;
     try {
         // A fast drag can pass several pieces in one frame, so keep adding until the pointer is covered.
         for (int added = 0; added < 64; ++added) {
-            const int farEdge = start + mountainPieces_ * 32;
+            const int farEdge = start + mountainPieces_ * span;
             const bool forward = pointer >= farEdge;
             const bool backward = pointer < start;
             if (!forward && !backward) {
                 return;
             }
             // The old end becomes a middle piece, and a new end goes one piece further out.
-            const int newEnd = forward ? farEdge : start - 32;
-            const int oldEnd = forward ? farEdge - 32 : start;
+            const int newEnd = forward ? farEdge : start - span;
+            const int oldEnd = forward ? farEdge - span : start;
             const int newX = vertical ? across : newEnd;
             const int newY = vertical ? newEnd : across;
             std::string refusal;
-            if (!mountainCanPlace(newX, newY, 32, 32, refusal)) {
+            if (!mountainCanPlace(newX, newY, span, span, refusal)) {
                 statusNote_ = refusal;
                 return;
             }
@@ -13086,8 +13108,8 @@ void EditorApp::extendMountain(int tileX, int tileY) {
                 start = newEnd;
             }
             ++mountainPieces_;
-            statusNote_ = brushName_ + " is " + (vertical ? "32 x " + std::to_string(mountainPieces_ * 32)
-                : std::to_string(mountainPieces_ * 32) + " x 32");
+            statusNote_ = brushName_ + " is " + (vertical ? std::to_string(span) + " x " + std::to_string(mountainPieces_ * span)
+                : std::to_string(mountainPieces_ * span) + " x " + std::to_string(span));
             warnIfPastVanillaTiles(tileCountBefore);
         }
         error_.clear();
@@ -13564,8 +13586,10 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "pools";
         const bool lushPool = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "256s";
-        const bool lushMountain = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
-            && lowerText(section.category) == "mountains";
+        const bool lushMountain = (lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
+            && lowerText(section.category) == "mountains")
+            // WaterWorld's reefs, from its H & V Sections, grow the way Lush's mountains do.
+            || (lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld" && lowerText(section.category) == "reefs");
         const bool lushIsland = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "islands";
         const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
@@ -13628,7 +13652,8 @@ void EditorApp::ensureBrushPaints() {
             || (isMetalWorld(brushWorld_) && (isMetalWorld(section.category) || lowerText(section.category) == lowerText(kMetalSeaCliffFolder)));
         // Lava's shore from Base-76 up to Base-86 has a folder of its own.
         const bool lavaShore = (lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76")
-            || ((lowerText(brushWorld_) == "lava" || isMetalWorld(brushWorld_)) && lowerText(section.category) == lowerText(kLavaMetalFolder));
+            || ((lowerText(brushWorld_) == "lava" || isMetalWorld(brushWorld_)) && lowerText(section.category) == lowerText(kLavaMetalFolder))
+            || (lowerText(brushWorld_) == "waterworld" && lowerText(section.category) == lowerText(kWaterWorldFloorFolder));
         // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces, its sea cliffs and its frozen water's cliffs.
         const bool snowPeak = lowerText(brushWorld_) == "snowyevergreen"
             && (lowerText(section.category) == lowerText(kSnowPeakFolder) || lowerText(section.category) == lowerText(kSnowShallowFolder)
@@ -14642,6 +14667,49 @@ void EditorApp::ensureBrushPaints() {
                 for (const BrushPiece& piece : brushPieces_) {
                     if (lowerText(piece.category) == lowerText(kLavaShoreFolder) && lowerText(piece.name).starts_with("cliff-")) {
                         rememberPath(piece.sectionPath, shoreHigh->category, shoreHigh->name, true, shoreLow->category, shoreLow->name);
+                    }
+                }
+            }
+            // WaterWorld's floor pieces join its Base-0 water to its Base-1 floor at almost one height, so only the pictures
+            // tell them apart. Their whole water and floor tiles are the bases' own; a tile that mixes the two is floor
+            // when it is a touch redder.
+            {
+                const BrushPaint* floorPaint = nullptr;
+                const BrushPaint* waterPaint = nullptr;
+                for (const BrushPaint* paint : pictured) {
+                    if (lowerText(paint->category) == "waterworld" && trailingNumber(paint->name) == 1) {
+                        floorPaint = paint;
+                    } else if (lowerText(paint->category) == "waterworld" && trailingNumber(paint->name) == 0) {
+                        waterPaint = paint;
+                    }
+                }
+                if (floorPaint != nullptr && waterPaint != nullptr) {
+                    for (const BrushPiece& piece : brushPieces_) {
+                        if (lowerText(piece.category) != lowerText(kWaterWorldFloorFolder)) {
+                            continue;
+                        }
+                        try {
+                            const HpiFile* file = source->archive().find(piece.sectionPath);
+                            if (file == nullptr) {
+                                continue;
+                            }
+                            const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
+                            for (int tile = 0; tile < stamp.tileWidth * stamp.tileHeight; ++tile) {
+                                const std::size_t bytes = static_cast<std::size_t>(stamp.indices[static_cast<std::size_t>(tile)]) * 1024;
+                                if (bytes + 1024 > stamp.tileImages.size()) {
+                                    continue;
+                                }
+                                const std::uint8_t* pixels = stamp.tileImages.data() + bytes;
+                                const std::uint64_t hash = hashBrushTile(pixels);
+                                const auto existing = brushPictures_.find(hash);
+                                if (existing != brushPictures_.end() && !existing->second.fringe) {
+                                    continue;
+                                }
+                                const BrushPaint* land = waterWorldFloorTileIsFloor(pixels) ? floorPaint : waterPaint;
+                                brushPictures_[hash] = BrushPictureHint{land->category, land->name, false, {}, {}};
+                            }
+                        } catch (const std::exception&) {
+                        }
                     }
                 }
             }
@@ -17810,7 +17878,8 @@ void EditorApp::ensureBrushPaints() {
     const bool crystalHills = lowerText(brushWorld_) == "crystal";
     const bool desertHills = lowerText(brushWorld_) == "desert";
     const bool acidHills = lowerText(brushWorld_) == "acid";
-    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills || acidHills)
+    const bool waterWorldReefs = lowerText(brushWorld_) == "waterworld";
+    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills || acidHills || waterWorldReefs)
         && !hillSections_.empty()) {
         std::sort(hillSections_.begin(), hillSections_.end(), [](const HillSection& left, const HillSection& right) {
             return trailingNumber(left.name) < trailingNumber(right.name);
@@ -17905,6 +17974,19 @@ void EditorApp::ensureBrushPaints() {
             } catch (const std::exception&) {
             }
         };
+        if (waterWorldReefs) {
+            // A middle piece shows the reef running across or down the button.
+            const auto reefIcon = [&](std::string_view middle) {
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.mountain && lowerText(hill.name).starts_with(middle)) {
+                        return hill.sectionPath;
+                    }
+                }
+                return std::string();
+            };
+            addHillButton("Horizontal Reef", reefIcon("ew"));
+            addHillButton("Vertical Reef", reefIcon("ns"));
+        }
         if (greenHills) {
             addHillButton("Hill-85 8x8", icon8);
             addHillButton("Hill-85 16x16", icon16);
@@ -18492,6 +18574,10 @@ void EditorApp::drawTileBrush() {
                 }
                 if (paint.name == "Dunes-80") {
                     hint = "Paint dunes on Desert Base-80, one 16 x 16 cell at a time\nDrag to paint more; neighbouring dunes join up\nThe edges fade into the sand at the corners";
+                } else if (paint.name == "Horizontal Reef") {
+                    hint = "Place a reef on WaterWorld Base-0\nIt starts at 32 x 16 with both ends\nKeep dragging left or right to make it longer";
+                } else if (paint.name == "Vertical Reef") {
+                    hint = "Place a reef on WaterWorld Base-0\nIt starts at 16 x 32 with both ends\nKeep dragging up or down to make it longer";
                 } else if (paint.name == "Horizontal Mtn") {
                     hint = "Place a mountain on Lush Base-77\nIt starts at 64 x 32 with both ends\nKeep dragging left or right to make it longer";
                 } else if (paint.name == "Vertical Mtn") {
