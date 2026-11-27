@@ -124,7 +124,13 @@ inline const char* slopeEdgeLetter(int mask) {
     }
 }
 
-// "Single-High-B" stays plain. Family 255 names the same shape "Single-255-High-B".
+// Metal's Ramp button: its sea cliffs from Metal2's dark Base-0 water up to Base-139, in folder Metal-0, read as
+// Cliff-Ramp-High-B and the rest, and each straight one turns into a single ramp, Single-Ramp-High-B and the
+// other three edges. It has no run pieces, so neighbouring ramps stay singles and a corner is refused.
+inline constexpr int kSlopeRampFamily = 1;
+
+// "Single-High-B" stays plain. Family 255 names the same shape "Single-255-High-B", and the ramp family
+// "Single-Ramp-High-B".
 inline std::string slopeQualify(std::string name, int family) {
     if (family <= 0 || name.empty()) {
         return name;
@@ -133,7 +139,9 @@ inline std::string slopeQualify(std::string name, int family) {
     if (dash == std::string::npos) {
         return name;
     }
-    name.insert(dash + 1, std::to_string(family) + "-");
+    // The ramp word follows the name's case: the parser reads lowered names such as "cliff-ramp-high-".
+    const bool lowered = name[0] >= 'a' && name[0] <= 'z';
+    name.insert(dash + 1, family == kSlopeRampFamily ? std::string(lowered ? "ramp-" : "Ramp-") : std::to_string(family) + "-");
     return name;
 }
 
@@ -160,7 +168,7 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
 // Family 183 cliffs are Cliff-183-High. Archipelago's family 202 and Desert's
 // family 155 read the plain Cliff-High cliffs and keep the family number in the
 // slope names only.
-const bool qualifiedCliffs = family == 255 || family == 230 || family == 183;
+const bool qualifiedCliffs = family == 255 || family == 230 || family == 183 || family == kSlopeRampFamily;
 const Taken cliffHigh = take("cliff-high-", qualifiedCliffs);
 const Taken cliffLow = take("cliff-low-", qualifiedCliffs);
 const Taken slopeHigh = take("slope-high-", true);
@@ -308,6 +316,9 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
             range = "\nSlopes only go on cliffs between Base-155 and Base-230";
         } else if (family == 183) {
             range = "\nSlopes only go on cliffs between Base-77 and Base-183";
+        } else if (family == kSlopeRampFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on Metal's high coast, from the dark water up to Base-139";
         }
         text += range;
         plan.reason = std::move(text);
@@ -322,6 +333,10 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         std::string text = "Slopes cannot go on ";
         text += cell.label.empty() ? "this corner" : cell.label;
         text += "\nThese slopes only follow straight cliffs";
+        if (family == kSlopeRampFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
+                + "\nRamps only go on a straight stretch of Metal's high coast";
+        }
         plan.reason = std::move(text);
         return plan;
     }

@@ -3615,8 +3615,13 @@ void testBrushCells() {
             && metal2Shallows.style(1, 3) == TransitionStyle::ShallowDeep && metal2Shallows.style(3, 4) == TransitionStyle::ShallowCoast
             && metal2Shallows.style(1, 2) == TransitionStyle::None && metal2Shallows.style(0, 3) == TransitionStyle::None
             && metal2Shallows.style(2, 3) == TransitionStyle::None && metal2Shallows.style(2, 5) == TransitionStyle::None
-            && brushPieceName(metal2Shallows, {0, 0, 2, 2}) == "ShallowDeep-Shallow-B" && brushPieceName(metal2Shallows, {2, 2, 4, 4}) == "ShallowCoast-Land-B",
+            && brushPieceName(metal2Shallows, {0, 0, 2, 2}) == "ShallowDeep-Shallow-B" && brushPieceName(metal2Shallows, {2, 2, 4, 4}) == "ShallowCoast-Water-T",
             "Metal2's dark shallows join its dark water and Metal Base-85, and never Metal's blue water or shallows");
+        const BrushGraph metalSea(std::vector<int>{0, 0, 85, 139, 219, 255}, {"Metal2", "Metal", "Metal", "Metal", "Metal", "Metal"}, false, "Metal");
+        expect(metalSea.style(0, 3) == TransitionStyle::Cliff && metalSea.style(1, 3) == TransitionStyle::None
+            && metalSea.style(2, 3) == TransitionStyle::Cliff && metalSea.style(3, 5) == TransitionStyle::Cliff
+            && brushPieceName(metalSea, {3, 3, 0, 0}) == "Cliff-High-T" && brushPieceName(metalSea, {2, 2, 3, 3}) == "Cliff-139-High-B",
+            "Metal2's dark water rises straight to Metal Base-139, and Metal's blue water does not");
         const BrushGraph metal2Armed(std::vector<int>{0, 0, 85}, {"Metal2", "Metal", "Metal"}, false, "Metal2");
         const BrushGraph greenArmed(std::vector<int>{0, 0, 85}, {"Metal2", "Metal", "Metal"}, false, "Green");
         expect(metal2Armed.style(0, 2) == TransitionStyle::Coast && metal2Armed.style(1, 2) == TransitionStyle::Coast
@@ -6034,6 +6039,29 @@ void testSlopes() {
     plainOn255.at(1, 1) = "Cliff-255-High-B";
     const galaxy::RiverPlan plainRefused = plainOn255.slope(1, 1);
     expect(!plainRefused.allowed() && plainRefused.reason.find("Base-85 and Base-219") != std::string::npos && plainOn255.at(1, 1) == "Cliff-255-High-B", "the Base-219 slopes stay off a Base-255 cliff");
+
+    // Metal's ramps turn its sea cliffs, read as Cliff-Ramp-, into four straight singles. A neighbour stays a cliff,
+    // a corner is refused, and the other slope buttons leave the sea cliffs alone.
+    const auto metalRampKeys = [](std::string_view key) {
+        return key == "Single-Ramp-High-B" || key == "Single-Ramp-High-T" || key == "Single-Ramp-High-L" || key == "Single-Ramp-High-R";
+    };
+    SlopeTestGrid rampPair(4, 3, "Base-139");
+    rampPair.at(1, 1) = "Cliff-Ramp-High-T";
+    rampPair.at(2, 1) = "Cliff-Ramp-High-T";
+    expect(rampPair.slope(1, 1, metalRampKeys, galaxy::kSlopeRampFamily).allowed() && rampPair.at(1, 1) == "Single-Ramp-High-T" && rampPair.at(2, 1) == "Cliff-Ramp-High-T",
+        "a ramp leaves the next sea cliff alone");
+    expect(rampPair.slope(2, 1, metalRampKeys, galaxy::kSlopeRampFamily).allowed() && rampPair.at(2, 1) == "Single-Ramp-High-T", "ramps sit beside each other as singles");
+    SlopeTestGrid rampCorner(3, 3, "Base-139");
+    rampCorner.at(1, 1) = "Cliff-Ramp-High-BR";
+    const galaxy::RiverPlan rampRefused = rampCorner.slope(1, 1, metalRampKeys, galaxy::kSlopeRampFamily);
+    expect(!rampRefused.allowed() && rampRefused.reason.find("straight stretch") != std::string::npos, "ramps refuse a sea cliff corner");
+    SlopeTestGrid rampOn219(3, 3, "Base-85");
+    rampOn219.at(1, 1) = "Cliff-High-B";
+    const galaxy::RiverPlan rampWrong = rampOn219.slope(1, 1, metalRampKeys, galaxy::kSlopeRampFamily);
+    expect(!rampWrong.allowed() && rampWrong.reason.find("high coast") != std::string::npos, "ramps stay off a Base-219 cliff");
+    SlopeTestGrid slopeOnSea(3, 3, "Base-139");
+    slopeOnSea.at(1, 1) = "Cliff-Ramp-High-B";
+    expect(!slopeOnSea.slope(1, 1).allowed() && !slopeOnSea.slope(1, 1, metal255, 255).allowed(), "the slope buttons stay off the sea cliffs");
 
     // Lush Base-77 to Base-183 slopes are four straight singles. A neighbour stays
     // a cliff until it is clicked, and a corner cliff is refused.

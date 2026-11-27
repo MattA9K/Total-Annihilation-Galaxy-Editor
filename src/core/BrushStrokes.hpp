@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 46>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 46> rules = {{
+inline const std::array<BrushTransitionRule, 47>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 47> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -355,6 +355,8 @@ inline const std::array<BrushTransitionRule, 46>& brushTransitionRules() {
         {0, 189, TransitionStyle::Cliff},
         // and its Base-75 frozen water to its Base-189 through the Frozen_Cliff pieces.
         {75, 189, TransitionStyle::Cliff},
+        // Metal2's dark Base-0 water rises straight to Metal's Base-139 through the Metal_V1.1 Coast sea cliffs.
+        {0, 139, TransitionStyle::Cliff},
         {78, 194, TransitionStyle::Cliff},
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
@@ -690,8 +692,11 @@ public:
                         const bool evergreenCliff = wa == "Ever" && wb == "Ever2" && (rule.lowerHeight == 85 || rule.lowerHeight == 0) && rule.upperHeight == 190;
                         // Only Evergreen's water rises to its Base-190 plateaus.
                         // SnowyEvergreen's water rises to its Base-189 the same way.
+                        // Metal's sea cliffs rise from Metal2's dark water to Metal's Base-139, and from no other water.
+                        const bool metalSeaCliff = wa == "Metal2" && wb == "Metal" && rule.lowerHeight == 0 && rule.upperHeight == 139;
                         const bool noSeaCliff = (rule.lowerHeight == 0 && rule.upperHeight == 190 && !(wa == "Ever" && evergreenWorld(wb)))
-                            || ((rule.lowerHeight == 0 || rule.lowerHeight == 75) && rule.upperHeight == 189 && !(wa == "Snow" && wb == "Snow"));
+                            || ((rule.lowerHeight == 0 || rule.lowerHeight == 75) && rule.upperHeight == 189 && !(wa == "Snow" && wb == "Snow"))
+                            || (rule.lowerHeight == 0 && rule.upperHeight == 139 && !metalSeaCliff);
                         // Neither Evergreen nor SnowyEvergreen has a cliff straight from Base-85 to Base-255.
                         const bool evergreenSkip = (evergreenWorld(wa) || evergreenWorld(wb) || wa == "Snow" || wb == "Snow")
                             && rule.lowerHeight == 85 && rule.upperHeight == 255;
@@ -706,11 +711,12 @@ public:
                         const bool metal2Only = (wa == "Metal2") != (wb == "Metal2") && (wa == "Metal" || wb == "Metal")
                             && rule.style != TransitionStyle::WorldBlend
                             && !(rule.lowerHeight == 0 && rule.upperHeight == 85 && wa == "Metal2" && rule.style == TransitionStyle::Coast)
-                            && !(rule.lowerHeight == 68 && rule.upperHeight == 85 && wa == "Metal2" && rule.style == TransitionStyle::ShallowCoast);
+                            && !(rule.lowerHeight == 68 && rule.upperHeight == 85 && wa == "Metal2" && rule.style == TransitionStyle::ShallowCoast)
+                            && !metalSeaCliff;
                         if (evergreenSkip || evergreen2Shallows || noSeaCliff || snowFrozen || metal2Only) {
                             continue;
                         }
-                        const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;
+                        const bool foreignIceCliff = named && wa != wb && !evergreenCliff && !metalSeaCliff && rule.style == TransitionStyle::Cliff;
                         const bool archiLush = rule.lowerHeight == 77 && rule.upperHeight == 78 && namedPair("Lush", "Archi");
                         const bool lushLava = rule.lowerHeight == 77 && rule.upperHeight == 86 && namedPair("Lush", "Lava");
                         const bool lush85 = rule.lowerHeight == 77 && rule.upperHeight == 85

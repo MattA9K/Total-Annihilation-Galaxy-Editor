@@ -364,6 +364,8 @@ const std::string kSnowShallowFolder = "SnowyEvergreen-65";
 const std::string kSnowSeaCliffFolder = "SnowyEvergreen-0";
 // Its cliffs from the Base-75 frozen water up to Base-189, and its pieces with frozen water, snow and Base-189.
 const std::string kSnowFrozenCliffFolder = "SnowyEvergreen-75";
+// Metal's sea cliffs from Metal2's dark Base-0 water straight up to Metal's Base-139.
+const std::string kMetalSeaCliffFolder = "Metal-0";
 
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
     const std::string left = lowerText(category);
@@ -6974,7 +6976,9 @@ void EditorApp::drawMap() {
             if (mountainPass) {
                 action = "Click to cut a river through this mountain range";
             } else if (armedBrushKind() == BrushKind::Slope) {
-                if (brushName_ == "Slope 139 to 255") {
+                if (brushName_ == "Ramp") {
+                    action = "Click a straight stretch of high coast to turn it into a ramp";
+                } else if (brushName_ == "Slope 139 to 255") {
                     action = "Click a straight Base-139 to Base-255 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 85 to 219") {
                     action = "Click a Base-85 to Base-219 cliff to turn it into a slope";
@@ -12239,7 +12243,15 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 for (const int corner : ringCell.corners) {
                     metal2Corner = metal2Corner || lowerText(levels[static_cast<std::size_t>(corner)]->category) == "metal2";
                 }
-                const std::string metalFolder = metal2Corner ? "Metal2" : "Metal";
+                // A Metal cell holding both water and Base-139 is a sea cliff, filed in Metal-0.
+                bool metalWater = false;
+                bool metal139 = false;
+                for (const int corner : ringCell.corners) {
+                    const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
+                    metalWater = metalWater || (isMetalWorld(paint->category) && trailingNumber(paint->name) == 0);
+                    metal139 = metal139 || (isMetalWorld(paint->category) && trailingNumber(paint->name) == 139);
+                }
+                const std::string metalFolder = metalWater && metal139 ? kMetalSeaCliffFolder : metal2Corner ? "Metal2" : "Metal";
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
                     : metalCell ? metalFolder
                     : lavaShore ? kLavaShoreFolder
@@ -13221,6 +13233,10 @@ void EditorApp::ensureRiverCatalog() {
         const std::string lowered = lowerText(piece.name);
         if (frozenRivers && lowered.starts_with("shallowcoast-") && lowerText(piece.category) == "snowyevergreen") {
             addSection(piece.sectionPath, piece.name.substr(std::string_view("Shallow").size()));
+        } else if (lowered.starts_with("cliff-") && lowerText(piece.category) == lowerText(kMetalSeaCliffFolder)) {
+            // Metal's sea cliffs share their plain names with its Base-85 to Base-219 cliffs. Read as Cliff-Ramp-, only
+            // the Ramp button turns them, and the Slope 85 to 219 button leaves them alone.
+            addSection(piece.sectionPath, "Cliff-Ramp-" + piece.name.substr(std::string_view("Cliff-").size()));
         } else if ((lowered.starts_with("coast-") && !frozenRivers) || lowered.starts_with("cliff-")) {
             addSection(piece.sectionPath, piece.name);
         }
@@ -13282,6 +13298,8 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
             family = 230;
         } else if (brushName_ == "Slope 77 to 183") {
             family = 183;
+        } else if (brushName_ == "Ramp") {
+            family = kSlopeRampFamily;
         }
         return planSlope(cellX, cellY, lookup, available, family);
     }
@@ -13550,7 +13568,7 @@ void EditorApp::ensureBrushPaints() {
         // shared water are loaded, since either grass can meet that water.
         // Evergreen2-Evergreen holds the cliffs from the first grass up to the second grass's plateau.
         const bool evergreenBase = (isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen"))
-            || (isMetalWorld(brushWorld_) && isMetalWorld(section.category));
+            || (isMetalWorld(brushWorld_) && (isMetalWorld(section.category) || lowerText(section.category) == lowerText(kMetalSeaCliffFolder)));
         // Lava's shore from Base-76 up to Base-86 has a folder of its own.
         const bool lavaShore = lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76";
         // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces, its sea cliffs and its frozen water's cliffs.
@@ -14535,6 +14553,26 @@ void EditorApp::ensureBrushPaints() {
                 for (const BrushPiece& piece : brushPieces_) {
                     if (lowerText(piece.category) == lowerText(kLavaShoreFolder) && lowerText(piece.name).starts_with("cliff-")) {
                         rememberPath(piece.sectionPath, shoreHigh->category, shoreHigh->name, true, shoreLow->category, shoreLow->name);
+                    }
+                }
+            }
+            // Metal's sea cliffs in Metal-0 rise from Metal2's dark water to Metal's Base-139. Their water is not the
+            // dark base's own picture, so the picture keeps the low side on the dark water and not on Metal's blue water.
+            {
+                const BrushPaint* darkWater = nullptr;
+                const BrushPaint* metal139 = nullptr;
+                for (const BrushPaint* paint : pictured) {
+                    if (lowerText(paint->category) == "metal2" && trailingNumber(paint->name) == 0) {
+                        darkWater = paint;
+                    } else if (lowerText(paint->category) == "metal" && trailingNumber(paint->name) == 139) {
+                        metal139 = paint;
+                    }
+                }
+                if (darkWater != nullptr && metal139 != nullptr) {
+                    for (const BrushPiece& piece : brushPieces_) {
+                        if (lowerText(piece.category) == lowerText(kMetalSeaCliffFolder) && lowerText(piece.name).starts_with("cliff-")) {
+                            rememberPath(piece.sectionPath, metal139->category, metal139->name, true, darkWater->category, darkWater->name);
+                        }
                     }
                 }
             }
@@ -17646,6 +17684,12 @@ void EditorApp::ensureBrushPaints() {
     }
     if (metalSlopes) {
         addRiverButton("Slope 139 to 255", "Single-255-High-B", BrushKind::Slope);
+        // The Ramp button only shows once the tileset has Metal's ramps, Single-Ramp-High-B and the rest.
+        const bool hasRamps = std::any_of(riverSections_.begin(), riverSections_.end(),
+            [](const RiverSection& river) { return sameRiverKey(river.name, "Single-Ramp-High-B"); });
+        if (hasRamps) {
+            addRiverButton("Ramp", "Single-Ramp-High-B", BrushKind::Slope);
+        }
     }
     const bool greenHills = lowerText(brushWorld_) == "greenworld";
     const bool lavaHills = lowerText(brushWorld_) == "lava";
@@ -18304,7 +18348,9 @@ void EditorApp::drawTileBrush() {
             } else if (paint.kind == BrushKind::Spacer) {
                 hint = "Open a gap in a ridge\nSpacers only go on straight ridges";
             } else if (paint.kind == BrushKind::Slope) {
-                if (paint.name == "Slope 139 to 255") {
+                if (paint.name == "Ramp") {
+                    hint = "Turn a straight high coast, from the dark water up to Base-139, into a ramp\nEach ramp stays on its own cliff";
+                } else if (paint.name == "Slope 139 to 255") {
                     hint = "Turn a straight Base-139 to Base-255 cliff into a slope\nEach slope stays on its own cliff";
                 } else if (paint.name == "Slope 85 to 219") {
                     hint = "Turn a Base-85 to Base-219 cliff into a slope\nSlopes join the slopes beside them and meet cliffs at the ends";
