@@ -11,6 +11,7 @@
 #include "core/OrbitCamera.hpp"
 #include "core/PieceScaler.hpp"
 #include "core/RiverBrush.hpp"
+#include "core/MetalBridge.hpp"
 #include "core/SlopeBrush.hpp"
 #include "core/TextPreview.hpp"
 #include "core/TilesetLibrary.hpp"
@@ -3622,6 +3623,10 @@ void testBrushCells() {
             && metalSea.style(2, 3) == TransitionStyle::Cliff && metalSea.style(3, 5) == TransitionStyle::Cliff
             && brushPieceName(metalSea, {3, 3, 0, 0}) == "Cliff-High-T" && brushPieceName(metalSea, {2, 2, 3, 3}) == "Cliff-139-High-B",
             "Metal2's dark water rises straight to Metal Base-139, and Metal's blue water does not");
+        const BrushGraph lavaMetal(std::vector<int>{41, 85, 86, 85}, {"Lava", "Metal", "Lava", "Green"}, false, "Lava");
+        expect(lavaMetal.style(0, 1) == TransitionStyle::Coast && lavaMetal.style(0, 3) == TransitionStyle::None
+            && brushPieceName(lavaMetal, {1, 1, 0, 0}, "Water") == "Coast-Water-B",
+            "Lava Base-41 meets Metal Base-85 through a coast, and no other Base-85 land");
         const BrushGraph metal2Armed(std::vector<int>{0, 0, 85}, {"Metal2", "Metal", "Metal"}, false, "Metal2");
         const BrushGraph greenArmed(std::vector<int>{0, 0, 85}, {"Metal2", "Metal", "Metal"}, false, "Green");
         expect(metal2Armed.style(0, 2) == TransitionStyle::Coast && metal2Armed.style(1, 2) == TransitionStyle::Coast
@@ -6039,6 +6044,66 @@ void testSlopes() {
     plainOn255.at(1, 1) = "Cliff-255-High-B";
     const galaxy::RiverPlan plainRefused = plainOn255.slope(1, 1);
     expect(!plainRefused.allowed() && plainRefused.reason.find("Base-85 and Base-219") != std::string::npos && plainOn255.at(1, 1) == "Cliff-255-High-B", "the Base-219 slopes stay off a Base-255 cliff");
+
+    // Metal's Bridge 139: a bridge starts on a straight high coast, runs straight over the dark water, and splits
+    // into junctions. A lone piece sits on open dark water, and a corner is never made.
+    {
+        SlopeTestGrid sea(5, 5, "Base-0-2");
+        const auto bridge = [&](int x, int y) {
+            const galaxy::RiverPlan plan = galaxy::planMetalBridge(x, y, [&](int cx, int cy) { return sea.look(cx, cy); });
+            if (plan.allowed()) {
+                for (const galaxy::RiverEdit& edit : plan.edits) {
+                    sea.at(edit.x, edit.y) = edit.key;
+                }
+            }
+            return plan;
+        };
+        sea.at(2, 4) = "Cliff-Ramp-High-B";
+        sea.at(0, 4) = "Cliff-Ramp-High-BR";
+        expect(bridge(2, 4).allowed() && sea.at(2, 4) == "Bridge139-Mouth-B" && sea.at(2, 3) == "Bridge139-B", "a bridge starts on the high coast with its first deck");
+        expect(bridge(2, 2).allowed() && sea.at(2, 3) == "Bridge139-T-B" && sea.at(2, 2) == "Bridge139-B", "the next deck carries the bridge straight on");
+        expect(bridge(1, 2).allowed() && sea.at(2, 2) == "Bridge139-B" && sea.at(1, 2) == "Bridge139-Lone",
+            "a deck beside a bridge's end does not bend it, and stands alone");
+        expect(bridge(3, 3).allowed() && sea.at(2, 3) == "Bridge139-T-R-B" && sea.at(3, 3) == "Bridge139-L", "a deck beside a straight run makes a 3-way junction");
+        expect(!bridge(0, 4).allowed(), "a bridge does not start on a coast corner");
+        SlopeTestGrid open(3, 3, "Base-0-2");
+        const galaxy::RiverPlan lone = galaxy::planMetalBridge(1, 1, [&](int cx, int cy) { return open.look(cx, cy); });
+        expect(lone.allowed() && lone.edits.size() == 1 && lone.edits[0].key == "Bridge139-Lone", "a bridge on open dark water is a lone piece");
+        SlopeTestGrid blue(3, 3, "Base-0");
+        expect(!galaxy::planMetalBridge(1, 1, [&](int cx, int cy) { return blue.look(cx, cy); }).allowed(), "bridges stay off Metal's blue water");
+        expect(galaxy::metalBridgeKey(galaxy::kRiverTop | galaxy::kRiverRight).empty() && galaxy::parseMetalBridgePiece("Bridge139-Mouth-L").sides == galaxy::kRiverRight
+            && galaxy::parseMetalBridgePiece("Bridge139-T-R-B-L").sides == galaxy::kRiverAllSides, "bridge names read back to their sides");
+    }
+
+    // Metal's walls: Wall 85 starts from Base-219 cliffs, two walls from a cliff corner, and bends freely.
+    {
+        SlopeTestGrid ground(5, 5, "Base-85");
+        const galaxy::MetalLineRules rules = galaxy::metalWall85Rules();
+        const auto wall = [&](int x, int y) {
+            const galaxy::RiverPlan plan = galaxy::planMetalLine(rules, x, y, [&](int cx, int cy) { return ground.look(cx, cy); });
+            if (plan.allowed()) {
+                for (const galaxy::RiverEdit& edit : plan.edits) {
+                    ground.at(edit.x, edit.y) = edit.key;
+                }
+            }
+            return plan;
+        };
+        ground.at(4, 4) = "Cliff-High-BR-02";
+        ground.at(2, 0) = "Cliff-High-T";
+        expect(wall(4, 4).allowed() && ground.at(4, 4) == "Wall85-Mouth-BR" && ground.at(4, 3) == "Wall85-B" && ground.at(3, 4) == "Wall85-R",
+            "a cliff corner starts two walls");
+        expect(wall(2, 0).allowed() && ground.at(2, 0) == "Wall85-Mouth-T" && ground.at(2, 1) == "Wall85-T", "a straight cliff starts one wall");
+        expect(wall(2, 4).allowed() && ground.at(3, 4) == "Wall85-R-L" && ground.at(2, 4) == "Wall85-R", "a wall carries on from its end");
+        expect(wall(0, 2).allowed() && ground.at(0, 2) == "Wall85-Lone", "a wall on its own is a lone post");
+        expect(wall(1, 2).allowed() && ground.at(0, 2) == "Wall85-R" && ground.at(1, 2) == "Wall85-L", "a lone post joins the next wall");
+        expect(wall(2, 2).allowed() && ground.at(2, 1) == "Wall85-T-B" && ground.at(1, 2) == "Wall85-R-L" && ground.at(2, 2) == "Wall85-T-L",
+            "walls turn corners and join");
+        SlopeTestGrid high(3, 3, "Base-139");
+        high.at(1, 0) = "Cliff-255-High-T";
+        const galaxy::RiverPlan onCliff = galaxy::planMetalLine(galaxy::metalWall139Rules(), 1, 0, [&](int cx, int cy) { return high.look(cx, cy); });
+        const galaxy::RiverPlan onHigh = galaxy::planMetalLine(galaxy::metalWall139Rules(), 1, 1, [&](int cx, int cy) { return high.look(cx, cy); });
+        expect(!onCliff.allowed() && onHigh.allowed() && onHigh.edits[0].key == "Wall139-Lone", "Wall 139 stays on Base-139 and off its cliffs");
+    }
 
     // Metal's ramps turn its sea cliffs, read as Cliff-Ramp-, into four straight singles. A neighbour stays a cliff,
     // a corner is refused, and the other slope buttons leave the sea cliffs alone.

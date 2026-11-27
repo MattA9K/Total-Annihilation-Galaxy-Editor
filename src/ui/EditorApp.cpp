@@ -9,6 +9,7 @@
 #include "core/EditorSettings.hpp"
 #include "core/I18n.hpp"
 #include "core/SlopeBrush.hpp"
+#include "core/MetalBridge.hpp"
 #include "core/FavoritesArchive.hpp"
 #include "core/Version.hpp"
 #include "format/BmpImage.hpp"
@@ -366,6 +367,9 @@ const std::string kSnowSeaCliffFolder = "SnowyEvergreen-0";
 const std::string kSnowFrozenCliffFolder = "SnowyEvergreen-75";
 // Metal's sea cliffs from Metal2's dark Base-0 water straight up to Metal's Base-139.
 const std::string kMetalSeaCliffFolder = "Metal-0";
+// The coasts from Lava's Base-41 up to Metal's Base-85, from Lava-Metal.hpi's Coast_ pieces. They are named like
+// water coasts, Coast-Water-T and Coast-Land-BR, whichever brush paints them.
+const std::string kLavaMetalFolder = "Lava-Metal";
 
 bool brushCategoryMatches(std::string_view category, std::string_view world) {
     const std::string left = lowerText(category);
@@ -6975,6 +6979,12 @@ void EditorApp::drawMap() {
             }
             if (mountainPass) {
                 action = "Click to cut a river through this mountain range";
+            } else if (brushName_ == "Wall 85") {
+                action = "Click Base-85 to lay a wall, or a Base-219 cliff to start one";
+            } else if (brushName_ == "Wall 139") {
+                action = "Click Base-139 to lay a wall";
+            } else if (brushName_ == "Bridge 139") {
+                action = "Click a straight high coast to start a bridge, or the dark water to lay one";
             } else if (armedBrushKind() == BrushKind::Slope) {
                 if (brushName_ == "Ramp") {
                     action = "Click a straight stretch of high coast to turn it into a ramp";
@@ -12173,7 +12183,16 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     continue;
                 }
                 const BrushPaint* upper = levels[static_cast<std::size_t>(ringCell.upper)];
-                const std::string piece = brushPieceName(graph, ringCell.corners, brushCoastLiquid_);
+                // A cell holding Lava's Base-41 and Metal's Base-85 takes its coast from Lava-Metal.
+                bool lavaLiquidCorner = false;
+                bool metalGroundCorner = false;
+                for (const int corner : ringCell.corners) {
+                    const BrushPaint* paint = levels[static_cast<std::size_t>(corner)];
+                    lavaLiquidCorner = lavaLiquidCorner || (lowerText(paint->category) == "lava" && trailingNumber(paint->name) == 41);
+                    metalGroundCorner = metalGroundCorner || (lowerText(paint->category) == "metal" && trailingNumber(paint->name) == 85);
+                }
+                const bool lavaMetalCoast = lavaLiquidCorner && metalGroundCorner;
+                std::string piece = brushPieceName(graph, ringCell.corners, lavaMetalCoast ? std::string_view("Water") : std::string_view(brushCoastLiquid_));
                 if (piece.empty()) {
                     // A cell redrawn only to match its neighbours keeps its old picture when no piece fits it.
                     if (!ringCell.matched) {
@@ -12253,6 +12272,7 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                 }
                 const std::string metalFolder = metalWater && metal139 ? kMetalSeaCliffFolder : metal2Corner ? "Metal2" : "Metal";
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
+                    : lavaMetalCoast ? kLavaMetalFolder
                     : metalCell ? metalFolder
                     : lavaShore ? kLavaShoreFolder
                     : snowWater && snowPlateau ? kSnowSeaCliffFolder
@@ -13254,7 +13274,9 @@ void EditorApp::ensureRiverCatalog() {
                 }
             }
             if (matched) {
-                addSection(stroke.sectionPath, paint.name);
+                // Metal2's dark water is Base-0-2 here, so Metal's Bridge 139 only crosses the dark water.
+                const bool darkWater = lowerText(stroke.category) == "metal2" && trailingNumber(paint.name) == 0;
+                addSection(stroke.sectionPath, darkWater ? std::string(kMetalBridgeWater) : paint.name);
                 break;
             }
         }
@@ -13280,8 +13302,21 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
     };
     switch (kind) {
     case BrushKind::River: return planRiver(cellX, cellY, lookup, available);
-    case BrushKind::Bridge: return planRiverBridge(cellX, cellY, lookup, available);
-    case BrushKind::Ridge: return planRidge(cellX, cellY, lookup);
+    case BrushKind::Bridge:
+        // Metal's Bridge 139 crosses its dark water from the high coast. The other lands' bridges sit on rivers.
+        if (brushName_ == "Bridge 139") {
+            return planMetalBridge(cellX, cellY, lookup);
+        }
+        return planRiverBridge(cellX, cellY, lookup, available);
+    case BrushKind::Ridge:
+        // Metal's walls: Wall 85 on Base-85, starting from its Base-219 cliffs, and Wall 139 on Base-139.
+        if (brushName_ == "Wall 85") {
+            return planMetalLine(metalWall85Rules(), cellX, cellY, lookup);
+        }
+        if (brushName_ == "Wall 139") {
+            return planMetalLine(metalWall139Rules(), cellX, cellY, lookup);
+        }
+        return planRidge(cellX, cellY, lookup);
     case BrushKind::Spacer: return planRidgeSpacer(cellX, cellY, lookup);
     case BrushKind::Slope: {
         // The plan only asks for slope pieces this world actually has. Mars keeps
@@ -13570,7 +13605,8 @@ void EditorApp::ensureBrushPaints() {
         const bool evergreenBase = (isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen"))
             || (isMetalWorld(brushWorld_) && (isMetalWorld(section.category) || lowerText(section.category) == lowerText(kMetalSeaCliffFolder)));
         // Lava's shore from Base-76 up to Base-86 has a folder of its own.
-        const bool lavaShore = lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76";
+        const bool lavaShore = (lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76")
+            || ((lowerText(brushWorld_) == "lava" || isMetalWorld(brushWorld_)) && lowerText(section.category) == lowerText(kLavaMetalFolder));
         // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces, its sea cliffs and its frozen water's cliffs.
         const bool snowPeak = lowerText(brushWorld_) == "snowyevergreen"
             && (lowerText(section.category) == lowerText(kSnowPeakFolder) || lowerText(section.category) == lowerText(kSnowShallowFolder)
@@ -13974,6 +14010,8 @@ void EditorApp::ensureBrushPaints() {
     } else if (isMetalWorld(brushWorld_)) {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
+        // Metal's Base-85 meets Lava's Base-41 through the Lava-Metal coasts.
+        wanted.push_back(PartnerWant{"Lava", "Base-41"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
         wanted.push_back(PartnerWant{"Lush", "Base-77"});
         wanted.push_back(PartnerWant{"Acid", "Base-85"});
@@ -14546,6 +14584,26 @@ void EditorApp::ensureBrushPaints() {
                         continue;
                     }
                     rememberPath(piece.sectionPath, lavaCliffHigh->category, lavaCliffHigh->name, true, lavaCliffLow->category, lavaCliffLow->name);
+                }
+            }
+            // The Lava-Metal coasts rise from Lava's Base-41 to Metal's Base-85. The picture keeps the land on Metal and the
+            // liquid on lava.
+            {
+                const BrushPaint* metal85 = nullptr;
+                const BrushPaint* lava41 = nullptr;
+                for (const BrushPaint* paint : pictured) {
+                    if (lowerText(paint->category) == "metal" && trailingNumber(paint->name) == 85) {
+                        metal85 = paint;
+                    } else if (lowerText(paint->category) == "lava" && trailingNumber(paint->name) == 41) {
+                        lava41 = paint;
+                    }
+                }
+                if (metal85 != nullptr && lava41 != nullptr) {
+                    for (const BrushPiece& piece : brushPieces_) {
+                        if (lowerText(piece.category) == lowerText(kLavaMetalFolder)) {
+                            rememberPath(piece.sectionPath, metal85->category, metal85->name, true, lava41->category, lava41->name);
+                        }
+                    }
                 }
             }
             // The cracked shore in Lava-76 rises from Base-76 to Base-86 instead.
@@ -17666,6 +17724,19 @@ void EditorApp::ensureBrushPaints() {
     };
     addRiverButton("River", "River-Horizontal-01", BrushKind::River);
     addRiverButton("River Bridge", "RiverB-Horizontal-01", BrushKind::Bridge);
+    // Metal's bridges over its dark water, once the tileset has them.
+    if (isMetalWorld(brushWorld_)
+        && std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.name, "Bridge139-R-L"); })) {
+        addRiverButton("Bridge 139", "Bridge139-R-L", BrushKind::Bridge);
+    }
+    // Metal's walls, once the tileset has them.
+    for (const auto& [wallButton, wallIcon] : {std::pair<const char*, const char*>{"Wall 85", "Wall85-R-L"}, {"Wall 139", "Wall139-R-L"}}) {
+        const std::string icon = wallIcon;
+        if (isMetalWorld(brushWorld_)
+            && std::any_of(riverSections_.begin(), riverSections_.end(), [&](const RiverSection& river) { return sameRiverKey(river.name, icon); })) {
+            addRiverButton(wallButton, wallIcon, BrushKind::Ridge);
+        }
+    }
     addRiverButton("Ridge", "Ridge-Horizontal-01", BrushKind::Ridge);
     addRiverButton("Ridge Spacer", "Ridge-L_R-Spacer-01", BrushKind::Spacer);
     // Metal's slope sections are the walkable Base-85 to Base-219 cliffs. The other
@@ -18333,6 +18404,12 @@ void EditorApp::drawTileBrush() {
             std::string hintText;
             if (paint.kind == BrushKind::River && lowerText(brushWorld_) == "snowyevergreen") {
                 hint = "Paint frozen rivers on Base-85, starting at a straight frozen shore or beside another river\nRivers join the rivers beside them and end where they stop";
+            } else if (paint.kind == BrushKind::Ridge && paint.name == "Wall 85") {
+                hint = "Paint walls on Base-85, starting from a Base-219 cliff or anywhere on the ground\nWalls join the walls beside them\nA cliff corner starts two walls";
+            } else if (paint.kind == BrushKind::Ridge && paint.name == "Wall 139") {
+                hint = "Paint walls on Base-139\nWalls join the walls beside them";
+            } else if (paint.kind == BrushKind::Bridge && paint.name == "Bridge 139") {
+                hint = "Start a bridge on a straight Base-139 high coast, then lay it across the dark water\nBridges run straight and split into 3-way and 4-way junctions\nA bridge clicked on open dark water is a lone piece";
             } else if (paint.kind == BrushKind::Bridge && lowerText(brushWorld_) == "snowyevergreen") {
                 hint = "Place a crossing on a frozen river\nCrossings go on straight rivers, bends, 3-way junctions and 4-way crossings";
             } else if (paint.kind == BrushKind::River) {

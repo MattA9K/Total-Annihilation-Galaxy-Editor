@@ -312,8 +312,8 @@ struct BrushTransitionRule {
     TransitionStyle style = TransitionStyle::None;
 };
 
-inline const std::array<BrushTransitionRule, 47>& brushTransitionRules() {
-    static const std::array<BrushTransitionRule, 47> rules = {{
+inline const std::array<BrushTransitionRule, 48>& brushTransitionRules() {
+    static const std::array<BrushTransitionRule, 48> rules = {{
         {0, 85, TransitionStyle::Coast},
         {0, 80, TransitionStyle::Coast},
         {27, 77, TransitionStyle::Coast},
@@ -357,6 +357,8 @@ inline const std::array<BrushTransitionRule, 47>& brushTransitionRules() {
         {75, 189, TransitionStyle::Cliff},
         // Metal2's dark Base-0 water rises straight to Metal's Base-139 through the Metal_V1.1 Coast sea cliffs.
         {0, 139, TransitionStyle::Cliff},
+        // Lava's Base-41 meets Metal's Base-85 through the Lava-Metal coasts. The graph applies this only to Lava beside Metal.
+        {41, 85, TransitionStyle::Coast},
         {78, 194, TransitionStyle::Cliff},
         {80, 155, TransitionStyle::Cliff},
         {155, 230, TransitionStyle::Cliff},
@@ -734,7 +736,8 @@ public:
                             || (rule.lowerHeight == 80 && rule.upperHeight == 85 && !desert85)
                             || (rule.lowerHeight == 78 && rule.upperHeight == 80 && !archiDesert)
                             || (rule.lowerHeight == 77 && rule.upperHeight == 80 && !lushDesert)
-                            || (rule.lowerHeight == 76 && rule.upperHeight == 86 && !namedPair("Lava", "Lava"))) {
+                            || (rule.lowerHeight == 76 && rule.upperHeight == 86 && !namedPair("Lava", "Lava"))
+                            || (rule.lowerHeight == 41 && rule.upperHeight == 85 && !(wa == "Lava" && wb == "Metal"))) {
                             continue;
                         }
                         styles_[index(a, b)] = rule.style;
