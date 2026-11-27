@@ -1635,7 +1635,7 @@ std::vector<std::string> blendPieceWorlds(std::string_view name) {
         const char* world;
     };
     static constexpr Word kWords[] = {
-        {"crystal", "Crystal"}, {"desert", "Desert"}, {"archi", "Archipelago"}, {"green", "GreenWorld"}, {"grass", "GreenWorld"},
+        {"wworld", "WaterWorld"}, {"crystal", "Crystal"}, {"desert", "Desert"}, {"archi", "Archipelago"}, {"green", "GreenWorld"}, {"grass", "GreenWorld"},
         {"metal2", "Metal2"}, {"metal", "Metal"}, {"acid", "Acid"}, {"lava", "Lava"}, {"lush", "Lush"}, {"mars", "Mars"}, {"ice", "Ice"}, {"quag", "Quagmire"}, {"snow", "SnowyEvergreen"}, {"ever2", "Evergreen2"}, {"ever", "Evergreen"},
     };
     std::vector<std::string> worlds;

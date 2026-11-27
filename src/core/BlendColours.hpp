@@ -335,6 +335,16 @@ inline bool evergreenWaterTileIsEvergreen(const std::uint8_t* bytes) {
 
 // Metal's second water, Metal_v14's Flat_Deep, is nearly black: red, green and blue add up to about 28 on average,
 // where every other water adds up to 84 or more (Acid and Crystal, the darkest of them).
+// WaterWorld's water is a blue of its own, a little bluer than the blue water GreenWorld, Ice and Metal share: blue
+// averages about 231 where theirs is 225 or 226, and every other water's is far below.
+inline bool waterWorldTileIsWaterWorld(const std::uint8_t* bytes) {
+    long blue = 0;
+    for (int i = 0; i < 1024; ++i) {
+        blue += kTaPalette[bytes[i]][2];
+    }
+    return blue * 2 >= 457L * 1024;
+}
+
 inline bool metal2WaterTileIsMetal2(const std::uint8_t* bytes) {
     long sum = 0;
     for (int i = 0; i < 1024; ++i) {
@@ -495,6 +505,18 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Metal2 / Lush water", "Metal2/Base-0", "Lush/Base-27", metal2WaterTileIsMetal2},
     {"Metal2 / Quagmire water", "Metal2/Base-0", "Quagmire/Base-0", metal2WaterTileIsMetal2},
     {"Metal2 / Evergreen water", "Metal2/Base-0", "Evergreen/Base-0", metal2WaterTileIsMetal2},
+    {"WaterWorld / GreenWorld water", "WaterWorld/Base-0", "GreenWorld/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Ice water", "WaterWorld/Base-0", "Ice/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Metal water", "WaterWorld/Base-0", "Metal/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Desert water", "WaterWorld/Base-0", "Desert/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Archipelago water", "WaterWorld/Base-0", "Archipelago/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Mars water", "WaterWorld/Base-0", "Mars/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Crystal water", "WaterWorld/Base-0", "Crystal/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Acid water", "WaterWorld/Base-0", "Acid/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Lush water", "WaterWorld/Base-0", "Lush/Base-27", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Quagmire water", "WaterWorld/Base-0", "Quagmire/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Evergreen water", "WaterWorld/Base-0", "Evergreen/Base-0", waterWorldTileIsWaterWorld},
+    {"WaterWorld / Metal2 water", "WaterWorld/Base-0", "Metal2/Base-0", waterWorldTileIsWaterWorld},
     {"SnowyEvergreen / GreenWorld", "SnowyEvergreen/Base-85", "GreenWorld/Base-85", snowTileIsSnow},
     {"SnowyEvergreen / Mars", "SnowyEvergreen/Base-85", "Mars/Base-85", snowTileIsSnow},
     {"SnowyEvergreen / Acid", "SnowyEvergreen/Base-85", "Acid/Base-85", snowTileIsSnow},

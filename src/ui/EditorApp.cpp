@@ -5368,7 +5368,7 @@ void EditorApp::drawTilesetBrowser(bool favorites) {
                                 if (ImGui::MenuItem((theme::withEllipsis(menuCount > 1 ? "Export tiles as BMP" : "Export tile as BMP") + countSuffix).c_str())) {
                                     pendingTileExport_ = favorites ? 2 : 1;
                                 }
-                                if (ImGui::MenuItem(("Copy full path and filename" + countSuffix).c_str())) {
+                                if (ImGui::MenuItem(("Copy path and filename" + countSuffix).c_str())) {
                                     copySidebarTilePaths(favorites);
                                 }
                                 if (favorites && !favoriteSelection_.empty()) {
@@ -9046,12 +9046,9 @@ std::string EditorApp::sidebarTileFullPath(std::size_t archiveIndex, const Cache
     while (!inside.empty() && inside.front() == '/') {
         inside.erase(inside.begin());
     }
-    std::error_code error;
-    std::filesystem::path base = std::filesystem::absolute(archive.path, error);
-    if (error) {
-        base = archive.path;
-    }
-    return base.lexically_normal().generic_string() + "/" + inside;
+    // The path starts at the HPI file itself, such as WaterWorld-Greenworld.hpi/sections/..., without the folders
+    // the HPI sits in on disk.
+    return archive.path.filename().generic_string() + "/" + inside;
 }
 
 void EditorApp::copySidebarTilePaths(bool favorites) {
@@ -13503,7 +13500,7 @@ void EditorApp::ensureBrushPaints() {
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
         || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
         || isMetalWorld(brushWorld_) || lowerText(brushWorld_) == "quagmire" || isEvergreenWorld(brushWorld_)
-        || lowerText(brushWorld_) == "snowyevergreen";
+        || lowerText(brushWorld_) == "snowyevergreen" || lowerText(brushWorld_) == "waterworld";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
         std::string sectionKind;
@@ -14171,6 +14168,15 @@ void EditorApp::ensureBrushPaints() {
         }
     } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
         wanted.push_back(PartnerWant{"Quagmire", "Base-0"});
+    }
+    // WaterWorld's water fades into every other water, and every other water into it.
+    if (lowerText(brushWorld_) == "waterworld") {
+        for (const PartnerWant water : {PartnerWant{"GreenWorld", "Base-0"}, PartnerWant{"Desert", "Base-0"}, PartnerWant{"Mars", "Base-0"},
+                 PartnerWant{"Crystal", "Base-0"}, PartnerWant{"Acid", "Base-0"}, PartnerWant{"Lush", "Base-27"}}) {
+            wanted.push_back(water);
+        }
+    } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
+        wanted.push_back(PartnerWant{"WaterWorld", "Base-0"});
     }
     // Metal's second water fades into every other water; the Metal brush shows it as a button of its own.
     if (!isMetalWorld(brushWorld_) && lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
@@ -15703,6 +15709,14 @@ void EditorApp::ensureBrushPaints() {
             rememberTwoWayColour("blend-watereveracid-", evergreenWater, paintWorldAt("Acid", 0), evergreenWaterTileIsEvergreen);
             rememberTwoWayColour("blend-watereverlush-", evergreenWater, paintWorldAt("Lush", 27), evergreenWaterTileIsEvergreen);
             rememberTwoWayColour("blend-watereverquag-", evergreenWater, paintWorldAt("Quag", 0), evergreenWaterTileIsEvergreen);
+            // WaterWorld's water's, into every other water. It is told from them by how blue it is.
+            const BrushPaint* waterWorldWater = paintWorldAt("WWorld", 0);
+            rememberTwoWayColour("blend-waterwworldgreen-", waterWorldWater, waterOf({"Green", "Ice", "Metal"}, 0), waterWorldTileIsWaterWorld);
+            rememberTwoWayColour("blend-waterwworlddesert-", waterWorldWater, waterOf({"Desert", "Archi"}, 0), waterWorldTileIsWaterWorld);
+            for (const auto& [word, height] : {std::pair<const char*, int>{"Mars", 0}, {"Crystal", 0}, {"Acid", 0}, {"Lush", 27}, {"Quag", 0}, {"Ever", 0}, {"Metal2", 0}}) {
+                const std::string prefix = "blend-waterwworld" + lowerText(word) + "-";
+                rememberTwoWayColour(prefix.c_str(), waterWorldWater, paintWorldAt(word, height), waterWorldTileIsWaterWorld);
+            }
             // Metal's second water's, into every other water. Its nearly black water is told from them by brightness.
             const BrushPaint* metal2Water = paintWorldAt("Metal2", 0);
             rememberTwoWayColour("blend-watermetal2green-", metal2Water, waterOf({"Green", "Ice", "Metal"}, 0), metal2WaterTileIsMetal2);
@@ -18302,7 +18316,7 @@ void EditorApp::drawTileBrush() {
     const std::string shownTileset = brushTilesetOf(brushWorld_);
     const char* shownWorld = shownTileset.c_str();
     if (ImGui::BeginCombo("Tileset", shownWorld)) {
-        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen", "SnowyEvergreen"}) {
+        for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen", "SnowyEvergreen", "WaterWorld"}) {
             const bool selected = std::string_view(shownWorld) == world;
             if (ImGui::Selectable(world, selected) && !selected) {
                 brushWorld_ = world;

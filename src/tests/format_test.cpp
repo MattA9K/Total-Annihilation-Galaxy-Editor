@@ -3623,6 +3623,13 @@ void testBrushCells() {
             && metalSea.style(2, 3) == TransitionStyle::Cliff && metalSea.style(3, 5) == TransitionStyle::Cliff
             && brushPieceName(metalSea, {3, 3, 0, 0}) == "Cliff-High-T" && brushPieceName(metalSea, {2, 2, 3, 3}) == "Cliff-139-High-B",
             "Metal2's dark water rises straight to Metal Base-139, and Metal's blue water does not");
+        const BrushGraph waterWorld(std::vector<int>{0, 0, 0, 0, 27, 85}, {"WWorld", "Metal", "Metal2", "Ever", "Lush", "Green"}, false, "WWorld");
+        expect(waterWorld.style(0, 1) == TransitionStyle::WorldBlend && waterWorld.style(0, 2) == TransitionStyle::WorldBlend
+            && waterWorld.style(0, 3) == TransitionStyle::WorldBlend && waterWorld.style(0, 4) == TransitionStyle::WorldBlend
+            && waterWorld.style(0, 5) == TransitionStyle::None
+            && brushPieceName(waterWorld, {0, 0, 1, 1}) == "Blend-WaterWWorldGreen-T" && brushPieceName(waterWorld, {2, 0, 2, 0}) == "Blend-WaterWWorldMetal2-R"
+            && brushPieceName(waterWorld, {3, 3, 3, 0}) == "Blend-WaterWWorldEver-BR" && brushPieceName(waterWorld, {0, 4, 4, 4}) == "Blend-WaterWWorldLush-TL",
+            "WaterWorld's water fades 2-way into every other water, Metal2's and Lush's among them");
         const BrushGraph lavaMetal(std::vector<int>{41, 85, 86, 85}, {"Lava", "Metal", "Lava", "Green"}, false, "Lava");
         expect(lavaMetal.style(0, 1) == TransitionStyle::Coast && lavaMetal.style(0, 3) == TransitionStyle::None
             && brushPieceName(lavaMetal, {1, 1, 0, 0}, "Water") == "Coast-Water-B",

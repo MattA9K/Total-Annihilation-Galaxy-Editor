@@ -408,6 +408,10 @@ inline std::string blendWorldName(std::string_view category) {
     for (char& character : lower) {
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     }
+    // WaterWorld's water, a blue of its own.
+    if (lower.find("waterworld") != std::string::npos) {
+        return "WWorld";
+    }
     if (lower.find("quagmire") != std::string::npos) {
         return "Quag";
     }
@@ -559,6 +563,11 @@ inline bool evergreenWaterPartner(std::string_view world) {
 inline bool metal2WaterPartner(std::string_view world) {
     return evergreenWaterPartner(world) || world == "Ever";
 }
+// The waters WaterWorld's water fades into with a Blend-WaterWWorld piece: every other water, Metal2's among them.
+// Lush's Base-27 water does too, through its own rule.
+inline bool waterWorldWaterPartner(std::string_view world) {
+    return metal2WaterPartner(world) || world == "Metal2";
+}
 // The word a water blend names a water by: GreenWorld's for the blue water it shares with Ice and Metal, and
 // Desert's for the water Archipelago shares.
 inline std::string waterFamilyWord(std::string_view world) {
@@ -659,10 +668,11 @@ public:
                                 || namedPair("Crystal", "Acid")
                                 || ((wa == "Quag") != (wb == "Quag") && quagmireWaterPartner(wa == "Quag" ? wb : wa))
                                 || ((wa == "Ever") != (wb == "Ever") && evergreenWaterPartner(wa == "Ever" ? wb : wa))
-                                || ((wa == "Metal2") != (wb == "Metal2") && metal2WaterPartner(wa == "Metal2" ? wb : wa)));
+                                || ((wa == "Metal2") != (wb == "Metal2") && metal2WaterPartner(wa == "Metal2" ? wb : wa))
+                                || ((wa == "WWorld") != (wb == "WWorld") && waterWorldWaterPartner(wa == "WWorld" ? wb : wa)));
                         // Ordered by height: the blue, sand or Mars water is the Base-0 side and Lush the Base-27 side.
                         const bool lushWater = rule.lowerHeight == 0 && rule.upperHeight == 27
-                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag" || wa == "Ever" || wa == "Metal2") && wb == "Lush";
+                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag" || wa == "Ever" || wa == "Metal2" || wa == "WWorld") && wb == "Lush";
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
@@ -3292,6 +3302,12 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         int marked = sorted[1];
         std::string family;
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && (graph.world(sorted[0]) == "WWorld") != (graph.world(sorted[1]) == "WWorld")) {
+            // WaterWorld's water beside any other water, Metal2's included. The mask marks the WaterWorld water:
+            // Blend-WaterWWorldGreen-T has WaterWorld water along the top and the blue water along the bottom.
+            marked = graph.world(sorted[0]) == "WWorld" ? sorted[0] : sorted[1];
+            family = "WaterWWorld" + waterFamilyWord(graph.world(marked == sorted[0] ? sorted[1] : sorted[0]));
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
             && (graph.world(sorted[0]) == "Metal2") != (graph.world(sorted[1]) == "Metal2")) {
             // Metal's second water beside any other water. The mask marks the Metal2 water, and the other water is
             // named for its family: Blend-WaterMetal2Green-T has Metal2 water along the top and the blue water along
