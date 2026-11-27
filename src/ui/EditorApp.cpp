@@ -12231,7 +12231,17 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
                     snowFrozen = snowFrozen || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 75);
                     snowPlateau = snowPlateau || (lowerText(paint->category) == "snowyevergreen" && trailingNumber(paint->name) == 189);
                 }
+                // Metal's two waters each have their own shallows and coasts into its Base-85: a cell holding Metal2's dark water
+                // or dark shallows takes its piece from the Metal2 folders, and any other cell of Metal's from Metal's, whichever
+                // paint is armed.
+                const bool metalCell = isMetalWorld(lower->category) && isMetalWorld(upper->category);
+                bool metal2Corner = false;
+                for (const int corner : ringCell.corners) {
+                    metal2Corner = metal2Corner || lowerText(levels[static_cast<std::size_t>(corner)]->category) == "metal2";
+                }
+                const std::string metalFolder = metal2Corner ? "Metal2" : "Metal";
                 const std::string& pieceCategory = evergreenCoast ? evergreenFolder
+                    : metalCell ? metalFolder
                     : lavaShore ? kLavaShoreFolder
                     : snowWater && snowPlateau ? kSnowSeaCliffFolder
                     : snowFrozen && snowPlateau ? kSnowFrozenCliffFolder
@@ -13824,8 +13834,8 @@ void EditorApp::ensureBrushPaints() {
             if (isEvergreenWorld(section->category) && trailingNumber(section->name) >= 77) {
                 paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
             }
-            // Metal's blue water and blue shallows are its first water: Base-0-1 and Base-68-1. Its second water, filed
-            // as Metal2, is Base-0-2.
+            // Metal's blue water and blue shallows are its first water: Base-0-1 and Base-68-1. Its second water and
+            // that water's shallows, filed as Metal2, are Base-0-2 and Base-68-2.
             if (lowerText(section->category) == "metal" && (trailingNumber(section->name) == 0 || trailingNumber(section->name) == 68)) {
                 paint.label = section->name + "-1";
             } else if (lowerText(section->category) == "metal2") {

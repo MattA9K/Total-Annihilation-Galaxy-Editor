@@ -571,9 +571,10 @@ inline bool evergreenWorld(std::string_view world) {
     return world == "Ever" || world == "Ever2";
 }
 // One land for the rules that keep a land's coasts and cliffs to itself. Evergreen's two grasses share
-// one water, Evergreen Base-0, and each has its own coast into it.
+// one water, Evergreen Base-0, and each has its own coast into it. Metal's two waters, its blue Base-0 and
+// Metal2's dark Base-0, each have their own coast into Metal's Base-85.
 inline bool sameBrushLand(std::string_view a, std::string_view b) {
-    return a == b || (evergreenWorld(a) && evergreenWorld(b));
+    return a == b || (evergreenWorld(a) && evergreenWorld(b)) || ((a == "Metal" || a == "Metal2") && (b == "Metal" || b == "Metal2"));
 }
 
 // The lands SnowyEvergreen Base-85 blends into: the ground of every other land, both Evergreen grasses
@@ -700,7 +701,13 @@ public:
                             && !(wa == "Snow" && wb == "Snow");
                         // Only SnowyEvergreen's snow meets its Base-75 frozen water.
                         const bool snowFrozen = rule.lowerHeight == 75 && rule.upperHeight == 85 && !(wa == "Snow" && wb == "Snow");
-                        if (evergreenSkip || evergreen2Shallows || noSeaCliff || snowFrozen) {
+                        // Metal2's dark water and dark Base-68 shallows meet Metal's land only through their own coast and shallow
+                        // coast into Base-85, and never meet Metal's blue water or blue shallows.
+                        const bool metal2Only = (wa == "Metal2") != (wb == "Metal2") && (wa == "Metal" || wb == "Metal")
+                            && rule.style != TransitionStyle::WorldBlend
+                            && !(rule.lowerHeight == 0 && rule.upperHeight == 85 && wa == "Metal2" && rule.style == TransitionStyle::Coast)
+                            && !(rule.lowerHeight == 68 && rule.upperHeight == 85 && wa == "Metal2" && rule.style == TransitionStyle::ShallowCoast);
+                        if (evergreenSkip || evergreen2Shallows || noSeaCliff || snowFrozen || metal2Only) {
                             continue;
                         }
                         const bool foreignIceCliff = named && wa != wb && !evergreenCliff && rule.style == TransitionStyle::Cliff;

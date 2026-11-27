@@ -3595,13 +3595,33 @@ void testBrushCells() {
             && brushPieceName(sea, {0, 2, 1, 2}) == "CC-219-R-85-BL-0-TL"
             && brushPieceName(sea, {1, 1, 0, 2}).empty(),
             "SnowyEvergreen water rises to Base-189 in sea cliffs, with three-way pieces where they meet the snow");
-        // Metal's second water, Metal2 Base-0, fades into every other water and meets nothing else.
+        // Metal's second water, Metal2 Base-0, fades into every other water, and meets Metal's land only through its
+        // coast into Base-85.
         const BrushGraph metal2(std::vector<int>{0, 0, 0, 0, 27, 68, 85}, {"Metal2", "Metal", "Ever", "Quag", "Lush", "Metal", "Metal"});
         expect(blendWorldName("Metal2") == "Metal2" && blendWorldName("Metal") == "Metal"
             && metal2.style(0, 1) == TransitionStyle::WorldBlend && metal2.style(0, 2) == TransitionStyle::WorldBlend
             && metal2.style(0, 3) == TransitionStyle::WorldBlend && metal2.style(0, 4) == TransitionStyle::WorldBlend
-            && metal2.style(0, 5) == TransitionStyle::None && metal2.style(0, 6) == TransitionStyle::None,
-            "Metal2 water fades into the other waters and has no shallows or coast");
+            && metal2.style(0, 5) == TransitionStyle::None && metal2.style(0, 6) == TransitionStyle::Coast
+            && metal2.style(1, 6) == TransitionStyle::Coast && metal2.style(1, 5) == TransitionStyle::ShallowDeep,
+            "Metal2 water fades into the other waters and has a coast into Metal Base-85 but no shallows");
+        expect(brushPieceName(metal2, {0, 0, 6, 6}) == "Coast-Water-T" && brushPieceName(metal2, {6, 6, 6, 0}) == "Coast-Water-BR" && brushPieceName(metal2, {0, 0, 0, 6}) == "Coast-Land-BR"
+            && brushPieceName(metal2, {0, 1, 6, 6}).empty(),
+            "Metal2's coasts take the plain coast names, and no piece holds both of Metal's waters beside its land");
+        // Painting with either of Metal's waters keeps the other water's pieces: the Metal brush armed on Base-0-2 still
+        // joins the blue water to Base-85, and another land's brush joins neither.
+        // Its dark Base-68 shallows join its dark water and Metal's Base-85, and nothing of Metal's blue water.
+        const BrushGraph metal2Shallows(std::vector<int>{0, 0, 68, 68, 85, 219}, {"Metal2", "Metal", "Metal2", "Metal", "Metal", "Metal"}, false, "Metal");
+        expect(metal2Shallows.style(0, 2) == TransitionStyle::ShallowDeep && metal2Shallows.style(2, 4) == TransitionStyle::ShallowCoast
+            && metal2Shallows.style(1, 3) == TransitionStyle::ShallowDeep && metal2Shallows.style(3, 4) == TransitionStyle::ShallowCoast
+            && metal2Shallows.style(1, 2) == TransitionStyle::None && metal2Shallows.style(0, 3) == TransitionStyle::None
+            && metal2Shallows.style(2, 3) == TransitionStyle::None && metal2Shallows.style(2, 5) == TransitionStyle::None
+            && brushPieceName(metal2Shallows, {0, 0, 2, 2}) == "ShallowDeep-Shallow-B" && brushPieceName(metal2Shallows, {2, 2, 4, 4}) == "ShallowCoast-Land-B",
+            "Metal2's dark shallows join its dark water and Metal Base-85, and never Metal's blue water or shallows");
+        const BrushGraph metal2Armed(std::vector<int>{0, 0, 85}, {"Metal2", "Metal", "Metal"}, false, "Metal2");
+        const BrushGraph greenArmed(std::vector<int>{0, 0, 85}, {"Metal2", "Metal", "Metal"}, false, "Green");
+        expect(metal2Armed.style(0, 2) == TransitionStyle::Coast && metal2Armed.style(1, 2) == TransitionStyle::Coast
+            && greenArmed.style(0, 2) == TransitionStyle::None && greenArmed.style(1, 2) == TransitionStyle::None,
+            "Metal's two waters keep both coasts in the Metal brush and none in another land's brush");
         expect(brushPieceName(metal2, {0, 0, 1, 1}) == "Blend-WaterMetal2Green-T" && brushPieceName(metal2, {2, 0, 2, 0}) == "Blend-WaterMetal2Ever-R"
             && brushPieceName(metal2, {4, 4, 4, 0}) == "Blend-WaterMetal2Lush-BR",
             "Metal2's water blends are Blend-WaterMetal2<water>, marking the Metal2 water");
