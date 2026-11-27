@@ -416,6 +416,10 @@ inline std::string blendWorldName(std::string_view category) {
     if (lower.find("evergreen2") != std::string::npos) {
         return "Ever2";
     }
+    // Before "metal": Metal's second water, Metal Base-0-2, is filed as Metal2 and is a water of its own.
+    if (lower.find("metal2") != std::string::npos) {
+        return "Metal2";
+    }
     if (lower.find("evergreen") != std::string::npos) {
         return "Ever";
     }
@@ -546,6 +550,16 @@ inline bool quagmireWaterPartner(std::string_view world) {
 inline bool evergreenWaterPartner(std::string_view world) {
     return quagmireWaterPartner(world) || world == "Quag";
 }
+// The waters Metal's second water, Metal2 Base-0, fades into with a Blend-WaterMetal2 piece: every other water,
+// Evergreen's among them. Lush's Base-27 water does too, through its own rule.
+inline bool metal2WaterPartner(std::string_view world) {
+    return evergreenWaterPartner(world) || world == "Ever";
+}
+// The word a water blend names a water by: GreenWorld's for the blue water it shares with Ice and Metal, and
+// Desert's for the water Archipelago shares.
+inline std::string waterFamilyWord(std::string_view world) {
+    return blueWaterWorld(world) ? "Green" : sandWaterWorld(world) ? "Desert" : std::string(world);
+}
 
 // The lands both Evergreen grasses blend into: every Base-85 land, Lava Base-86, Archipelago Base-78,
 // Lush Base-77 and Desert Base-80, and the other Evergreen grass.
@@ -639,10 +653,11 @@ public:
                                 || ((wa == "Mars") != (wb == "Mars") && (wa == "Mars" ? waterBlendsWithMars(wb) : waterBlendsWithMars(wa)))
                                 || namedPair("Crystal", "Acid")
                                 || ((wa == "Quag") != (wb == "Quag") && quagmireWaterPartner(wa == "Quag" ? wb : wa))
-                                || ((wa == "Ever") != (wb == "Ever") && evergreenWaterPartner(wa == "Ever" ? wb : wa)));
+                                || ((wa == "Ever") != (wb == "Ever") && evergreenWaterPartner(wa == "Ever" ? wb : wa))
+                                || ((wa == "Metal2") != (wb == "Metal2") && metal2WaterPartner(wa == "Metal2" ? wb : wa)));
                         // Ordered by height: the blue, sand or Mars water is the Base-0 side and Lush the Base-27 side.
                         const bool lushWater = rule.lowerHeight == 0 && rule.upperHeight == 27
-                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag" || wa == "Ever") && wb == "Lush";
+                            && (blueWaterWorld(wa) || sandWaterWorld(wa) || wa == "Mars" || wa == "Crystal" || wa == "Acid" || wa == "Quag" || wa == "Ever" || wa == "Metal2") && wb == "Lush";
                         const bool foreignLand = through85 && rule.lowerHeight == 0 && rule.upperHeight == 78 && differentWorld;
                         const bool foreignShallow = rule.lowerHeight == 68 && rule.upperHeight == 85 && differentWorld;
                         const bool same85 = rule.lowerHeight == 85 && rule.upperHeight == 85
@@ -2866,7 +2881,48 @@ inline constexpr std::array<TriLand, 11> kEvergreen2TriLands = {{
     {"Lava", 86}, {"Archi", 78}, {"Lush", 77}, {"Desert", 80},
 }};
 
+// The waters Metal2's three-way pieces name besides Metal2, in the order the names give them, by family word and
+// height.
+inline constexpr std::array<std::pair<const char*, int>, 8> kMetal2TriWaters = {{
+    {"Green", 0}, {"Desert", 0}, {"Mars", 0}, {"Crystal", 0}, {"Acid", 0}, {"Lush", 27}, {"Quag", 0}, {"Ever", 0},
+}};
+
+// Metal2 water with two other waters, Metal2 as the pivot and the other two named for their families in
+// kMetal2TriWaters order: Blend-Tri-Metal2-T-Green-L-Quag has Metal2 water along the top, the blue water at the bottom
+// left and Quagmire water at the bottom right. Empty when the cell holds no Metal2 water.
+inline std::string metal2TriWaterName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    bool metal2 = false;
+    for (const int level : corners) {
+        metal2 = metal2 || (graph.world(level) == "Metal2" && graph.height(level) == 0);
+    }
+    if (!metal2) {
+        return {};
+    }
+    // The same levels with each water named for its family, so GreenWorld, Ice and Metal water read as one.
+    std::vector<int> heights;
+    std::vector<std::string> worlds;
+    for (int level = 0; level < graph.size(); ++level) {
+        heights.push_back(graph.height(level));
+        worlds.push_back(waterFamilyWord(graph.world(level)));
+    }
+    const BrushGraph families(heights, worlds);
+    for (std::size_t first = 0; first < kMetal2TriWaters.size(); ++first) {
+        for (std::size_t second = first + 1; second < kMetal2TriWaters.size(); ++second) {
+            const auto& third = kMetal2TriWaters[first];
+            const auto& last = kMetal2TriWaters[second];
+            if (std::string name = triGreenLushName(families, corners, third.first, last.first, last.second, third.second, "Metal2", 0, "Metal2");
+                !name.empty()) {
+                return name;
+            }
+        }
+    }
+    return {};
+}
+
 inline std::string triBlendName(const BrushGraph& graph, const std::array<int, 4>& corners) {
+    if (std::string name = metal2TriWaterName(graph, corners); !name.empty()) {
+        return name;
+    }
     // SnowyEvergreen with two of the lands it blends into, as the pivot, the other two in kSnowTriLands
     // order: Blend-Tri-Snow-T-Green-L-Mars has the snow along the top, GreenWorld at the bottom left and
     // Mars at the bottom right.
@@ -3220,6 +3276,13 @@ inline std::string brushPieceName(const BrushGraph& graph, const std::array<int,
         int marked = sorted[1];
         std::string family;
         if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
+            && (graph.world(sorted[0]) == "Metal2") != (graph.world(sorted[1]) == "Metal2")) {
+            // Metal's second water beside any other water. The mask marks the Metal2 water, and the other water is
+            // named for its family: Blend-WaterMetal2Green-T has Metal2 water along the top and the blue water along
+            // the bottom, and Blend-WaterMetal2Ever serves Evergreen's water.
+            marked = graph.world(sorted[0]) == "Metal2" ? sorted[0] : sorted[1];
+            family = "WaterMetal2" + waterFamilyWord(graph.world(marked == sorted[0] ? sorted[1] : sorted[0]));
+        } else if (style == TransitionStyle::WorldBlend && graph.height(sorted[0]) < 68 && graph.height(sorted[1]) < 68
             && (graph.world(sorted[0]) == "Ever") != (graph.world(sorted[1]) == "Ever")) {
             // Evergreen water beside another land's water, Quagmire's included. The mask marks the Evergreen
             // water, and the other water is named for its family as for Quagmire: Blend-WaterEverGreen-T has

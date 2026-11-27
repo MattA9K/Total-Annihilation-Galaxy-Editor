@@ -333,6 +333,17 @@ inline bool evergreenWaterTileIsEvergreen(const std::uint8_t* bytes) {
     return green >= 70 * 1024 && green - blue >= -32 * 1024 && green - blue <= 0 && red - green <= -30 * 1024;
 }
 
+// Metal's second water, Metal_v14's Flat_Deep, is nearly black: red, green and blue add up to about 28 on average,
+// where every other water adds up to 84 or more (Acid and Crystal, the darkest of them).
+inline bool metal2WaterTileIsMetal2(const std::uint8_t* bytes) {
+    long sum = 0;
+    for (int i = 0; i < 1024; ++i) {
+        const std::uint8_t* color = kTaPalette[bytes[i]];
+        sum += static_cast<long>(color[0]) + color[1] + color[2];
+    }
+    return sum < 56L * 1024;
+}
+
 // Quagmire mud is brown: red minus blue averages 50 to 53 on its Base-85 tiles, against 30 or less on
 // GreenWorld, Acid, Crystal, Ice and Metal Base-85. Mars is as red but redder than green by 47 or more,
 // where Quagmire's red leads its green by about 25.
@@ -473,6 +484,17 @@ inline constexpr BlendColourPair kBlendColourPairs[] = {
     {"Evergreen / Acid water", "Evergreen/Base-0", "Acid/Base-0", evergreenWaterTileIsEvergreen},
     {"Evergreen / Lush water", "Evergreen/Base-0", "Lush/Base-27", evergreenWaterTileIsEvergreen},
     {"Evergreen / Quagmire water", "Evergreen/Base-0", "Quagmire/Base-0", evergreenWaterTileIsEvergreen},
+    {"Metal2 / GreenWorld water", "Metal2/Base-0", "GreenWorld/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Ice water", "Metal2/Base-0", "Ice/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Metal water", "Metal2/Base-0", "Metal/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Desert water", "Metal2/Base-0", "Desert/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Archipelago water", "Metal2/Base-0", "Archipelago/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Mars water", "Metal2/Base-0", "Mars/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Crystal water", "Metal2/Base-0", "Crystal/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Acid water", "Metal2/Base-0", "Acid/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Lush water", "Metal2/Base-0", "Lush/Base-27", metal2WaterTileIsMetal2},
+    {"Metal2 / Quagmire water", "Metal2/Base-0", "Quagmire/Base-0", metal2WaterTileIsMetal2},
+    {"Metal2 / Evergreen water", "Metal2/Base-0", "Evergreen/Base-0", metal2WaterTileIsMetal2},
     {"SnowyEvergreen / GreenWorld", "SnowyEvergreen/Base-85", "GreenWorld/Base-85", snowTileIsSnow},
     {"SnowyEvergreen / Mars", "SnowyEvergreen/Base-85", "Mars/Base-85", snowTileIsSnow},
     {"SnowyEvergreen / Acid", "SnowyEvergreen/Base-85", "Acid/Base-85", snowTileIsSnow},

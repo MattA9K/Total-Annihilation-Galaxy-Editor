@@ -380,6 +380,23 @@ bool isEvergreenWorld(std::string_view world) {
     return lower == "evergreen" || lower == "evergreen2";
 }
 
+// Metal's two waters are two lands too, Metal and Metal2, painted from one Tile Brush tileset: Metal2 holds the second
+// water, Base-0-2.
+bool isMetalWorld(std::string_view world) {
+    const std::string lower = lowerText(world);
+    return lower == "metal" || lower == "metal2";
+}
+
+// Folders whose bases one Tile Brush tileset shows together: Evergreen's two grasses, and Metal's two waters.
+bool brushSiblingWorlds(std::string_view a, std::string_view b) {
+    return (isEvergreenWorld(a) && isEvergreenWorld(b)) || (isMetalWorld(a) && isMetalWorld(b));
+}
+
+// The tileset a brush folder belongs to, as the Tileset list names it.
+std::string brushTilesetOf(std::string_view world) {
+    return isEvergreenWorld(world) ? std::string("Evergreen") : isMetalWorld(world) ? std::string("Metal") : std::string(world);
+}
+
 bool isBrushStrokeWorld(std::string_view world) {
     return lowerText(world) == "basetilebrushstrokes";
 }
@@ -11582,9 +11599,8 @@ EditorApp::BrushCornerReading EditorApp::brushCornerReading(const std::vector<co
     // A partner land is still found by its picture, which is how a blend is read.
     std::vector<std::size_t> ownLevels;
     for (std::size_t i = 0; i < levels.size(); ++i) {
-        // Evergreen's two grasses share their water, so each brush owns both folders' bases.
-        if (brushCategoryMatches(levels[i]->category, brushWorld_)
-            || (isEvergreenWorld(levels[i]->category) && isEvergreenWorld(brushWorld_))) {
+        // Evergreen's two grasses share their water, so each brush owns both folders' bases, and so do Metal's two waters.
+        if (brushCategoryMatches(levels[i]->category, brushWorld_) || brushSiblingWorlds(levels[i]->category, brushWorld_)) {
             ownLevels.push_back(i);
         }
     }
@@ -13380,7 +13396,7 @@ void EditorApp::ensureBrushPaints() {
         // Evergreen's two grasses are one catalogue: its folders hold the same buttons, pieces and partners, so
         // moving the brush from a Base-0 button to a Base-255-2 one does not read the tileset again.
         key = source->path.string() + "\n" + std::to_string(source->sections.size()) + "\n"
-            + (isEvergreenWorld(brushWorld_) ? std::string("Evergreen") : brushWorld_)
+            + brushTilesetOf(brushWorld_)
             + (brushCatalogStampsOnly_ ? "\nstamps" : "");
     } else if (loadingTilesets()) {
         key = "loading";
@@ -13423,7 +13439,7 @@ void EditorApp::ensureBrushPaints() {
     const bool blendWorld = lowerText(brushWorld_) == "lava" || lowerText(brushWorld_) == "mars" || lowerText(brushWorld_) == "greenworld"
         || lowerText(brushWorld_) == "archipelago" || lowerText(brushWorld_) == "desert" || lowerText(brushWorld_) == "acid"
         || lowerText(brushWorld_) == "lush" || lowerText(brushWorld_) == "ice" || lowerText(brushWorld_) == "crystal"
-        || lowerText(brushWorld_) == "metal" || lowerText(brushWorld_) == "quagmire" || isEvergreenWorld(brushWorld_)
+        || isMetalWorld(brushWorld_) || lowerText(brushWorld_) == "quagmire" || isEvergreenWorld(brushWorld_)
         || lowerText(brushWorld_) == "snowyevergreen";
     std::vector<const TilesetSection*> chosen;
     for (const TilesetSection& section : source->sections) {
@@ -13523,7 +13539,8 @@ void EditorApp::ensureBrushPaints() {
         // Both Evergreen grasses are buttons whichever of them is armed, and both grasses' coasts into their
         // shared water are loaded, since either grass can meet that water.
         // Evergreen2-Evergreen holds the cliffs from the first grass up to the second grass's plateau.
-        const bool evergreenBase = isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen");
+        const bool evergreenBase = (isEvergreenWorld(brushWorld_) && lowerText(section.category).starts_with("evergreen"))
+            || (isMetalWorld(brushWorld_) && isMetalWorld(section.category));
         // Lava's shore from Base-76 up to Base-86 has a folder of its own.
         const bool lavaShore = lowerText(brushWorld_) == "lava" && lowerText(section.category) == "lava-76";
         // So do SnowyEvergreen's cliffs from Base-189 up to Base-255, its Base-65 shallows' pieces, its sea cliffs and its frozen water's cliffs.
@@ -13807,9 +13824,12 @@ void EditorApp::ensureBrushPaints() {
             if (isEvergreenWorld(section->category) && trailingNumber(section->name) >= 77) {
                 paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
             }
-            // Metal's blue water and blue shallows are its first water: Base-0-1 and Base-68-1.
+            // Metal's blue water and blue shallows are its first water: Base-0-1 and Base-68-1. Its second water, filed
+            // as Metal2, is Base-0-2.
             if (lowerText(section->category) == "metal" && (trailingNumber(section->name) == 0 || trailingNumber(section->name) == 68)) {
                 paint.label = section->name + "-1";
+            } else if (lowerText(section->category) == "metal2") {
+                paint.label = section->name + "-2";
             }
             paint.preview = uploadTexture(rgba.data(), width, height, false);
             if (paint.preview == 0) {
@@ -13923,7 +13943,7 @@ void EditorApp::ensureBrushPaints() {
         wanted.push_back(PartnerWant{"Lush", "Base-27"});
         // Crystal and Acid water fade into each other.
         wanted.push_back(PartnerWant{"Acid", "Base-0"});
-    } else if (lowerText(brushWorld_) == "metal") {
+    } else if (isMetalWorld(brushWorld_)) {
         wanted.push_back(PartnerWant{"GreenWorld", "Base-85"});
         wanted.push_back(PartnerWant{"Lava", "Base-86"});
         wanted.push_back(PartnerWant{"Archipelago", "Base-78"});
@@ -14085,6 +14105,10 @@ void EditorApp::ensureBrushPaints() {
         }
     } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
         wanted.push_back(PartnerWant{"Quagmire", "Base-0"});
+    }
+    // Metal's second water fades into every other water; the Metal brush shows it as a button of its own.
+    if (!isMetalWorld(brushWorld_) && lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
+        wanted.push_back(PartnerWant{"Metal2", "Base-0"});
     }
     // Evergreen water fades into the same waters, and into Quagmire's.
     if (isEvergreenWorld(brushWorld_)) {
@@ -14765,7 +14789,9 @@ void EditorApp::ensureBrushPaints() {
             }
             for (const BrushPiece& piece : brushPieces_) {
                 const std::string lowered = lowerText(piece.name);
+                // Metal2's water pieces hold "metal" in their names too; they are read with the other waters.
                 if (lands[0] == nullptr || lands[1] == nullptr || lands[2] == nullptr || !lowered.starts_with("blend-tri-")
+                    || lowered.find("metal2") != std::string::npos
                     || lowered.find(set.pivotWord) == std::string::npos || lowered.find(thirdWord) == std::string::npos
                     || lowered.find(lastWord) == std::string::npos) {
                     continue;
@@ -15479,15 +15505,22 @@ void EditorApp::ensureBrushPaints() {
                 }
                 const std::vector<std::string> pieceWorlds = blendPieceWorlds(piece.name);
                 const bool ours = std::any_of(pieceWorlds.begin(), pieceWorlds.end(), [](const std::string& world) {
-                    return world == "Quagmire" || world == "Evergreen" || world == "Evergreen2" || world == "SnowyEvergreen";
+                    return world == "Quagmire" || world == "Evergreen" || world == "Evergreen2" || world == "SnowyEvergreen" || world == "Metal2";
                 });
                 if (!ours) {
                     continue;
                 }
+                // Metal2's three-way pieces join three waters: each word is a water, at its own height.
+                const bool waters = std::find(pieceWorlds.begin(), pieceWorlds.end(), "Metal2") != pieceWorlds.end();
+                const auto waterLandOf = [&](const std::string& word) -> const BrushPaint* {
+                    return word == "Green" ? waterOf({"Green", "Ice", "Metal"}, 0)
+                        : word == "Desert" ? waterOf({"Desert", "Archi"}, 0)
+                        : word == "Lush" ? paintWorldAt("Lush", 27) : paintWorldAt(word.c_str(), 0);
+                };
                 std::vector<const BrushPaint*> triLands;
                 std::vector<std::array<double, 3>> means;
                 for (const std::string& world : pieceWorlds) {
-                    const BrushPaint* land = landOf(blendWorldName(world));
+                    const BrushPaint* land = waters ? waterLandOf(blendWorldName(world)) : landOf(blendWorldName(world));
                     const PaletteImage* ground = land != nullptr ? brushGround(land->category, land->name) : nullptr;
                     if (ground == nullptr || ground->pixels.empty()) {
                         triLands.clear();
@@ -15564,6 +15597,17 @@ void EditorApp::ensureBrushPaints() {
             rememberTwoWayColour("blend-watereveracid-", evergreenWater, paintWorldAt("Acid", 0), evergreenWaterTileIsEvergreen);
             rememberTwoWayColour("blend-watereverlush-", evergreenWater, paintWorldAt("Lush", 27), evergreenWaterTileIsEvergreen);
             rememberTwoWayColour("blend-watereverquag-", evergreenWater, paintWorldAt("Quag", 0), evergreenWaterTileIsEvergreen);
+            // Metal's second water's, into every other water. Its nearly black water is told from them by brightness.
+            const BrushPaint* metal2Water = paintWorldAt("Metal2", 0);
+            rememberTwoWayColour("blend-watermetal2green-", metal2Water, waterOf({"Green", "Ice", "Metal"}, 0), metal2WaterTileIsMetal2);
+            rememberTwoWayColour("blend-watermetal2desert-", metal2Water, waterOf({"Desert", "Archi"}, 0), metal2WaterTileIsMetal2);
+            for (const auto& [word, height] : kMetal2TriWaters) {
+                if (std::string_view(word) == "Green" || std::string_view(word) == "Desert") {
+                    continue;
+                }
+                const std::string prefix = "blend-watermetal2" + lowerText(word) + "-";
+                rememberTwoWayColour(prefix.c_str(), metal2Water, paintWorldAt(word, height), metal2WaterTileIsMetal2);
+            }
         }
         // Ice and Lava three-way tiles sit at 78, 85 and 86, too close for the height to choose,
         // so the picture tells each tile's land. The third land is GreenWorld, Archipelago, or Mars.
@@ -17578,7 +17622,7 @@ void EditorApp::ensureBrushPaints() {
     addRiverButton("Ridge Spacer", "Ridge-L_R-Spacer-01", BrushKind::Spacer);
     // Metal's slope sections are the walkable Base-85 to Base-219 cliffs. The other
     // tilesets keep the shorter Slope button.
-    const bool metalSlopes = lowerText(brushWorld_) == "metal";
+    const bool metalSlopes = isMetalWorld(brushWorld_);
     const bool archipelagoSlopes = lowerText(brushWorld_) == "archipelago";
     if (archipelagoSlopes) {
         addRiverButton("Slope 78 to 194", "Slope-202-High-B-01", BrushKind::Slope);
@@ -18129,8 +18173,9 @@ void EditorApp::drawTileBrush() {
     }
 
     ImGui::SetNextItemWidth(std::max(40.0f, kRowWidth - ImGui::CalcTextSize("Tileset").x - ImGui::GetStyle().ItemInnerSpacing.x));
-    // Evergreen2 is Evergreen's second grass, listed as Evergreen.
-    const char* shownWorld = isEvergreenWorld(brushWorld_) ? "Evergreen" : brushWorld_.c_str();
+    // Evergreen2 is Evergreen's second grass, listed as Evergreen, and Metal2 Metal's second water, listed as Metal.
+    const std::string shownTileset = brushTilesetOf(brushWorld_);
+    const char* shownWorld = shownTileset.c_str();
     if (ImGui::BeginCombo("Tileset", shownWorld)) {
         for (const char* world : {"GreenWorld", "Lava", "Mars", "Ice", "Metal", "Crystal", "Archipelago", "Acid", "Desert", "Lush", "Quagmire", "Evergreen", "SnowyEvergreen"}) {
             const bool selected = std::string_view(shownWorld) == world;
@@ -18192,8 +18237,9 @@ void EditorApp::drawTileBrush() {
         ImGui::PushID((paint.category + "/" + paint.name).c_str());
         ImGui::BeginGroup();
         const float groupX = ImGui::GetCursorPosX();
-        // Evergreen's grasses share the name Base-85: the armed one is the one whose land the brush is on.
-        const bool sibling = isEvergreenWorld(paint.category) && !brushCategoryMatches(paint.category, brushWorld_);
+        // Evergreen's grasses share the name Base-85, and Metal's waters Base-0: the armed one is the one whose land
+        // the brush is on.
+        const bool sibling = brushSiblingWorlds(paint.category, brushWorld_) && !brushCategoryMatches(paint.category, brushWorld_);
         const bool selected = brushName_ == paint.name && !sibling;
         if (selected) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
@@ -18220,7 +18266,7 @@ void EditorApp::drawTileBrush() {
                 2.0f);
         }
         if (pressed && sibling) {
-            // The other Evergreen grass: the brush moves to its land, keeping the Evergreen buttons.
+            // The other Evergreen grass, or Metal's other water: the brush moves to its land, keeping the tileset's buttons.
             const std::string name = paint.name;
             brushWorld_ = paint.category;
             brushName_.clear();

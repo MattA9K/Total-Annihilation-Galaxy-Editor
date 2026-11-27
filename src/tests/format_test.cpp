@@ -3595,6 +3595,25 @@ void testBrushCells() {
             && brushPieceName(sea, {0, 2, 1, 2}) == "CC-219-R-85-BL-0-TL"
             && brushPieceName(sea, {1, 1, 0, 2}).empty(),
             "SnowyEvergreen water rises to Base-189 in sea cliffs, with three-way pieces where they meet the snow");
+        // Metal's second water, Metal2 Base-0, fades into every other water and meets nothing else.
+        const BrushGraph metal2(std::vector<int>{0, 0, 0, 0, 27, 68, 85}, {"Metal2", "Metal", "Ever", "Quag", "Lush", "Metal", "Metal"});
+        expect(blendWorldName("Metal2") == "Metal2" && blendWorldName("Metal") == "Metal"
+            && metal2.style(0, 1) == TransitionStyle::WorldBlend && metal2.style(0, 2) == TransitionStyle::WorldBlend
+            && metal2.style(0, 3) == TransitionStyle::WorldBlend && metal2.style(0, 4) == TransitionStyle::WorldBlend
+            && metal2.style(0, 5) == TransitionStyle::None && metal2.style(0, 6) == TransitionStyle::None,
+            "Metal2 water fades into the other waters and has no shallows or coast");
+        expect(brushPieceName(metal2, {0, 0, 1, 1}) == "Blend-WaterMetal2Green-T" && brushPieceName(metal2, {2, 0, 2, 0}) == "Blend-WaterMetal2Ever-R"
+            && brushPieceName(metal2, {4, 4, 4, 0}) == "Blend-WaterMetal2Lush-BR",
+            "Metal2's water blends are Blend-WaterMetal2<water>, marking the Metal2 water");
+        expect(brushPieceName(metal2, {0, 0, 1, 3}) == "Blend-Tri-Metal2-T-Green-L-Quag"
+            && brushPieceName(metal2, {1, 0, 1, 2}) == "Blend-Tri-Green-L-Metal2-T-Ever"
+            && brushPieceName(metal2, {4, 4, 0, 2}).rfind("Blend-Tri-", 0) == 0,
+            "three waters with Metal2 among them take a Blend-Tri piece named with Metal2 as the pivot");
+        const BrushGraph ice(std::vector<int>{0, 0, 0}, {"Metal2", "Ice", "Desert"});
+        const BrushGraph archi(std::vector<int>{0, 0, 0}, {"Metal2", "Green", "Archi"});
+        expect(brushPieceName(ice, {0, 0, 1, 2}) == "Blend-Tri-Metal2-T-Green-L-Desert" && brushPieceName(archi, {0, 0, 1, 2}) == "Blend-Tri-Metal2-T-Green-L-Desert",
+            "the blue and the Archipelago water take their families' Metal2 pieces");
+
         // Its frozen water rises to Base-189 the same way.
         const BrushGraph frozen(std::vector<int>{75, 85, 189}, {"Snow", "Snow", "Snow"});
         const BrushGraph foreignFrozen(std::vector<int>{75, 189}, {"Green", "Snow"});
