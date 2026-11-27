@@ -570,13 +570,14 @@ inline bool metal2WaterPartner(std::string_view world) {
 }
 // The waters WaterWorld's water fades into with a Blend-WaterWWorld piece: every other water, Metal2's among them.
 // Lush's Base-27 water does too, through its own rule.
+// SnowyEvergreen's Base-0 is Evergreen's water, so it fades into WaterWorld's through the Evergreen pieces.
 inline bool waterWorldWaterPartner(std::string_view world) {
-    return metal2WaterPartner(world) || world == "Metal2";
+    return metal2WaterPartner(world) || world == "Metal2" || world == "Snow";
 }
-// The word a water blend names a water by: GreenWorld's for the blue water it shares with Ice and Metal, and
-// Desert's for the water Archipelago shares.
+// The word a water blend names a water by: GreenWorld's for the blue water it shares with Ice and Metal,
+// Desert's for the water Archipelago shares, and Evergreen's for SnowyEvergreen's, a copy of Evergreen Base-0.
 inline std::string waterFamilyWord(std::string_view world) {
-    return blueWaterWorld(world) ? "Green" : sandWaterWorld(world) ? "Desert" : std::string(world);
+    return blueWaterWorld(world) ? "Green" : sandWaterWorld(world) ? "Desert" : world == "Snow" ? "Ever" : std::string(world);
 }
 
 // The lands both Evergreen grasses blend into: every Base-85 land, Lava Base-86, Archipelago Base-78,

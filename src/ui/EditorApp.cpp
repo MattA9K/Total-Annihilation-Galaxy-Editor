@@ -14251,13 +14251,14 @@ void EditorApp::ensureBrushPaints() {
     } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
         wanted.push_back(PartnerWant{"Quagmire", "Base-0"});
     }
-    // WaterWorld's water fades into every other water, and every other water into it.
+    // WaterWorld's water fades into every other water, and every other water into it. SnowyEvergreen's water does too,
+    // through Evergreen's pieces.
     if (lowerText(brushWorld_) == "waterworld") {
         for (const PartnerWant water : {PartnerWant{"GreenWorld", "Base-0"}, PartnerWant{"Desert", "Base-0"}, PartnerWant{"Mars", "Base-0"},
                  PartnerWant{"Crystal", "Base-0"}, PartnerWant{"Acid", "Base-0"}, PartnerWant{"Lush", "Base-27"}}) {
             wanted.push_back(water);
         }
-    } else if (lowerText(brushWorld_) != "lava" && lowerText(brushWorld_) != "snowyevergreen") {
+    } else if (lowerText(brushWorld_) != "lava") {
         wanted.push_back(PartnerWant{"WaterWorld", "Base-0"});
     }
     // Metal's second water fades into every other water; the Metal brush shows it as a button of its own.
@@ -15838,10 +15839,12 @@ void EditorApp::ensureBrushPaints() {
             const BrushPaint* waterWorldWater = paintWorldAt("WWorld", 0);
             rememberTwoWayColour("blend-waterwworldgreen-", waterWorldWater, waterOf({"Green", "Ice", "Metal"}, 0), waterWorldTileIsWaterWorld);
             rememberTwoWayColour("blend-waterwworlddesert-", waterWorldWater, waterOf({"Desert", "Archi"}, 0), waterWorldTileIsWaterWorld);
-            for (const auto& [word, height] : {std::pair<const char*, int>{"Mars", 0}, {"Crystal", 0}, {"Acid", 0}, {"Lush", 27}, {"Quag", 0}, {"Ever", 0}, {"Metal2", 0}}) {
+            for (const auto& [word, height] : {std::pair<const char*, int>{"Mars", 0}, {"Crystal", 0}, {"Acid", 0}, {"Lush", 27}, {"Quag", 0}, {"Metal2", 0}}) {
                 const std::string prefix = "blend-waterwworld" + lowerText(word) + "-";
                 rememberTwoWayColour(prefix.c_str(), waterWorldWater, paintWorldAt(word, height), waterWorldTileIsWaterWorld);
             }
+            // The Evergreen pieces also serve SnowyEvergreen's water, the same water, which the Snow brush holds instead.
+            rememberTwoWayColour("blend-waterwworldever-", waterWorldWater, waterOf({"Ever", "Snow"}, 0), waterWorldTileIsWaterWorld);
             // Metal's second water's, into every other water. Its nearly black water is told from them by brightness.
             const BrushPaint* metal2Water = paintWorldAt("Metal2", 0);
             rememberTwoWayColour("blend-watermetal2green-", metal2Water, waterOf({"Green", "Ice", "Metal"}, 0), metal2WaterTileIsMetal2);

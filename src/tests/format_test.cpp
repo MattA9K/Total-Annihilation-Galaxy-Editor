@@ -3631,6 +3631,11 @@ void testBrushCells() {
             && brushPieceName(waterWorld, {0, 0, 1, 1}) == "Blend-WaterWWorldGreen-T" && brushPieceName(waterWorld, {2, 0, 2, 0}) == "Blend-WaterWWorldMetal2-R"
             && brushPieceName(waterWorld, {3, 3, 3, 0}) == "Blend-WaterWWorldEver-BR" && brushPieceName(waterWorld, {0, 4, 4, 4}) == "Blend-WaterWWorldLush-TL",
             "WaterWorld's water fades 2-way into every other water, Metal2's and Lush's among them");
+        const BrushGraph snowWaterWorld(std::vector<int>{0, 0, 85}, {"Snow", "WWorld", "Snow"}, false, "Snow");
+        expect(snowWaterWorld.style(0, 1) == TransitionStyle::WorldBlend && snowWaterWorld.style(0, 2) != TransitionStyle::None
+            && snowWaterWorld.style(1, 2) == TransitionStyle::None
+            && brushPieceName(snowWaterWorld, {0, 0, 1, 1}) == "Blend-WaterWWorldEver-B" && brushPieceName(snowWaterWorld, {1, 0, 0, 0}) == "Blend-WaterWWorldEver-TL",
+            "SnowyEvergreen's water, Evergreen's water, fades into WaterWorld's through the Evergreen pieces");
         const BrushGraph reef(std::vector<int>{0, 0, 70}, {"WWorld", "Green", "WWorld"}, false, "WWorld");
         expect(reef.style(0, 2) == TransitionStyle::ShallowDeep && reef.style(1, 2) == TransitionStyle::None
             && brushPieceName(reef, {2, 2, 0, 0}) == "ShallowDeep-Shallow-T",
