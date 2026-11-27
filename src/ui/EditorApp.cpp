@@ -13596,6 +13596,12 @@ void EditorApp::ensureBrushPaints() {
         // WaterWorld/Base1Misc. Each is one 16 x 16 stamp on Base-1, heights as they are.
         const bool waterWorldFloorMisc = lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld"
             && lowerText(section.category) == "base1misc";
+        // WaterWorld-Greenworld.hpi Extras Arm01_85 to Arm15_85, arms of land rising from WaterWorld Base-0 water, heights
+        // as they are. ArmsMedium holds the 48 x 48 and 64 x 48 ones, ArmsLarge the 64 x 64 ones.
+        const bool waterWorldArmMedium = lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld"
+            && lowerText(section.category) == "armsmedium";
+        const bool waterWorldArmLarge = lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld"
+            && lowerText(section.category) == "armslarge";
         const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "hills";
         const bool lushSwamp = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
@@ -13669,7 +13675,7 @@ void EditorApp::ensureBrushPaints() {
             && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
             && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
             && !desertHill16 && !desertPlateau && !desertRough && !desertDune
-            && !waterWorldFloorMisc && acidFolder == nullptr) {
+            && !waterWorldFloorMisc && !waterWorldArmMedium && !waterWorldArmLarge && acidFolder == nullptr) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -13895,6 +13901,16 @@ void EditorApp::ensureBrushPaints() {
             hill.baseHeight = 1;
             // Base-1 and Base-0 are a few heights apart, so a tile half floor and half water is not Base-1.
             hill.baseFringe = false;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (waterWorldArmMedium || waterWorldArmLarge) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = waterWorldArmMedium ? "Arm-85 Medium" : "Arm-85 Large";
+            hill.noun = "arm";
+            hill.baseName = "base-0";
+            hill.baseHeight = 0;
             hillSections_.push_back(std::move(hill));
         }
         if (lushIsland) {
@@ -18006,6 +18022,14 @@ void EditorApp::ensureBrushPaints() {
                 if (hill.group == "Base-1 Misc 16x16" && hill.tiles == 16) {
                     addHillButton("Base-1 Misc 16x16", hill.sectionPath);
                     break;
+                }
+            }
+            for (const char* button : {"Arm-85 Medium", "Arm-85 Large"}) {
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.group == button && hill.tiles > 0) {
+                        addHillButton(button, hill.sectionPath);
+                        break;
+                    }
                 }
             }
         }
