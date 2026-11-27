@@ -12839,7 +12839,7 @@ bool EditorApp::hillCanPlace(int originX, int originY, int width, int height, st
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             if (group != nullptr) {
-                if (!tileMatchesBase(originX + x, originY + y, brushWorld_, group->baseName, group->baseHeight, group->baseHeight != 0)) {
+                if (!tileMatchesBase(originX + x, originY + y, brushWorld_, group->baseName, group->baseHeight, group->baseHeight != 0 && group->baseFringe)) {
                     refusal = "The " + group->noun + " only goes on " + brushWorld_ + " Base-" + std::to_string(group->baseHeight)
                         + ", and the whole " + brushRectLabel(width, height) + " block has to be Base-" + std::to_string(group->baseHeight);
                     return false;
@@ -13592,6 +13592,10 @@ void EditorApp::ensureBrushPaints() {
             || (lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld" && lowerText(section.category) == "reefs");
         const bool lushIsland = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "islands";
+        // WaterWorld-Greenworld.hpi Floor Sections D01_85 to D06_85, the sea floor's decorations, filed as
+        // WaterWorld/Base1Misc. Each is one 16 x 16 stamp on Base-1, heights as they are.
+        const bool waterWorldFloorMisc = lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld"
+            && lowerText(section.category) == "base1misc";
         const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "hills";
         const bool lushSwamp = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
@@ -13665,7 +13669,7 @@ void EditorApp::ensureBrushPaints() {
             && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
             && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
             && !desertHill16 && !desertPlateau && !desertRough && !desertDune
-            && acidFolder == nullptr) {
+            && !waterWorldFloorMisc && acidFolder == nullptr) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -13879,6 +13883,18 @@ void EditorApp::ensureBrushPaints() {
             hill.noun = lushHill || lushHill16 ? "hill" : (lushSwamp ? "swamp" : "pond");
             hill.baseName = "base-77";
             hill.baseHeight = 77;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (waterWorldFloorMisc) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = "Base-1 Misc 16x16";
+            hill.noun = "sea floor decoration";
+            hill.baseName = "base-1";
+            hill.baseHeight = 1;
+            // Base-1 and Base-0 are a few heights apart, so a tile half floor and half water is not Base-1.
+            hill.baseFringe = false;
             hillSections_.push_back(std::move(hill));
         }
         if (lushIsland) {
@@ -17986,6 +18002,12 @@ void EditorApp::ensureBrushPaints() {
             };
             addHillButton("Horizontal Reef", reefIcon("ew"));
             addHillButton("Vertical Reef", reefIcon("ns"));
+            for (const HillSection& hill : hillSections_) {
+                if (hill.group == "Base-1 Misc 16x16" && hill.tiles == 16) {
+                    addHillButton("Base-1 Misc 16x16", hill.sectionPath);
+                    break;
+                }
+            }
         }
         if (greenHills) {
             addHillButton("Hill-85 8x8", icon8);

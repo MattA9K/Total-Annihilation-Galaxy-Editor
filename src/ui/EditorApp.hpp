@@ -697,6 +697,8 @@ private:
         std::string noun;
         std::string baseName;
         int baseHeight = 0;
+        // False when only the flat base counts, not tiles it shares with a neighbouring height.
+        bool baseFringe = true;
         std::optional<SectionStamp> stamp;
     };
     std::vector<HillSection> hillSections_;
