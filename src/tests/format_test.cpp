@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <array>
+#include <random>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -3631,6 +3632,64 @@ void testBrushCells() {
             && brushPieceName(waterWorld, {0, 0, 1, 1}) == "Blend-WaterWWorldGreen-T" && brushPieceName(waterWorld, {2, 0, 2, 0}) == "Blend-WaterWWorldMetal2-R"
             && brushPieceName(waterWorld, {3, 3, 3, 0}) == "Blend-WaterWWorldEver-BR" && brushPieceName(waterWorld, {0, 4, 4, 4}) == "Blend-WaterWWorldLush-TL",
             "WaterWorld's water fades 2-way into every other water, Metal2's and Lush's among them");
+        {
+            // Random SnowyEvergreen painting, the way the Snow brush sees its paints, once froze the editor: two corners
+            // across a cell were handed back and forth for ever, water rising to the shallows beside a Base-189 that a
+            // painted Base-255 held up, or a land stepping off painted water and a blend cell putting it back.
+            struct Paint {
+                int height;
+                const char* world;
+            };
+            std::vector<Paint> paints = {{0, "Snow"}, {65, "Snow"}, {75, "Snow"}, {85, "Snow"}, {189, "Snow"}, {255, "Snow"},
+                {85, "Green"}, {85, "Mars"}, {85, "Acid"}, {85, "Crystal"}, {85, "Ice"}, {85, "Metal"}, {85, "Quag"}, {86, "Lava"},
+                {78, "Archi"}, {77, "Lush"}, {80, "Desert"}, {85, "Ever"}, {85, "Ever2"}, {0, "WWorld"}};
+            std::stable_sort(paints.begin(), paints.end(), [](const Paint& a, const Paint& b) { return a.height < b.height; });
+            std::vector<int> heights;
+            std::vector<std::string> worlds;
+            for (const Paint& paint : paints) {
+                heights.push_back(paint.height);
+                worlds.push_back(paint.world);
+            }
+            const BrushGraph snowBrush(heights, worlds, false, "Snow");
+            const auto levelOf = [&](int height, std::string_view world) {
+                for (int i = 0; i < static_cast<int>(paints.size()); ++i) {
+                    if (paints[static_cast<std::size_t>(i)].height == height && world == paints[static_cast<std::size_t>(i)].world) {
+                        return i;
+                    }
+                }
+                return -1;
+            };
+            bool settled = true;
+            for (const auto& [seed, snowOnly] : {std::pair<unsigned, bool>{0, true}, {7, false}}) {
+                constexpr int kCells = 24;
+                std::vector<std::vector<int>> lattice(kCells + 1, std::vector<int>(kCells + 1, levelOf(85, "Snow")));
+                std::vector<int> choices;
+                for (int i = 0; i < static_cast<int>(paints.size()); ++i) {
+                    if (!snowOnly || std::string_view(paints[static_cast<std::size_t>(i)].world) == "Snow") {
+                        choices.push_back(i);
+                    }
+                }
+                for (int k = 0; k < 4; ++k) {
+                    choices.push_back(levelOf(0, "Snow"));
+                    choices.push_back(levelOf(189, "Snow"));
+                    choices.push_back(levelOf(85, "Snow"));
+                }
+                std::mt19937 rng(seed);
+                for (int stroke = 0; stroke < 60 && settled; ++stroke) {
+                    const int level = stroke >= 40 ? levelOf(255, "Snow") : choices[rng() % choices.size()];
+                    const int cells = 1 + static_cast<int>(rng() % 4);
+                    const int cx = static_cast<int>(rng() % static_cast<unsigned>(kCells - cells + 1));
+                    const int cy = static_cast<int>(rng() % static_cast<unsigned>(kCells - cells + 1));
+                    const BrushPlan plan = planBrush(kCells, kCells, cx, cy, cells, level, snowBrush,
+                        [&](int x, int y) { return lattice[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)]; });
+                    settled = !plan.unsettled;
+                    for (const BrushNode& node : plan.nodes) {
+                        lattice[static_cast<std::size_t>(node.y)][static_cast<std::size_t>(node.x)] = node.level;
+                    }
+                }
+            }
+            expect(settled, "SnowyEvergreen strokes, Base-255 on Base-189 among them, settle instead of handing corners back and forth");
+        }
         const BrushGraph snowWaterWorld(std::vector<int>{0, 0, 85}, {"Snow", "WWorld", "Snow"}, false, "Snow");
         expect(snowWaterWorld.style(0, 1) == TransitionStyle::WorldBlend && snowWaterWorld.style(0, 2) != TransitionStyle::None
             && snowWaterWorld.style(1, 2) == TransitionStyle::None

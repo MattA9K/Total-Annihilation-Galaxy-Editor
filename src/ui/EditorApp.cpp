@@ -12097,6 +12097,10 @@ EditorApp::BrushOutcome EditorApp::paintBaseBrush(int tileX, int tileY, int cell
             BrushPlan plan = cornerBrush
                 ? planBrush(cellsX, cellsY, nodeX, nodeY, 0, armedLevel, graph, readNode)
                 : planBrush(cellsX, cellsY, blockX, blockY, blockCells, armedLevel, graph, readNode);
+            if (plan.unsettled) {
+                statusNote_ = "The ground around here cannot settle for this stroke, so it was not painted. Try a smaller brush or paint the ground beside it first";
+                return BrushOutcome::Done;
+            }
             // Evergreen's water has no piece that meets both grasses at once, so where a stroke brings the water
             // and both grasses together the shore takes one grass, and that can run on round a shore nearby. A
             // stroke whose changes would reach past the cells around it is refused rather than recolouring a

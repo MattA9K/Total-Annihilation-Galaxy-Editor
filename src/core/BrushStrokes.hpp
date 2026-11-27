@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -3816,6 +3817,9 @@ struct BrushPlan {
     // Cells around the painted block that need a new picture. Cells whose
     // corners did not change are left alone.
     std::vector<BrushCell> cells;
+    // True when the corners never settled: some corner kept being handed back and forth, so the plan stopped
+    // part way. The Tile Brush refuses such a stroke rather than paint a half-settled one.
+    bool unsettled = false;
 };
 
 // A brush smaller than a cell, 4 x 4 on the 8 tile cells, paints the point where four cells
@@ -4092,11 +4096,19 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
         const auto found = slots.find(keyOf(x, y));
         return found != slots.end() ? plan.nodes[found->second].level : levelBefore(x, y);
     };
+    // How often each corner has been set. A corner set this many times is being handed back and forth by two
+    // rules that never agree, so the stroke stops there instead of running on.
+    constexpr int kCornerMoveLimit = 256;
+    std::unordered_map<long long, int> moves;
+    bool cycling = false;
     const auto setLevel = [&](int x, int y, int value) {
         if (!inLattice(x, y)) {
             return;
         }
         const long long key = keyOf(x, y);
+        if (++moves[key] > kCornerMoveLimit) {
+            cycling = true;
+        }
         const auto found = slots.find(key);
         if (found != slots.end()) {
             plan.nodes[found->second].level = value;
@@ -4166,7 +4178,23 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
     // a tileset whose paints cannot all be joined.
     int steps = 0;
     const int stepLimit = 4000000;
-    while (!work.empty() && steps++ < stepLimit) {
+    // Corners already raised to the shallows by the DSL step below. Each rises that way once per stroke: a raised
+    // corner can be pulled back down by a cliff beside it, as Base-65 is by SnowyEvergreen's Base-189 diagonal to it,
+    // and raising it again would hand the two corners back and forth for ever.
+    std::unordered_set<long long> raisedBetween;
+    // Evergreen's and SnowyEvergreen's DSL pieces leave out one land and one shallow corner beside two deep ones,
+    // so a deep corner may rise to the shallows between it and the painted land rather than
+    // to the land itself, which would only meet the next cell the same way.
+    const auto betweenStep = [&](int current, int candidate) {
+        const auto stepped = [](std::string_view world) { return evergreenWorld(world) || world == "Snow"; };
+        const int lowHeight = std::min(graph.height(current), graph.height(level));
+        const int highHeight = std::max(graph.height(current), graph.height(level));
+        return candidate != current && stepped(graph.world(candidate)) && stepped(graph.world(current))
+            && sameBrushLand(graph.world(candidate), graph.world(current))
+            && graph.height(candidate) > lowHeight && graph.height(candidate) < highHeight
+            && graph.style(std::min(candidate, current), std::max(candidate, current)) != TransitionStyle::None;
+    };
+    while (!work.empty() && !cycling && steps++ < stepLimit) {
         const std::pair<int, int> node = work.back();
         work.pop_back();
         int here = levelAfter(node.first, node.second);
@@ -4257,23 +4285,34 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                         const int current = corners[static_cast<std::size_t>(corner)];
                         options[static_cast<std::size_t>(corner)].push_back(current);
                         if (!isLocked(cx + (corner & 1), cy + (corner >> 1))) {
+                            // A painted corner never moves, so a paint that cannot sit beside one is undone by the corner
+                            // rule at once and only starts the same move again.
+                            const auto clashesWithPainted = [&](int candidate) {
+                                const int x = cx + (corner & 1);
+                                const int y = cy + (corner >> 1);
+                                for (int dy = -1; dy <= 1; ++dy) {
+                                    for (int dx = -1; dx <= 1; ++dx) {
+                                        if ((dx == 0 && dy == 0) || !inLattice(x + dx, y + dy) || !isLocked(x + dx, y + dy)) {
+                                            continue;
+                                        }
+                                        const int painted = levelAfter(x + dx, y + dy);
+                                        if (!graph.compatible(candidate, painted) && !(dx != 0 && dy != 0 && evergreenFourWayPair(graph, candidate, painted))) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                                return false;
+                            };
                             for (int candidate = 0; candidate < graph.size(); ++candidate) {
                                 const bool toHost = blendsOnly && candidate == host && current != level;
                                 // Only a corner the stroke has not moved yet, so two cells never hand one back and forth.
                                 const bool unmoved = slots.find(keyOf(cx + (corner & 1), cy + (corner >> 1))) == slots.end();
                                 const bool otherGrass = evergreenMix && unmoved && current != level && candidate == host
                                     && evergreenWorld(graph.world(current)) && evergreenWorld(graph.world(candidate));
-                                // Evergreen's and SnowyEvergreen's DSL pieces leave out one land and one shallow corner beside two deep ones,
-                                // so a deep corner may rise to the shallows between it and the painted land rather than
-                                // to the land itself, which would only meet the next cell the same way.
-                                const int lowHeight = std::min(graph.height(current), graph.height(level));
-                                const int highHeight = std::max(graph.height(current), graph.height(level));
-                                const auto stepped = [](std::string_view world) { return evergreenWorld(world) || world == "Snow"; };
-                                const bool between = stepped(graph.world(candidate)) && stepped(graph.world(current))
-                                    && sameBrushLand(graph.world(candidate), graph.world(current))
-                                    && graph.height(candidate) > lowHeight && graph.height(candidate) < highHeight
-                                    && graph.style(std::min(candidate, current), std::max(candidate, current)) != TransitionStyle::None;
-                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost || otherGrass || between)) {
+                                const bool between = raisedBetween.count(keyOf(cx + (corner & 1), cy + (corner >> 1))) == 0
+                                    && betweenStep(current, candidate);
+                                if (candidate != current && (graph.distance(level, candidate) < graph.distance(level, current) || toHost || otherGrass || between)
+                                    && !clashesWithPainted(candidate)) {
                                     options[static_cast<std::size_t>(corner)].push_back(candidate);
                                 }
                             }
@@ -4323,6 +4362,9 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
                         const int y = cy + (corner >> 1);
                         const int target = found ? best[slot] : (isLocked(x, y) ? corners[slot] : level);
                         if (target != corners[slot]) {
+                            if (betweenStep(corners[slot], target)) {
+                                raisedBetween.insert(keyOf(x, y));
+                            }
                             setLevel(x, y, target);
                             work.emplace_back(x, y);
                         }
@@ -4348,6 +4390,7 @@ inline BrushPlan planBrush(int cellsX, int cellsY, int blockX, int blockY, int b
             }
         }
     }
+    plan.unsettled = cycling || !work.empty();
 
     std::vector<BrushCell> candidates;
     for (const BrushNode& node : plan.nodes) {
