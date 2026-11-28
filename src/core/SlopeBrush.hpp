@@ -27,6 +27,7 @@
 #include "core/BrushStrokes.hpp"
 #include "core/RiverBrush.hpp"
 
+#include <algorithm>
 #include <map>
 #include <utility>
 
@@ -129,6 +130,35 @@ inline const char* slopeEdgeLetter(int mask) {
 // other three edges. It has no run pieces, so neighbouring ramps stay singles and a corner is refused.
 inline constexpr int kSlopeRampFamily = 1;
 
+// SnowyEvergreen's ramps, from its Base-85 snow up to its Base-189 plateau: Single-189-High-B and the rest. Its cliffs keep
+// the plain Cliff-High names. Like Archipelago's family 202 it has every piece: singles for the four edges and the high and
+// low corners, run middles, run ends, and corners with one arm or both joined.
+inline constexpr int kSlopeSnowFamily = 189;
+
+// Evergreen's ramps, from Base-85-1 grass up to the Base-190-2 stone plateau: Single-190-High-B and the rest. The
+// cliffs they turn are the plain Cliff-High pieces in folder Evergreen2-Evergreen. The set has singles for the four
+// straight edges and the four inside corners, run middles, and inside corners that join a run on one arm. It has no
+// outside corners and no piece where a run meets a cliff, so a run only forms once inside corners close both its
+// ends; until then each ramp stays a single.
+inline constexpr int kSlopeEvergreenFamily = 190;
+
+// SnowyEvergreen's ramps from its Base-189 plateau up to Base-255: Single-Snow255-High-B and the rest, with every piece
+// as for family 189. The number 255 already names Metal's Base-139 to Base-255 slopes, so this family is named by a word.
+// Its cliffs, in folder SnowyEvergreen-189, share their plain names with the Base-85 to Base-189 cliffs, so the river
+// catalog reads them as Cliff-Snow255-High-B and the rest.
+inline constexpr int kSlopeSnowPeakFamily = 2;
+
+// Families with a one-sided piece for each arm of a corner, and a single low corner of their own.
+inline bool slopeCornerRuns(int family) {
+    return family == 202 || family == kSlopeSnowFamily || family == kSlopeEvergreenFamily || family == kSlopeSnowPeakFamily;
+}
+
+// Families whose runs must be closed at both ends by pieces the tileset has: a join between two ramps is kept only
+// when both of them have a picture for it.
+inline bool slopeClosedRuns(int family) {
+    return family == kSlopeEvergreenFamily;
+}
+
 // "Single-High-B" stays plain. Family 255 names the same shape "Single-255-High-B", and the ramp family
 // "Single-Ramp-High-B".
 inline std::string slopeQualify(std::string name, int family) {
@@ -141,7 +171,13 @@ inline std::string slopeQualify(std::string name, int family) {
     }
     // The ramp word follows the name's case: the parser reads lowered names such as "cliff-ramp-high-".
     const bool lowered = name[0] >= 'a' && name[0] <= 'z';
-    name.insert(dash + 1, family == kSlopeRampFamily ? std::string(lowered ? "ramp-" : "Ramp-") : std::to_string(family) + "-");
+    if (family == kSlopeRampFamily) {
+        name.insert(dash + 1, lowered ? "ramp-" : "Ramp-");
+    } else if (family == kSlopeSnowPeakFamily) {
+        name.insert(dash + 1, lowered ? "snow255-" : "Snow255-");
+    } else {
+        name.insert(dash + 1, std::to_string(family) + "-");
+    }
     return name;
 }
 
@@ -168,7 +204,7 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
 // Family 183 cliffs are Cliff-183-High. Archipelago's family 202 and Desert's
 // family 155 read the plain Cliff-High cliffs and keep the family number in the
 // slope names only.
-const bool qualifiedCliffs = family == 255 || family == 230 || family == 183 || family == kSlopeRampFamily;
+const bool qualifiedCliffs = family == 255 || family == 230 || family == 183 || family == kSlopeRampFamily || family == kSlopeSnowPeakFamily;
 const Taken cliffHigh = take("cliff-high-", qualifiedCliffs);
 const Taken cliffLow = take("cliff-low-", qualifiedCliffs);
 const Taken slopeHigh = take("slope-high-", true);
@@ -270,7 +306,7 @@ inline std::string slopePieceName(int mask, int continuing, int family = 0) {
         }
         // Archipelago has a one-sided corner for each arm. GreenWorld keeps the
         // single until both arms are slopes.
-        if (count == 1 && family == 202) {
+        if (count == 1 && slopeCornerRuns(family)) {
             return slopeQualify(std::string("Slope-High-") + corner + "-Transition" + riverLetterOfSide(only), family);
         }
         return slopeQualify(std::string("Single-High-") + corner, family);
@@ -285,7 +321,7 @@ inline std::string slopePieceName(int mask, int continuing, int family = 0) {
         }
         // An Archipelago corner that meets no other slope is a Single. The
         // Slope-Low picture is the one used once both arms are slopes.
-        if (count == 0 && family == 202) {
+        if (count == 0 && slopeCornerRuns(family)) {
             return slopeQualify(std::string("Single-Low-") + corner, family);
         }
         return slopeQualify(std::string("Slope-Low-") + corner, family);
@@ -319,9 +355,24 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         } else if (family == kSlopeRampFamily) {
             text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
             range = "\nRamps only go on Metal's high coast, from the dark water up to Base-139";
+        } else if (family == kSlopeSnowFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on cliffs between Base-85 and Base-189";
+        } else if (family == kSlopeSnowPeakFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on cliffs between Base-189 and Base-255";
+        } else if (family == kSlopeEvergreenFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on cliffs from Base-85-1 up to Base-190-2";
         }
         text += range;
         plan.reason = std::move(text);
+        return plan;
+    }
+    if (slopeClosedRuns(family) && slopeCornerCount(here.mask) == 1) {
+        const RiverCell cell = lookup(x, y);
+        plan.reason = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
+            + "\nRamps only go on straight cliffs and inside corners";
         return plan;
     }
 
@@ -391,7 +442,7 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         }
         const char* corner = slopeCornerLetters(kCornerAll & ~here.mask);
         const bool hasSingle = corner != nullptr
-            && (available ? available(slopeQualify(std::string("Single-Low-") + corner, family)) : family == 202);
+            && (available ? available(slopeQualify(std::string("Single-Low-") + corner, family)) : slopeCornerRuns(family));
         if (!joined && !hasSingle) {
             const RiverCell cell = lookup(x, y);
             std::string text = "Slopes cannot go on ";
@@ -422,7 +473,7 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         if (slopeCornerCount(mask) == 1) {
             // Family 202's one-sided corner is itself a joining slope, so the
             // arm beside it becomes a transition too.
-            if (family == 202 && (present & back) != 0) {
+            if (slopeCornerRuns(family) && (present & back) != 0) {
                 return true;
             }
             return present == slopeCliffSides(mask);
@@ -453,6 +504,88 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         return sides;
     };
 
+    // Closed runs: start from every join between neighbouring ramps, then drop the joins a cell has no picture for. A
+    // straight ramp joined on one side only has no piece, so that join goes, and the loss can travel down the run. An
+    // inside corner joined on both arms keeps the arm that leaves more joins in place.
+    std::map<std::pair<int, int>, int> closedSides;
+    if (slopeClosedRuns(family)) {
+        for (const auto& [cell, mask] : slopes) {
+            int sides = 0;
+            for (int direction = 1; direction <= kRiverAllSides; direction <<= 1) {
+                if ((slopeCliffSides(mask) & direction) == 0) {
+                    continue;
+                }
+                int nx = cell.first;
+                int ny = cell.second;
+                slopeStep(direction, nx, ny);
+                const auto found = slopes.find({nx, ny});
+                if (found != slopes.end() && slopeEdgesMatch(mask, found->second, direction)) {
+                    sides |= direction;
+                }
+            }
+            closedSides[cell] = sides;
+        }
+        using Joins = std::map<std::pair<int, int>, int>;
+        const auto fits = [&](const std::pair<int, int>& cell, int sides) {
+            const std::string name = slopePieceName(slopes[cell], sides, family);
+            return !name.empty() && (!available || available(name));
+        };
+        const auto drop = [](Joins& joins, const std::pair<int, int>& cell, int direction) {
+            joins[cell] &= ~direction;
+            int nx = cell.first;
+            int ny = cell.second;
+            slopeStep(direction, nx, ny);
+            const auto other = joins.find({nx, ny});
+            if (other != joins.end()) {
+                other->second &= ~oppositeRiverSide(direction);
+            }
+        };
+        const auto total = [](const Joins& joins) {
+            int count = 0;
+            for (const auto& entry : joins) {
+                count += slopeCornerCount(entry.second);
+            }
+            return count;
+        };
+        // Drops the joins that leave no choice: a cell joined on one side with no picture for it.
+        const auto settle = [&](Joins& joins) {
+            for (bool changed = true; changed;) {
+                changed = false;
+                for (auto& [cell, sides] : joins) {
+                    if (slopeCornerCount(sides) == 1 && !fits(cell, sides)) {
+                        drop(joins, cell, sides);
+                        changed = true;
+                    }
+                }
+            }
+        };
+        settle(closedSides);
+        for (;;) {
+            const auto stuck = std::find_if(closedSides.begin(), closedSides.end(),
+                [&](const auto& entry) { return slopeCornerCount(entry.second) >= 2 && !fits(entry.first, entry.second); });
+            if (stuck == closedSides.end()) {
+                break;
+            }
+            const std::pair<int, int> cell = stuck->first;
+            const int sides = stuck->second;
+            Joins best;
+            int bestCount = -1;
+            for (int direction = 1; direction <= kRiverAllSides; direction <<= 1) {
+                if ((sides & direction) == 0) {
+                    continue;
+                }
+                Joins tried = closedSides;
+                drop(tried, cell, direction);
+                settle(tried);
+                if (total(tried) > bestCount) {
+                    bestCount = total(tried);
+                    best = std::move(tried);
+                }
+            }
+            closedSides = std::move(best);
+        }
+    }
+
     const std::pair<int, int> seed{x, y};
     std::vector<std::pair<int, int>> order;
     order.push_back(seed);
@@ -463,7 +596,8 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
     }
     for (const auto& cell : order) {
         const int mask = slopes[cell];
-        std::string wanted = slopePieceName(mask, continuing(cell.first, cell.second, mask), family);
+        const int sides = slopeClosedRuns(family) ? closedSides[cell] : continuing(cell.first, cell.second, mask);
+        std::string wanted = slopePieceName(mask, sides, family);
         if (wanted.empty()) {
             continue;
         }

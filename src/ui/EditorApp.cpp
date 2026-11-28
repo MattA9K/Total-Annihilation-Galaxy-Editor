@@ -384,6 +384,10 @@ const std::string kSnowSeaCliffFolder = "SnowyEvergreen-0";
 const std::string kSnowFrozenCliffFolder = "SnowyEvergreen-75";
 // Metal's sea cliffs from Metal2's dark Base-0 water straight up to Metal's Base-139.
 const std::string kMetalSeaCliffFolder = "Metal-0";
+// Evergreen's cliffs from Base-85-1 grass up to the Base-190-2 stone plateau, the only Evergreen cliffs with ramps.
+const std::string kEvergreenRampCliffFolder = "Evergreen2-Evergreen";
+// The Evergreen brush's button for those ramps.
+constexpr const char* kEvergreenRampButton = "Slope 85-1 to 190-2";
 // The coasts from Lava's Base-41 up to Metal's Base-85, from Lava-Metal.hpi's Coast_ pieces. They are named like
 // water coasts, Coast-Water-T and Coast-Land-BR, whichever brush paints them.
 const std::string kLavaMetalFolder = "Lava-Metal";
@@ -7021,6 +7025,12 @@ void EditorApp::drawMap() {
             } else if (armedBrushKind() == BrushKind::Slope) {
                 if (brushName_ == "Ramp") {
                     action = "Click a straight stretch of high coast to turn it into a ramp";
+                } else if (brushName_ == "Slope 189") {
+                    action = "Click a Base-85 to Base-189 cliff to turn it into a ramp";
+                } else if (brushName_ == "Slope 255") {
+                    action = "Click a Base-189 to Base-255 cliff to turn it into a ramp";
+                } else if (brushName_ == kEvergreenRampButton) {
+                    action = "Click a straight Base-85-1 to Base-190-2 cliff or inside corner to turn it into a ramp";
                 } else if (brushName_ == "Slope 139 to 255") {
                     action = "Click a straight Base-139 to Base-255 cliff to turn it into a slope";
                 } else if (brushName_ == "Slope 85 to 219") {
@@ -13305,6 +13315,16 @@ void EditorApp::ensureRiverCatalog() {
             // Metal's sea cliffs share their plain names with its Base-85 to Base-219 cliffs. Read as Cliff-Ramp-, only
             // the Ramp button turns them, and the Slope 85 to 219 button leaves them alone.
             addSection(piece.sectionPath, "Cliff-Ramp-" + piece.name.substr(std::string_view("Cliff-").size()));
+        } else if (frozenRivers && lowered.starts_with("cliff-") && lowerText(piece.category) != "snowyevergreen") {
+            // SnowyEvergreen's other cliffs share their plain names with the Base-85 to Base-189 cliffs. Its Base-189 to
+            // Base-255 cliffs read as Cliff-Snow255-, which only the Slope 255 button turns; the ones up from its water and
+            // frozen water read as Cliff-Other-, which no slope button turns.
+            const bool peak = lowerText(piece.category) == lowerText(kSnowPeakFolder);
+            addSection(piece.sectionPath, std::string(peak ? "Cliff-Snow255-" : "Cliff-Other-") + piece.name.substr(std::string_view("Cliff-").size()));
+        } else if (isEvergreenWorld(brushWorld_) && lowered.starts_with("cliff-") && lowerText(piece.category) != lowerText(kEvergreenRampCliffFolder)) {
+            // Evergreen's other cliffs share their plain names with the Base-85-1 to Base-190-2 cliffs. Read as Cliff-Other-, the
+            // ramp button leaves them alone.
+            addSection(piece.sectionPath, "Cliff-Other-" + piece.name.substr(std::string_view("Cliff-").size()));
         } else if ((lowered.starts_with("coast-") && !frozenRivers) || lowered.starts_with("cliff-")) {
             addSection(piece.sectionPath, piece.name);
         }
@@ -13383,6 +13403,12 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
             family = 183;
         } else if (brushName_ == "Ramp") {
             family = kSlopeRampFamily;
+        } else if (brushName_ == "Slope 189") {
+            family = kSlopeSnowFamily;
+        } else if (brushName_ == "Slope 255") {
+            family = kSlopeSnowPeakFamily;
+        } else if (brushName_ == kEvergreenRampButton) {
+            family = kSlopeEvergreenFamily;
         }
         return planSlope(cellX, cellY, lookup, available, family);
     }
@@ -17896,6 +17922,20 @@ void EditorApp::ensureBrushPaints() {
         addRiverButton("Slope 155 to 230", "Single-230-High-B", BrushKind::Slope);
     } else if (lowerText(brushWorld_) == "lush") {
         addRiverButton("Slope 77 to 183", "Single-183-High-B", BrushKind::Slope);
+    } else if (lowerText(brushWorld_) == "snowyevergreen") {
+        // SnowyEvergreen's ramps, once the tileset has them.
+        // The pieces are numbered, Single-189-High-B-01 and -02, so this checks the name without its number.
+        if (std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.key, "Single-189-High-B"); })) {
+            addRiverButton("Slope 189", "Single-189-High-B-01", BrushKind::Slope);
+        }
+        if (std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.key, "Single-Snow255-High-B"); })) {
+            addRiverButton("Slope 255", "Single-Snow255-High-B-01", BrushKind::Slope);
+        }
+    } else if (isEvergreenWorld(brushWorld_)) {
+        // Evergreen's ramps from Base-85-1 up to Base-190-2, once the tileset has them. Their pieces are numbered too.
+        if (std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.key, "Single-190-High-B"); })) {
+            addRiverButton(kEvergreenRampButton, "Single-190-High-B-01", BrushKind::Slope);
+        }
     } else {
         addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
     }
@@ -18601,6 +18641,13 @@ void EditorApp::drawTileBrush() {
             } else if (paint.kind == BrushKind::Slope) {
                 if (paint.name == "Ramp") {
                     hint = "Turn a straight high coast, from the dark water up to Base-139, into a ramp\nEach ramp stays on its own cliff";
+                } else if (paint.name == "Slope 189") {
+                    hint = "Turn a Base-85 to Base-189 cliff into a ramp\nRamps join the ramps beside them and meet cliffs at the ends";
+                } else if (paint.name == "Slope 255") {
+                    hint = "Turn a Base-189 to Base-255 cliff into a ramp\nRamps join the ramps beside them and meet cliffs at the ends";
+                } else if (paint.name == kEvergreenRampButton) {
+                    hint = "Turn a straight Base-85-1 to Base-190-2 cliff or an inside corner into a ramp\n"
+                           "Ramps stay singles until inside corners close both ends of a run, then they join into one long ramp";
                 } else if (paint.name == "Slope 139 to 255") {
                     hint = "Turn a straight Base-139 to Base-255 cliff into a slope\nEach slope stays on its own cliff";
                 } else if (paint.name == "Slope 85 to 219") {

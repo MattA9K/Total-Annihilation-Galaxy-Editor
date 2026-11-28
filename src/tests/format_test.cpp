@@ -6331,6 +6331,108 @@ void testSlopes() {
     archArm.at(1, 2) = "Cliff-High-T";
     expect(archArm.slope(2, 2, {}, 202).allowed() && archArm.at(2, 2) == "Single-202-High-TL" && archArm.at(1, 2) == "Cliff-High-T", "the first Archipelago corner leaves its arm alone");
     expect(archArm.slope(1, 2, {}, 202).allowed() && archArm.at(2, 2) == "Slope-202-High-TL-TransitionL" && archArm.at(1, 2) == "Slope-202-High-T-TransitionR", "one arm uses the Archipelago corner transition, got " + archArm.at(2, 2) + " and " + archArm.at(1, 2));
+    // SnowyEvergreen's ramps read its plain Base-85 to Base-189 cliffs and use family 189 in the ramp names. A run three
+    // cells long has a start, a middle and an end, and corners take the one-armed pieces like Archipelago's.
+    const int snow = galaxy::kSlopeSnowFamily;
+    SlopeTestGrid snowRun(5, 3, "Base-85");
+    snowRun.at(1, 1) = "Cliff-High-B";
+    snowRun.at(2, 1) = "Cliff-High-B";
+    snowRun.at(3, 1) = "Cliff-High-B";
+    expect(snowRun.slope(1, 1, {}, snow).allowed() && snowRun.at(1, 1) == "Single-189-High-B", "the first SnowyEvergreen ramp is a single, got " + snowRun.at(1, 1));
+    snowRun.slope(2, 1, {}, snow);
+    snowRun.slope(3, 1, {}, snow);
+    expect(snowRun.at(1, 1) == "Slope-189-High-B-TransitionR" && snowRun.at(2, 1) == "Slope-189-High-B" && snowRun.at(3, 1) == "Slope-189-High-B-TransitionL",
+        "a SnowyEvergreen ramp three cells wide is a start, a middle and an end, got " + snowRun.at(1, 1) + ", " + snowRun.at(2, 1) + " and " + snowRun.at(3, 1));
+    SlopeTestGrid snowArm(4, 4, "Base-189");
+    snowArm.at(2, 2) = "Cliff-High-TL";
+    snowArm.at(1, 2) = "Cliff-High-T";
+    snowArm.slope(2, 2, {}, snow);
+    expect(snowArm.slope(1, 2, {}, snow).allowed() && snowArm.at(2, 2) == "Slope-189-High-TL-TransitionL" && snowArm.at(1, 2) == "Slope-189-High-T-TransitionR",
+        "one arm of a SnowyEvergreen ramp corner uses its corner transition, got " + snowArm.at(2, 2) + " and " + snowArm.at(1, 2));
+    SlopeTestGrid snowNotch(3, 3, "Base-189");
+    snowNotch.at(1, 1) = "Cliff-Low-BR";
+    expect(snowNotch.slope(1, 1, {}, snow).allowed() && snowNotch.at(1, 1) == "Single-189-Low-BR", "an isolated SnowyEvergreen low corner is a single ramp, got " + snowNotch.at(1, 1));
+    // SnowyEvergreen's ramps up to Base-255 read its Base-189 to Base-255 cliffs, labelled Cliff-Snow255, and use the word
+    // Snow255 in the ramp names, so neither SnowyEvergreen ramp button turns the other's cliffs.
+    const int peak = galaxy::kSlopeSnowPeakFamily;
+    SlopeTestGrid peakRun(5, 3, "Base-189");
+    peakRun.at(1, 1) = "Cliff-Snow255-High-T";
+    peakRun.at(2, 1) = "Cliff-Snow255-High-T";
+    peakRun.at(3, 1) = "Cliff-Snow255-High-T";
+    expect(peakRun.slope(1, 1, {}, peak).allowed() && peakRun.at(1, 1) == "Single-Snow255-High-T", "the first SnowyEvergreen Base-255 ramp is a single, got " + peakRun.at(1, 1));
+    peakRun.slope(2, 1, {}, peak);
+    peakRun.slope(3, 1, {}, peak);
+    expect(peakRun.at(1, 1) == "Slope-Snow255-High-T-TransitionR" && peakRun.at(2, 1) == "Slope-Snow255-High-T" && peakRun.at(3, 1) == "Slope-Snow255-High-T-TransitionL",
+        "a SnowyEvergreen Base-255 ramp three cells wide is a start, a middle and an end, got " + peakRun.at(1, 1) + ", " + peakRun.at(2, 1) + " and " + peakRun.at(3, 1));
+    SlopeTestGrid peakNotch(3, 3, "Base-255");
+    peakNotch.at(1, 1) = "Cliff-Snow255-Low-TL";
+    expect(peakNotch.slope(1, 1, {}, peak).allowed() && peakNotch.at(1, 1) == "Single-Snow255-Low-TL", "an isolated SnowyEvergreen Base-255 low corner is a single ramp, got " + peakNotch.at(1, 1));
+    SlopeTestGrid crossed(3, 3, "Base-189");
+    crossed.at(1, 1) = "Cliff-High-B";
+    crossed.at(2, 1) = "Cliff-Snow255-High-B";
+    expect(!crossed.slope(1, 1, {}, peak).allowed() && !crossed.slope(2, 1, {}, snow).allowed() && crossed.at(1, 1) == "Cliff-High-B" && crossed.at(2, 1) == "Cliff-Snow255-High-B",
+        "Slope 255 leaves the Base-85 to Base-189 cliffs alone, and Slope 189 leaves the Base-189 to Base-255 cliffs alone");
+    SlopeTestGrid snowOther(3, 3, "Base-189");
+    snowOther.at(1, 1) = "Cliff-Other-High-B";
+    const galaxy::RiverPlan snowRefused = snowOther.slope(1, 1, {}, snow);
+    expect(!snowRefused.allowed() && snowRefused.reason.find("Base-85 and Base-189") != std::string::npos && snowOther.at(1, 1) == "Cliff-Other-High-B",
+        "SnowyEvergreen ramps stay off its other cliffs, such as Base-189 up to Base-255");
+    // Evergreen's ramps, Base-85-1 up to Base-190-2, family 190. The set has no run ends and no outside corners, so a
+    // run only forms between two inside corners; until then each ramp is a single.
+    const int ever = galaxy::kSlopeEvergreenFamily;
+    const auto everKeys = [](std::string_view key) {
+        static const std::set<std::string> names = {"Single-190-High-T", "Single-190-High-B", "Single-190-High-L", "Single-190-High-R",
+            "Single-190-Low-TL", "Single-190-Low-TR", "Single-190-Low-BL", "Single-190-Low-BR", "Slope-190-High-T", "Slope-190-High-B",
+            "Slope-190-High-L", "Slope-190-High-R", "Slope-190-Low-BR-TransitionB", "Slope-190-Low-BR-TransitionR",
+            "Slope-190-Low-BL-TransitionB", "Slope-190-Low-BL-TransitionL", "Slope-190-Low-TR-TransitionT", "Slope-190-Low-TR-TransitionR",
+            "Slope-190-Low-TL-TransitionT", "Slope-190-Low-TL-TransitionL"};
+        return names.count(std::string(key)) != 0;
+    };
+    SlopeTestGrid everBay(6, 3, "Base-190");
+    everBay.at(1, 1) = "Cliff-Low-BR";
+    everBay.at(2, 1) = "Cliff-High-T";
+    everBay.at(3, 1) = "Cliff-High-T";
+    everBay.at(4, 1) = "Cliff-Low-BL";
+    expect(everBay.slope(1, 1, everKeys, ever).allowed() && everBay.at(1, 1) == "Single-190-Low-BR", "an Evergreen inside corner alone is a single ramp, got " + everBay.at(1, 1));
+    expect(everBay.slope(2, 1, everKeys, ever).allowed() && everBay.at(1, 1) == "Single-190-Low-BR" && everBay.at(2, 1) == "Single-190-High-T",
+        "an open Evergreen run stays singles, got " + everBay.at(1, 1) + " and " + everBay.at(2, 1));
+    everBay.slope(3, 1, everKeys, ever);
+    expect(everBay.at(3, 1) == "Single-190-High-T" && everBay.at(2, 1) == "Single-190-High-T", "straight Evergreen ramps side by side stay singles");
+    expect(everBay.slope(4, 1, everKeys, ever).allowed() && everBay.at(1, 1) == "Slope-190-Low-BR-TransitionR" && everBay.at(2, 1) == "Slope-190-High-T"
+            && everBay.at(3, 1) == "Slope-190-High-T" && everBay.at(4, 1) == "Slope-190-Low-BL-TransitionL",
+        "two inside corners close an Evergreen run, got " + everBay.at(1, 1) + ", " + everBay.at(2, 1) + ", " + everBay.at(3, 1) + " and " + everBay.at(4, 1));
+    SlopeTestGrid everNotch(3, 4, "Base-190");
+    everNotch.at(1, 1) = "Cliff-Low-BR";
+    everNotch.at(1, 2) = "Cliff-Low-TR";
+    everNotch.slope(1, 1, everKeys, ever);
+    expect(everNotch.slope(1, 2, everKeys, ever).allowed() && everNotch.at(1, 1) == "Slope-190-Low-BR-TransitionB" && everNotch.at(1, 2) == "Slope-190-Low-TR-TransitionT",
+        "two Evergreen inside corners join each other, got " + everNotch.at(1, 1) + " and " + everNotch.at(1, 2));
+    // An inside corner with a closed run on both arms keeps one arm. The other run falls back to singles.
+    SlopeTestGrid everBoth(5, 5, "Base-190");
+    everBoth.at(1, 1) = "Cliff-Low-BR";
+    everBoth.at(2, 1) = "Cliff-High-T";
+    everBoth.at(3, 1) = "Cliff-Low-BL";
+    everBoth.at(1, 2) = "Cliff-High-L";
+    everBoth.at(1, 3) = "Cliff-Low-TR";
+    for (const auto& [cx, cy] : {std::pair{1, 1}, {2, 1}, {3, 1}, {1, 2}, {1, 3}}) {
+        everBoth.slope(cx, cy, everKeys, ever);
+    }
+    bool everAllReal = true;
+    for (const auto& [cx, cy] : {std::pair{1, 1}, {2, 1}, {3, 1}, {1, 2}, {1, 3}}) {
+        everAllReal = everAllReal && everKeys(everBoth.at(cx, cy));
+    }
+    expect(everAllReal && everBoth.at(1, 1).find("Transition") != std::string::npos,
+        "an Evergreen corner with runs on both arms keeps one, got " + everBoth.at(1, 1) + ", " + everBoth.at(2, 1) + ", " + everBoth.at(1, 2));
+    SlopeTestGrid everOutside(3, 3, "Base-85");
+    everOutside.at(1, 1) = "Cliff-High-TL";
+    const galaxy::RiverPlan everOutsideRefused = everOutside.slope(1, 1, everKeys, ever);
+    expect(!everOutsideRefused.allowed() && everOutsideRefused.reason.find("inside corners") != std::string::npos && everOutside.at(1, 1) == "Cliff-High-TL",
+        "Evergreen ramps stay off outside corners");
+    SlopeTestGrid everOther(3, 3, "Base-85");
+    everOther.at(1, 1) = "Cliff-Other-High-B";
+    const galaxy::RiverPlan everOtherRefused = everOther.slope(1, 1, everKeys, ever);
+    expect(!everOtherRefused.allowed() && everOtherRefused.reason.find("Base-85-1 up to Base-190-2") != std::string::npos,
+        "Evergreen ramps stay off its other cliffs");
     SlopeTestGrid oneArm(4, 3, "Base-85");
     oneArm.at(2, 1) = "Cliff-High-TR";
     oneArm.at(3, 1) = "Cliff-High-T";
