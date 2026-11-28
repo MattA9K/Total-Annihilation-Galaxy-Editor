@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <atomic>
 #include <memory>
 #include <future>
 #include <optional>
@@ -243,6 +244,13 @@ private:
     void ensureMinimap();
     // Base tiles from the random-map tileset, shown in the Tile Brush window.
     void ensureBrushPaints();
+    // The Tile Brush's picture catalogue is built on a worker thread the first time a tileset is chosen with no cache
+    // file for it. While it builds, the brush does not paint or read the map, and nothing else touches the catalogue.
+    // finishCatalogueBuild collects a finished build, or with wait set, waits for the running one. stopCatalogueBuild
+    // cancels it and waits; the next ensureBrushPaints reads the tileset again.
+    void finishCatalogueBuild(bool wait);
+    void stopCatalogueBuild();
+    bool catalogueBuilding() const { return catalogueBuilding_.load(); }
     void drawTileBrush();
     void armBrush(const std::string& name);
     // Stamps one random BaseTileBrushStrokes variation for the armed paint and size.
@@ -873,6 +881,18 @@ private:
     // The random map running in the background, if any.
     std::shared_ptr<RandomMapJob> randomMapJob_;
     std::future<void> randomMapWork_;
+    // The picture catalogue being built in the background, and the flag that cancels it.
+    std::future<void> catalogueWork_;
+    std::shared_ptr<std::atomic<bool>> catalogueCancel_;
+    std::atomic<bool> catalogueBuilding_{false};
+    // Progress of that build: the worker counts the pieces it has read, out of catalogueTotal_, the count the last
+    // build of this tileset read (kept beside the catalogue cache), or a guess from the number of pieces.
+    std::shared_ptr<std::atomic<int>> catalogueDone_;
+    int catalogueTotal_ = 0;
+    // 0 to 1 for the Tile Brush's progress ring.
+    float catalogueProgress() const;
+    // A tileset chosen in the Tile Brush menu loads on the next frame, so the spinner shows before the work starts.
+    bool brushSwitchPending_ = false;
     // Auto Metal: MegaMetal4 on every 8 x 8 tile block of Metal ground.
     void autoMetal();
     // Every tile picture of the random map tileset's Metal sections, read once per tileset.
