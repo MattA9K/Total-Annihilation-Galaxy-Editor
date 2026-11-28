@@ -137,9 +137,10 @@ inline constexpr int kSlopeSnowFamily = 189;
 
 // Evergreen's ramps, from Base-85-1 grass up to the Base-190-2 stone plateau: Single-190-High-B and the rest. The
 // cliffs they turn are the plain Cliff-High pieces in folder Evergreen2-Evergreen. The set has singles for the four
-// straight edges and the four inside corners, run middles, and inside corners that join a run on one arm. It has no
-// outside corners and no piece where a run meets a cliff, so a run only forms once inside corners close both its
-// ends; until then each ramp stays a single.
+// straight edges and the four inside corners, run middles, and inside corners that join a run on one arm. The source has
+// no piece where a run meets a cliff; the tileset's Slope-190-High-X-TransitionY run ends were spliced from the single
+// (its cliff side) and the run middle. It has no outside corners and no corner joined on both arms, so the planner keeps
+// only the joins a cell has a picture for (slopeClosedRuns).
 inline constexpr int kSlopeEvergreenFamily = 190;
 
 // SnowyEvergreen's ramps from its Base-189 plateau up to Base-255: Single-Snow255-High-B and the rest, with every piece
@@ -148,15 +149,30 @@ inline constexpr int kSlopeEvergreenFamily = 190;
 // catalog reads them as Cliff-Snow255-High-B and the rest.
 inline constexpr int kSlopeSnowPeakFamily = 2;
 
+// Evergreen's ramps from its Base-190-1 plateau up to Base-255-1: Single-Ever255-High-B and the other three straight
+// edges, nothing else, so neighbouring ramps stay singles and a corner is refused. Their cliffs, in folder Evergreen-190,
+// share their plain names with Evergreen's other cliffs, so the river catalog reads them as Cliff-Ever255-High-B.
+inline constexpr int kSlopeEvergreenPeakFamily = 3;
+
+// Evergreen's ramps from Base-85-2 grass up to the Base-190-2 stone plateau: Single-EG2-High-B and the rest. The same
+// twenty shapes as family 190, so runs likewise form only between two inside corners. Their cliffs, in folder Evergreen2,
+// share their plain names with Evergreen's other cliffs, so the river catalog reads them as Cliff-EG2-High-B.
+inline constexpr int kSlopeEvergreen2Family = 4;
+
+// Evergreen's ramps from the Base-190-2 stone plateau up to Base-255-2 (Stone_255): Single-Stone255-High-B and the other
+// three straight edges only, like family 3. Their cliffs, in folder Evergreen2-190, read as Cliff-Stone255-High-B.
+inline constexpr int kSlopeEvergreen2PeakFamily = 5;
+
 // Families with a one-sided piece for each arm of a corner, and a single low corner of their own.
 inline bool slopeCornerRuns(int family) {
-    return family == 202 || family == kSlopeSnowFamily || family == kSlopeEvergreenFamily || family == kSlopeSnowPeakFamily;
+    return family == 202 || family == kSlopeSnowFamily || family == kSlopeEvergreenFamily || family == kSlopeSnowPeakFamily
+        || family == kSlopeEvergreen2Family;
 }
 
 // Families whose runs must be closed at both ends by pieces the tileset has: a join between two ramps is kept only
 // when both of them have a picture for it.
 inline bool slopeClosedRuns(int family) {
-    return family == kSlopeEvergreenFamily;
+    return family == kSlopeEvergreenFamily || family == kSlopeEvergreen2Family;
 }
 
 // "Single-High-B" stays plain. Family 255 names the same shape "Single-255-High-B", and the ramp family
@@ -175,6 +191,12 @@ inline std::string slopeQualify(std::string name, int family) {
         name.insert(dash + 1, lowered ? "ramp-" : "Ramp-");
     } else if (family == kSlopeSnowPeakFamily) {
         name.insert(dash + 1, lowered ? "snow255-" : "Snow255-");
+    } else if (family == kSlopeEvergreenPeakFamily) {
+        name.insert(dash + 1, lowered ? "ever255-" : "Ever255-");
+    } else if (family == kSlopeEvergreen2Family) {
+        name.insert(dash + 1, lowered ? "eg2-" : "EG2-");
+    } else if (family == kSlopeEvergreen2PeakFamily) {
+        name.insert(dash + 1, lowered ? "stone255-" : "Stone255-");
     } else {
         name.insert(dash + 1, std::to_string(family) + "-");
     }
@@ -204,7 +226,8 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
 // Family 183 cliffs are Cliff-183-High. Archipelago's family 202 and Desert's
 // family 155 read the plain Cliff-High cliffs and keep the family number in the
 // slope names only.
-const bool qualifiedCliffs = family == 255 || family == 230 || family == 183 || family == kSlopeRampFamily || family == kSlopeSnowPeakFamily;
+const bool qualifiedCliffs = family == 255 || family == 230 || family == 183 || family == kSlopeRampFamily || family == kSlopeSnowPeakFamily
+    || family == kSlopeEvergreenPeakFamily || family == kSlopeEvergreen2Family || family == kSlopeEvergreen2PeakFamily;
 const Taken cliffHigh = take("cliff-high-", qualifiedCliffs);
 const Taken cliffLow = take("cliff-low-", qualifiedCliffs);
 const Taken slopeHigh = take("slope-high-", true);
@@ -364,6 +387,15 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         } else if (family == kSlopeEvergreenFamily) {
             text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
             range = "\nRamps only go on cliffs from Base-85-1 up to Base-190-2";
+        } else if (family == kSlopeEvergreenPeakFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on straight cliffs from Base-190-1 up to Base-255-1";
+        } else if (family == kSlopeEvergreen2Family) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on cliffs from Base-85-2 up to Base-190-2";
+        } else if (family == kSlopeEvergreen2PeakFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on straight cliffs from Base-190-2 up to Base-255-2";
         }
         text += range;
         plan.reason = std::move(text);
@@ -387,6 +419,12 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         if (family == kSlopeRampFamily) {
             text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
                 + "\nRamps only go on a straight stretch of Metal's high coast";
+        } else if (family == kSlopeEvergreenPeakFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
+                + "\nRamps only go on straight cliffs from Base-190-1 up to Base-255-1";
+        } else if (family == kSlopeEvergreen2PeakFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
+                + "\nRamps only go on straight cliffs from Base-190-2 up to Base-255-2";
         }
         plan.reason = std::move(text);
         return plan;

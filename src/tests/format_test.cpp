@@ -6401,6 +6401,24 @@ void testSlopes() {
     expect(everBay.slope(4, 1, everKeys, ever).allowed() && everBay.at(1, 1) == "Slope-190-Low-BR-TransitionR" && everBay.at(2, 1) == "Slope-190-High-T"
             && everBay.at(3, 1) == "Slope-190-High-T" && everBay.at(4, 1) == "Slope-190-Low-BL-TransitionL",
         "two inside corners close an Evergreen run, got " + everBay.at(1, 1) + ", " + everBay.at(2, 1) + ", " + everBay.at(3, 1) + " and " + everBay.at(4, 1));
+    // With the spliced run ends in the tileset, straight ramps side by side join into one wide ramp.
+    const auto everWideKeys = [&](std::string_view key) {
+        static const std::set<std::string> ends = {"Slope-190-High-T-TransitionL", "Slope-190-High-T-TransitionR", "Slope-190-High-B-TransitionL",
+            "Slope-190-High-B-TransitionR", "Slope-190-High-L-TransitionT", "Slope-190-High-L-TransitionB", "Slope-190-High-R-TransitionT",
+            "Slope-190-High-R-TransitionB"};
+        return everKeys(key) || ends.count(std::string(key)) != 0;
+    };
+    SlopeTestGrid everWide(5, 3, "Base-85");
+    everWide.at(1, 1) = "Cliff-High-T";
+    everWide.at(2, 1) = "Cliff-High-T";
+    everWide.at(3, 1) = "Cliff-High-T";
+    everWide.slope(1, 1, everWideKeys, ever);
+    everWide.slope(2, 1, everWideKeys, ever);
+    expect(everWide.at(1, 1) == "Slope-190-High-T-TransitionR" && everWide.at(2, 1) == "Slope-190-High-T-TransitionL",
+        "two Evergreen ramps side by side are one wide ramp, got " + everWide.at(1, 1) + " and " + everWide.at(2, 1));
+    everWide.slope(3, 1, everWideKeys, ever);
+    expect(everWide.at(1, 1) == "Slope-190-High-T-TransitionR" && everWide.at(2, 1) == "Slope-190-High-T" && everWide.at(3, 1) == "Slope-190-High-T-TransitionL",
+        "three Evergreen ramps are a start, a middle and an end, got " + everWide.at(1, 1) + ", " + everWide.at(2, 1) + " and " + everWide.at(3, 1));
     SlopeTestGrid everNotch(3, 4, "Base-190");
     everNotch.at(1, 1) = "Cliff-Low-BR";
     everNotch.at(1, 2) = "Cliff-Low-TR";
@@ -6428,6 +6446,66 @@ void testSlopes() {
     const galaxy::RiverPlan everOutsideRefused = everOutside.slope(1, 1, everKeys, ever);
     expect(!everOutsideRefused.allowed() && everOutsideRefused.reason.find("inside corners") != std::string::npos && everOutside.at(1, 1) == "Cliff-High-TL",
         "Evergreen ramps stay off outside corners");
+    // Evergreen's Base-190-1 to Base-255-1 ramps: only the four straight singles, read off Cliff-Ever255 cliffs.
+    const int everPeak = galaxy::kSlopeEvergreenPeakFamily;
+    const auto everPeakKeys = [](std::string_view key) {
+        return key == "Single-Ever255-High-T" || key == "Single-Ever255-High-B" || key == "Single-Ever255-High-L" || key == "Single-Ever255-High-R";
+    };
+    SlopeTestGrid everPeakPair(4, 3, "Base-190");
+    everPeakPair.at(1, 1) = "Cliff-Ever255-High-T";
+    everPeakPair.at(2, 1) = "Cliff-Ever255-High-T";
+    everPeakPair.slope(1, 1, everPeakKeys, everPeak);
+    expect(everPeakPair.slope(2, 1, everPeakKeys, everPeak).allowed() && everPeakPair.at(1, 1) == "Single-Ever255-High-T" && everPeakPair.at(2, 1) == "Single-Ever255-High-T",
+        "Evergreen Base-255-1 ramps side by side stay singles, got " + everPeakPair.at(1, 1) + " and " + everPeakPair.at(2, 1));
+    SlopeTestGrid everPeakCorner(3, 3, "Base-190");
+    everPeakCorner.at(1, 1) = "Cliff-Ever255-Low-TL";
+    expect(!everPeakCorner.slope(1, 1, everPeakKeys, everPeak).allowed() && everPeakCorner.at(1, 1) == "Cliff-Ever255-Low-TL", "Evergreen Base-255-1 ramps refuse corners");
+    SlopeTestGrid everPeakCrossed(3, 3, "Base-85");
+    everPeakCrossed.at(1, 1) = "Cliff-High-B";
+    everPeakCrossed.at(2, 1) = "Cliff-Ever255-High-B";
+    expect(!everPeakCrossed.slope(1, 1, everPeakKeys, everPeak).allowed() && !everPeakCrossed.slope(2, 1, everKeys, ever).allowed(),
+        "the two Evergreen ramp buttons leave each other's cliffs alone");
+    // Evergreen's Base-85-2 to Base-190-2 ramps: the family 190 shapes under the word EG2, read off Cliff-EG2 cliffs.
+    const int eg2 = galaxy::kSlopeEvergreen2Family;
+    const auto eg2Keys = [&](std::string_view key) {
+        std::string plain(key);
+        const auto at = plain.find("-EG2-");
+        if (at == std::string::npos) {
+            return false;
+        }
+        plain.replace(at, 5, "-190-");
+        return everKeys(plain);
+    };
+    SlopeTestGrid eg2Bay(6, 3, "Base-190");
+    eg2Bay.at(1, 1) = "Cliff-EG2-Low-BR";
+    eg2Bay.at(2, 1) = "Cliff-EG2-High-T";
+    eg2Bay.at(3, 1) = "Cliff-EG2-Low-BL";
+    eg2Bay.slope(1, 1, eg2Keys, eg2);
+    expect(eg2Bay.at(1, 1) == "Single-EG2-Low-BR", "an Evergreen2 inside corner alone is a single ramp, got " + eg2Bay.at(1, 1));
+    eg2Bay.slope(2, 1, eg2Keys, eg2);
+    expect(eg2Bay.slope(3, 1, eg2Keys, eg2).allowed() && eg2Bay.at(1, 1) == "Slope-EG2-Low-BR-TransitionR" && eg2Bay.at(2, 1) == "Slope-EG2-High-T"
+            && eg2Bay.at(3, 1) == "Slope-EG2-Low-BL-TransitionL",
+        "two inside corners close an Evergreen2 run, got " + eg2Bay.at(1, 1) + ", " + eg2Bay.at(2, 1) + " and " + eg2Bay.at(3, 1));
+    SlopeTestGrid eg2Crossed(4, 3, "Base-85");
+    eg2Crossed.at(1, 1) = "Cliff-High-B";
+    eg2Crossed.at(2, 1) = "Cliff-EG2-High-B";
+    expect(!eg2Crossed.slope(1, 1, eg2Keys, eg2).allowed() && !eg2Crossed.slope(2, 1, everKeys, ever).allowed(),
+        "the Base-85-1 and Base-85-2 ramp buttons leave each other's cliffs alone");
+    // Evergreen's Base-190-2 to Base-255-2 ramps: four straight singles read off Cliff-Stone255 cliffs.
+    const int stone = galaxy::kSlopeEvergreen2PeakFamily;
+    const auto stoneKeys = [](std::string_view key) { return key.starts_with("Single-Stone255-High-") && key.size() == std::string_view("Single-Stone255-High-B").size(); };
+    SlopeTestGrid stonePair(4, 3, "Base-190");
+    stonePair.at(1, 1) = "Cliff-Stone255-High-B";
+    stonePair.at(2, 1) = "Cliff-Stone255-High-B";
+    stonePair.slope(1, 1, stoneKeys, stone);
+    expect(stonePair.slope(2, 1, stoneKeys, stone).allowed() && stonePair.at(1, 1) == "Single-Stone255-High-B" && stonePair.at(2, 1) == "Single-Stone255-High-B",
+        "Evergreen Base-255-2 ramps are singles, got " + stonePair.at(1, 1) + " and " + stonePair.at(2, 1));
+    SlopeTestGrid stoneCrossed(3, 3, "Base-190");
+    stoneCrossed.at(1, 1) = "Cliff-Ever255-High-B";
+    stoneCrossed.at(2, 1) = "Cliff-Stone255-High-L";
+    expect(!stoneCrossed.slope(1, 1, stoneKeys, stone).allowed() && !stoneCrossed.slope(2, 1, everPeakKeys, everPeak).allowed()
+            && !stoneCrossed.slope(2, 1, stoneKeys, stone).allowed() == false,
+        "the two Base-255 ramp buttons leave each other's cliffs alone");
     SlopeTestGrid everOther(3, 3, "Base-85");
     everOther.at(1, 1) = "Cliff-Other-High-B";
     const galaxy::RiverPlan everOtherRefused = everOther.slope(1, 1, everKeys, ever);
