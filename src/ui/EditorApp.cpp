@@ -12913,7 +12913,7 @@ bool EditorApp::hillCanPlace(int originX, int originY, int width, int height, st
                     refusal = "The " + group->noun + " only goes on " + groundWorld + " Base-" + std::to_string(group->baseHeight)
                         + ", and the whole " + brushRectLabel(width, height) + " block has to be Base-" + std::to_string(group->baseHeight);
                     if (!group->baseWorld.empty()) {
-                        // Evergreen's pools: the grass buttons are captioned Base-85-1 and Base-85-2.
+                        // Evergreen's pools and hills: the grass buttons are captioned Base-85-1 and Base-85-2.
                         refusal = "The " + group->noun + " only goes on Base-85-1 or Base-85-2, and the whole " + brushRectLabel(width, height)
                             + " block has to be the same grass";
                     }
@@ -13766,6 +13766,12 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "pools1";
         const bool evergreenPool2 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
             && lowerText(section.category) == "pools2";
+        // Evergreen-UTAS-1.hpi Small Hills (not the EG2 ones), lowered by 1: Hills1 as drawn on Base-85-1 grass, Hills2 the same
+        // hills repainted with Base-85-2 grass. One Hill button paints both, by the grass under the cursor.
+        const bool evergreenHill1 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "hills1";
+        const bool evergreenHill2 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "hills2";
         const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "hills";
         const bool lushSwamp = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
@@ -13840,7 +13846,7 @@ void EditorApp::ensureBrushPaints() {
             && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
             && !desertHill16 && !desertPlateau && !desertRough && !desertDune
             && !waterWorldFloorMisc && !waterWorldArmMedium && !waterWorldArmLarge && !evergreenIsland && !evergreenIslandLarge
-            && !evergreenPool1 && !evergreenPool2 && acidFolder == nullptr) {
+            && !evergreenPool1 && !evergreenPool2 && !evergreenHill1 && !evergreenHill2 && acidFolder == nullptr) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -14098,6 +14104,17 @@ void EditorApp::ensureBrushPaints() {
             hill.baseName = "base-85";
             hill.baseHeight = 85;
             hill.baseWorld = evergreenPool1 ? "Evergreen" : "Evergreen2";
+            hillSections_.push_back(std::move(hill));
+        }
+        if (evergreenHill1 || evergreenHill2) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = "Hill";
+            hill.noun = "hill";
+            hill.baseName = "base-85";
+            hill.baseHeight = 85;
+            hill.baseWorld = evergreenHill1 ? "Evergreen" : "Evergreen2";
             hillSections_.push_back(std::move(hill));
         }
         if (lushIsland) {
@@ -18260,7 +18277,7 @@ void EditorApp::ensureBrushPaints() {
         }
         if (isEvergreenWorld(brushWorld_)) {
             // Evergreen's islands on its Base-0 water, once the tileset has them.
-            for (const char* button : {"Island", "Island Large", "Pool"}) {
+            for (const char* button : {"Island", "Island Large", "Pool", "Hill"}) {
                 for (const HillSection& hill : hillSections_) {
                     if (hill.group == button && hill.tiles > 0) {
                         addHillButton(button, hill.sectionPath);
