@@ -587,6 +587,10 @@ private:
         // Base-85-1 and Base-85-2.
         std::string label;
         GLuint preview = 0;
+        // The preview's size in pixels. A Base button's preview is the whole section at full size, and the
+        // button shows its middle one pixel to a point; the other buttons shrink a 128 pixel preview to fit.
+        int previewWidth = 0;
+        int previewHeight = 0;
         BrushKind kind = BrushKind::Base;
     };
     std::vector<BrushPaint> brushPaints_;

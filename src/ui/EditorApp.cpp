@@ -14169,10 +14169,13 @@ void EditorApp::ensureBrushPaints() {
             const SectionStamp stamp = loadSectionStamp(source->archive().extract(*file));
             int width = 0;
             int height = 0;
-            const std::vector<std::uint8_t> rgba = renderSectionRgba(stamp, 128, width, height);
+            // Full size: the Base button shows the middle of the ground at its own scale.
+            const std::vector<std::uint8_t> rgba = renderSectionRgba(stamp, 512, width, height);
             BrushPaint paint;
             paint.name = section->name;
             paint.category = section->category;
+            paint.previewWidth = width;
+            paint.previewHeight = height;
             // Evergreen's grounds are numbered by grass: Base-85-1 and Base-190-1 are the first grass's.
             if (isEvergreenWorld(section->category) && trailingNumber(section->name) >= 77) {
                 paint.label = section->name + (lowerText(section->category) == "evergreen2" ? "-2" : "-1");
@@ -18676,7 +18679,9 @@ void EditorApp::drawTileBrush() {
         ImGuiCond_FirstUseEver);
     constexpr float kRounding = 5.0f;
     constexpr int kColumns = 3;
-    constexpr float kRowWidth = 364.0f;
+    // Each picture is kExtraWidth wider than it is tall, so the row is three of those wider.
+    constexpr float kExtraWidth = 15.0f;
+    constexpr float kRowWidth = 364.0f + kColumns * kExtraWidth;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 5.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, kRounding);
@@ -18757,7 +18762,7 @@ void EditorApp::drawTileBrush() {
 
     const ImGuiStyle& style = ImGui::GetStyle();
     const float thumb = std::floor(
-        (kRowWidth - style.ItemSpacing.x * (kColumns - 1) - style.FramePadding.x * 2.0f * kColumns) / kColumns);
+        (kRowWidth - kColumns * kExtraWidth - style.ItemSpacing.x * (kColumns - 1) - style.FramePadding.x * 2.0f * kColumns) / kColumns);
     int column = 0;
     for (std::size_t index = 0; index < brushPaints_.size(); ++index) {
         const BrushPaint& paint = brushPaints_[index];
@@ -18797,13 +18802,31 @@ void EditorApp::drawTileBrush() {
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
         }
+        // The frame is padded more at the sides than at the top and bottom, so the picture fills it: the side padding
+        // matches the top's, the picture widens by the difference, and the square preview is cropped top and bottom
+        // to that shape rather than stretched. The button keeps its size.
+        const float sideGain = std::max(0.0f, style.FramePadding.x - style.FramePadding.y);
+        const ImVec2 pictureSize(thumb + 2.0f * sideGain + kExtraWidth, thumb);
+        const float crop = (1.0f - pictureSize.y / pictureSize.x) * 0.5f;
+        ImVec2 uvMin(0.0f, crop);
+        ImVec2 uvMax(1.0f, 1.0f - crop);
+        // A Base button is a window onto the middle of its full-size ground, one pixel to a point, rather than the
+        // whole section shrunk to fit.
+        if (paint.kind == BrushKind::Base && paint.name.starts_with("Base-") && paint.previewWidth > 0 && paint.previewHeight > 0) {
+            const float halfU = std::min(0.5f, pictureSize.x * 0.5f / static_cast<float>(paint.previewWidth));
+            const float halfV = std::min(0.5f, pictureSize.y * 0.5f / static_cast<float>(paint.previewHeight));
+            uvMin = ImVec2(0.5f - halfU, 0.5f - halfV);
+            uvMax = ImVec2(0.5f + halfU, 0.5f + halfV);
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.y, style.FramePadding.y));
         const bool pressed = ImGui::ImageButton(
             "brush-paint",
             textureId(paint.preview),
-            ImVec2(thumb, thumb),
-            ImVec2(0.0f, 0.0f),
-            ImVec2(1.0f, 1.0f),
+            pictureSize,
+            uvMin,
+            uvMax,
             ImVec4(0.30f, 0.31f, 0.33f, 1.0f));
+        ImGui::PopStyleVar();
         const ImVec2 buttonMin = ImGui::GetItemRectMin();
         const ImVec2 buttonMax = ImGui::GetItemRectMax();
         if (selected) {
