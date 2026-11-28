@@ -397,6 +397,9 @@ constexpr const char* kEvergreen2RampButton = "Slope 85-2 to 190-2";
 // Evergreen's cliffs from Base-190-2 up to Base-255-2, and the button for their ramps.
 const std::string kEvergreen2PeakCliffFolder = "Evergreen2-190";
 constexpr const char* kEvergreen2PeakRampButton = "Slope 190-2 to 255-2";
+// Evergreen's cliffs from Base-85-1 up to Base-190-1, and the button for their ramps.
+const std::string kEvergreenPlateauCliffFolder = "Evergreen";
+constexpr const char* kEvergreenPlateauRampButton = "Slope 85-1 to 190-1";
 // The coasts from Lava's Base-41 up to Metal's Base-85, from Lava-Metal.hpi's Coast_ pieces. They are named like
 // water coasts, Coast-Water-T and Coast-Land-BR, whichever brush paints them.
 const std::string kLavaMetalFolder = "Lava-Metal";
@@ -7038,6 +7041,8 @@ void EditorApp::drawMap() {
                     action = "Click a Base-85 to Base-189 cliff to turn it into a ramp";
                 } else if (brushName_ == "Slope 255") {
                     action = "Click a Base-189 to Base-255 cliff to turn it into a ramp";
+                } else if (brushName_ == kEvergreenPlateauRampButton) {
+                    action = "Click a straight Base-85-1 to Base-190-1 cliff to turn it into a ramp";
                 } else if (brushName_ == kEvergreen2PeakRampButton) {
                     action = "Click a straight Base-190-2 to Base-255-2 cliff to turn it into a ramp";
                 } else if (brushName_ == kEvergreen2RampButton) {
@@ -12554,7 +12559,35 @@ bool EditorApp::nextMatches(const HillSection& hill) const {
     if (seaIslandVaries(kind)) {
         return hill.seaIsland == kind;
     }
-    return !hill.group.empty() && hill.group == brushName_;
+    if (hill.group.empty() || hill.group != brushName_) {
+        return false;
+    }
+    // Pools made for one grass are chosen only over that grass. Off the grass any of them may be shown.
+    if (!hill.baseWorld.empty()) {
+        const std::string ground = groundWorldUnderHover();
+        return ground.empty() || lowerText(ground) == lowerText(hill.baseWorld);
+    }
+    return true;
+}
+
+std::string EditorApp::groundWorldUnderHover() const {
+    std::vector<std::string> worlds;
+    for (const HillSection& hill : hillSections_) {
+        if (hill.group == brushName_ && !hill.baseWorld.empty()
+            && std::find(worlds.begin(), worlds.end(), hill.baseWorld) == worlds.end()) {
+            worlds.push_back(hill.baseWorld);
+        }
+    }
+    const HillSection* group = groupHill();
+    if (group == nullptr) {
+        return {};
+    }
+    for (const std::string& world : worlds) {
+        if (tileMatchesBase(hoverTileX_, hoverTileY_, world, group->baseName, group->baseHeight, group->baseFringe)) {
+            return world;
+        }
+    }
+    return {};
 }
 
 int EditorApp::nextSeaIsland() const {
@@ -12868,9 +12901,22 @@ bool EditorApp::hillCanPlace(int originX, int originY, int width, int height, st
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             if (group != nullptr) {
-                if (!tileMatchesBase(originX + x, originY + y, brushWorld_, group->baseName, group->baseHeight, group->baseHeight != 0 && group->baseFringe)) {
-                    refusal = "The " + group->noun + " only goes on " + brushWorld_ + " Base-" + std::to_string(group->baseHeight)
+                // Evergreen's two grass buttons share one water, filed under Evergreen. A section made for another world's
+                // base (an Evergreen pool for one grass) checks that base: the one the cursor is about to paint.
+                std::string groundWorld = isEvergreenWorld(brushWorld_) ? std::string("Evergreen") : brushWorld_;
+                if (const int next = nextSeaIsland(); next >= 0 && !hillSections_[static_cast<std::size_t>(next)].baseWorld.empty()) {
+                    groundWorld = hillSections_[static_cast<std::size_t>(next)].baseWorld;
+                } else if (!group->baseWorld.empty()) {
+                    groundWorld = group->baseWorld;
+                }
+                if (!tileMatchesBase(originX + x, originY + y, groundWorld, group->baseName, group->baseHeight, group->baseHeight != 0 && group->baseFringe)) {
+                    refusal = "The " + group->noun + " only goes on " + groundWorld + " Base-" + std::to_string(group->baseHeight)
                         + ", and the whole " + brushRectLabel(width, height) + " block has to be Base-" + std::to_string(group->baseHeight);
+                    if (!group->baseWorld.empty()) {
+                        // Evergreen's pools: the grass buttons are captioned Base-85-1 and Base-85-2.
+                        refusal = "The " + group->noun + " only goes on Base-85-1 or Base-85-2, and the whole " + brushRectLabel(width, height)
+                            + " block has to be the same grass";
+                    }
                     return false;
                 }
                 continue;
@@ -13269,10 +13315,41 @@ bool EditorApp::lineBrushArmed() const {
 
 // The brush tells cells apart by their pictures. This reads the base strokes, the coast
 // pieces and the river pieces once, and keeps only their signatures.
+std::string EditorApp::evergreenRiverFolder() const {
+    if (!isEvergreenWorld(brushWorld_)) {
+        return {};
+    }
+    if (brushName_ == "River 85-1" || brushName_ == "River Bridge 85-1") {
+        return "Evergreen";
+    }
+    if (brushName_ == "River 85-2" || brushName_ == "River Bridge 85-2") {
+        return "Evergreen2";
+    }
+    return {};
+}
+
+bool EditorApp::riverSectionUsable(const RiverSection& section) const {
+    const std::string folder = evergreenRiverFolder();
+    if (folder.empty() || !lowerText(section.key).starts_with("river")) {
+        return true;
+    }
+    return lowerText(section.category) == lowerText(folder);
+}
+
 void EditorApp::ensureRiverCatalog() {
+    // Evergreen's two river buttons read the map differently: the other grass, its rivers and its coasts are not theirs.
+    if (riverCatalogReady_ && evergreenRiverFolder() != riverCatalogFolder_) {
+        riverCatalogReady_ = false;
+    }
     if (riverCatalogReady_ || brushTilesetPath_.empty()) {
         return;
     }
+    const std::string riverFolder = evergreenRiverFolder();
+    riverCatalogFolder_ = riverFolder;
+    // A label for a piece that belongs to the other Evergreen grass, which the armed river button must not use.
+    const auto otherGrass = [&](std::string_view category) {
+        return !riverFolder.empty() && isEvergreenWorld(category) && lowerText(category) != lowerText(riverFolder);
+    };
     const TilesetArchive* source = nullptr;
     for (const TilesetArchive& archive : tilesets_.archives()) {
         if (archive.path == brushTilesetPath_) {
@@ -13317,6 +13394,11 @@ void EditorApp::ensureRiverCatalog() {
             }
             continue;
         }
+        // The other Evergreen grass's rivers are not this button's: they read as foreign pieces it neither joins nor rebuilds.
+        if (lowerText(river.key).starts_with("river") && otherGrass(river.category)) {
+            addSection(river.sectionPath, "Other-" + river.name);
+            continue;
+        }
         addSection(river.sectionPath, river.name);
     }
     // SnowyEvergreen's rivers are frozen: they start on the shores of its Base-75 frozen water, the ShallowCoast pieces
@@ -13345,8 +13427,14 @@ void EditorApp::ensureRiverCatalog() {
             // Its Base-190-2 to Base-255-2 cliffs read as Cliff-Stone255-, for the Slope 190-2 to 255-2 button.
             const bool second = lowerText(piece.category) == lowerText(kEvergreen2RampCliffFolder);
             const bool stone = lowerText(piece.category) == lowerText(kEvergreen2PeakCliffFolder);
-            addSection(piece.sectionPath, std::string(peak ? "Cliff-Ever255-" : second ? "Cliff-EG2-" : stone ? "Cliff-Stone255-" : "Cliff-Other-")
+            // Its Base-85-1 to Base-190-1 cliffs read as Cliff-Ever190-, for the Slope 85-1 to 190-1 button.
+            const bool plateau = lowerText(piece.category) == lowerText(kEvergreenPlateauCliffFolder);
+            addSection(piece.sectionPath, std::string(peak ? "Cliff-Ever255-" : second ? "Cliff-EG2-" : stone ? "Cliff-Stone255-" : plateau ? "Cliff-Ever190-" : "Cliff-Other-")
                     + piece.name.substr(std::string_view("Cliff-").size()));
+        } else if (lowered.starts_with("coast-") && !riverFolder.empty()
+            && (otherGrass(piece.category) || lowerText(piece.category).starts_with("evergreen-mix"))) {
+            // An Evergreen river starts only on its own grass's shore, not on the other grass's or a shore holding both.
+            addSection(piece.sectionPath, "Other-" + piece.name);
         } else if ((lowered.starts_with("coast-") && !frozenRivers) || lowered.starts_with("cliff-")) {
             addSection(piece.sectionPath, piece.name);
         }
@@ -13366,7 +13454,11 @@ void EditorApp::ensureRiverCatalog() {
             if (matched) {
                 // Metal2's dark water is Base-0-2 here, so Metal's Bridge 139 only crosses the dark water.
                 const bool darkWater = lowerText(stroke.category) == "metal2" && trailingNumber(paint.name) == 0;
-                addSection(stroke.sectionPath, darkWater ? std::string(kMetalBridgeWater) : paint.name);
+                // An Evergreen river button reads the other grass as ground it may not cross.
+                const bool otherLand = otherGrass(stroke.category) && trailingNumber(paint.name) == 85;
+                addSection(stroke.sectionPath, darkWater ? std::string(kMetalBridgeWater)
+                        : otherLand ? std::string(lowerText(stroke.category) == "evergreen2" ? "Base-85-2 grass" : "Base-85-1 grass")
+                        : paint.name);
                 break;
             }
         }
@@ -13384,7 +13476,7 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
     const RiverLookup lookup = [&](int cx, int cy) { return riverCatalog_.classify(*map_, cx, cy); };
     const auto available = [&](std::string_view key) {
         for (const RiverSection& section : riverSections_) {
-            if (sameRiverKey(section.key, key)) {
+            if (sameRiverKey(section.key, key) && riverSectionUsable(section)) {
                 return true;
             }
         }
@@ -13437,6 +13529,8 @@ RiverPlan EditorApp::riverPlanAt(int cellX, int cellY, BrushKind kind) {
             family = kSlopeEvergreen2Family;
         } else if (brushName_ == kEvergreen2PeakRampButton) {
             family = kSlopeEvergreen2PeakFamily;
+        } else if (brushName_ == kEvergreenPlateauRampButton) {
+            family = kSlopeEvergreenPlateauFamily;
         }
         return planSlope(cellX, cellY, lookup, available, family);
     }
@@ -13486,7 +13580,7 @@ void EditorApp::paintRiver(int tileX, int tileY, BrushKind kind) {
         for (const RiverEdit& edit : plan.edits) {
             std::vector<RiverSection*> matches;
             for (RiverSection& section : riverSections_) {
-                if (sameRiverKey(section.key, edit.key)) {
+                if (sameRiverKey(section.key, edit.key) && riverSectionUsable(section)) {
                     matches.push_back(&section);
                 }
             }
@@ -13660,6 +13754,18 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "armsmedium";
         const bool waterWorldArmLarge = lowerText(brushWorld_) == "waterworld" && lowerText(section.world) == "waterworld"
             && lowerText(section.category) == "armslarge";
+        // Evergreen-UTAS-2.hpi Islands, ringed by Evergreen's Base-0 water, heights as they are. Islands holds the ones
+        // smaller than 24 x 24 (up to 24 x 20 and 20 x 24), IslandsLarge the 24 x 24 and bigger ones.
+        const bool evergreenIsland = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "islands";
+        const bool evergreenIslandLarge = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "islandslarge";
+        // Evergreen-UTAS-2.hpi Pools, lowered by 1 to sit on Base-85: Pools1 holds the ones on Base-85-1 grass, Pools2 the
+        // ones on Base-85-2 grass. One Pool button paints both.
+        const bool evergreenPool1 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "pools1";
+        const bool evergreenPool2 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "pools2";
         const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "hills";
         const bool lushSwamp = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
@@ -13733,7 +13839,8 @@ void EditorApp::ensureBrushPaints() {
             && !crystalSection && !lushMountain && !lushIsland && !lushHill && !lushSwamp
             && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
             && !desertHill16 && !desertPlateau && !desertRough && !desertDune
-            && !waterWorldFloorMisc && !waterWorldArmMedium && !waterWorldArmLarge && acidFolder == nullptr) {
+            && !waterWorldFloorMisc && !waterWorldArmMedium && !waterWorldArmLarge && !evergreenIsland && !evergreenIslandLarge
+            && !evergreenPool1 && !evergreenPool2 && acidFolder == nullptr) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -13748,6 +13855,7 @@ void EditorApp::ensureBrushPaints() {
             RiverSection river;
             river.name = section.name;
             river.key = riverKeyOf(section.name);
+            river.category = section.category;
             river.sectionPath = section.archivePath;
             riverSections_.push_back(std::move(river));
         } else if (isTransitionWorld(section.world) && !(sectionTiles == kFineCellTiles && !kFineCoastsEnabled && brushCoastFolder(sectionKind))) {
@@ -13969,6 +14077,27 @@ void EditorApp::ensureBrushPaints() {
             hill.noun = "arm";
             hill.baseName = "base-0";
             hill.baseHeight = 0;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (evergreenIsland || evergreenIslandLarge) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = evergreenIsland ? "Island" : "Island Large";
+            hill.noun = "island";
+            hill.baseName = "base-0";
+            hill.baseHeight = 0;
+            hillSections_.push_back(std::move(hill));
+        }
+        if (evergreenPool1 || evergreenPool2) {
+            HillSection hill;
+            hill.name = section.name;
+            hill.sectionPath = section.archivePath;
+            hill.group = "Pool";
+            hill.noun = "pool";
+            hill.baseName = "base-85";
+            hill.baseHeight = 85;
+            hill.baseWorld = evergreenPool1 ? "Evergreen" : "Evergreen2";
             hillSections_.push_back(std::move(hill));
         }
         if (lushIsland) {
@@ -17882,10 +18011,10 @@ void EditorApp::ensureBrushPaints() {
     }
     // Rivers and bridges get a button of their own after the base tiles. Their pictures
     // are the first horizontal piece of each.
-    const auto addRiverButton = [&](const char* buttonName, const char* iconSection, BrushKind kind) {
+    const auto addRiverButton = [&](const char* buttonName, const char* iconSection, BrushKind kind, std::string_view folder = {}) {
         const RiverSection* chosen = nullptr;
         for (const RiverSection& river : riverSections_) {
-            if (sameRiverKey(river.name, iconSection)) {
+            if (sameRiverKey(river.name, iconSection) && (folder.empty() || lowerText(river.category) == lowerText(folder))) {
                 chosen = &river;
                 break;
             }
@@ -17922,8 +18051,16 @@ void EditorApp::ensureBrushPaints() {
         } catch (const std::exception&) {
         }
     };
-    addRiverButton("River", "River-Horizontal-01", BrushKind::River);
-    addRiverButton("River Bridge", "RiverB-Horizontal-01", BrushKind::Bridge);
+    if (isEvergreenWorld(brushWorld_)) {
+        // Each Evergreen grass has its own rivers and bridges, in Rivers/Evergreen and Rivers/Evergreen2.
+        addRiverButton("River 85-1", "River-Horizontal-01", BrushKind::River, "Evergreen");
+        addRiverButton("River Bridge 85-1", "RiverB-Horizontal-01", BrushKind::Bridge, "Evergreen");
+        addRiverButton("River 85-2", "River-Horizontal-01", BrushKind::River, "Evergreen2");
+        addRiverButton("River Bridge 85-2", "RiverB-Horizontal-01", BrushKind::Bridge, "Evergreen2");
+    } else {
+        addRiverButton("River", "River-Horizontal-01", BrushKind::River);
+        addRiverButton("River Bridge", "RiverB-Horizontal-01", BrushKind::Bridge);
+    }
     // Metal's bridges over its dark water, once the tileset has them.
     if (isMetalWorld(brushWorld_)
         && std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.name, "Bridge139-R-L"); })) {
@@ -17973,6 +18110,9 @@ void EditorApp::ensureBrushPaints() {
         if (std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.key, "Single-Stone255-High-B"); })) {
             addRiverButton(kEvergreen2PeakRampButton, "Single-Stone255-High-B-01", BrushKind::Slope);
         }
+        if (std::any_of(riverSections_.begin(), riverSections_.end(), [](const RiverSection& river) { return sameRiverKey(river.key, "Single-Ever190-High-B"); })) {
+            addRiverButton(kEvergreenPlateauRampButton, "Single-Ever190-High-B-01", BrushKind::Slope);
+        }
     } else {
         addRiverButton(metalSlopes ? "Slope 85 to 219" : "Slope", metalSlopes ? "Slope-High-B" : "Slope-High-B-01", BrushKind::Slope);
     }
@@ -17995,7 +18135,8 @@ void EditorApp::ensureBrushPaints() {
     const bool desertHills = lowerText(brushWorld_) == "desert";
     const bool acidHills = lowerText(brushWorld_) == "acid";
     const bool waterWorldReefs = lowerText(brushWorld_) == "waterworld";
-    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills || acidHills || waterWorldReefs)
+    if ((greenHills || lavaHills || lushPools || archipelagoHills || marsHills || iceHills || crystalHills || desertHills || acidHills || waterWorldReefs
+            || isEvergreenWorld(brushWorld_))
         && !hillSections_.empty()) {
         std::sort(hillSections_.begin(), hillSections_.end(), [](const HillSection& left, const HillSection& right) {
             return trailingNumber(left.name) < trailingNumber(right.name);
@@ -18109,6 +18250,17 @@ void EditorApp::ensureBrushPaints() {
                 }
             }
             for (const char* button : {"Arm-85 Medium", "Arm-85 Large"}) {
+                for (const HillSection& hill : hillSections_) {
+                    if (hill.group == button && hill.tiles > 0) {
+                        addHillButton(button, hill.sectionPath);
+                        break;
+                    }
+                }
+            }
+        }
+        if (isEvergreenWorld(brushWorld_)) {
+            // Evergreen's islands on its Base-0 water, once the tileset has them.
+            for (const char* button : {"Island", "Island Large", "Pool"}) {
                 for (const HillSection& hill : hillSections_) {
                     if (hill.group == button && hill.tiles > 0) {
                         addHillButton(button, hill.sectionPath);
@@ -18653,7 +18805,14 @@ void EditorApp::drawTileBrush() {
         if (ImGui::IsItemHovered()) {
             const char* hint = "Use this tile as the brush";
             std::string hintText;
-            if (paint.kind == BrushKind::River && lowerText(brushWorld_) == "snowyevergreen") {
+            if ((paint.kind == BrushKind::River || paint.kind == BrushKind::Bridge) && isEvergreenWorld(brushWorld_)) {
+                const bool second = paint.name.ends_with("85-2");
+                hint = paint.kind == BrushKind::River
+                    ? (second ? "Paint rivers on Base-85-2 and its straight coasts\nRivers join the rivers beside them and end where they stop"
+                              : "Paint rivers on Base-85-1 and its straight coasts\nRivers join the rivers beside them and end where they stop")
+                    : (second ? "Place a bridge on a River 85-2 river\nBridges go on straight rivers and bends"
+                              : "Place a bridge on a River 85-1 river\nBridges go on straight rivers and bends");
+            } else if (paint.kind == BrushKind::River && lowerText(brushWorld_) == "snowyevergreen") {
                 hint = "Paint frozen rivers on Base-85, starting at a straight frozen shore or beside another river\nRivers join the rivers beside them and end where they stop";
             } else if (paint.kind == BrushKind::Ridge && paint.name == "Wall 85") {
                 hint = "Paint walls on Base-85, starting from a Base-219 cliff or anywhere on the ground\nWalls join the walls beside them\nA cliff corner starts two walls";
@@ -18682,6 +18841,8 @@ void EditorApp::drawTileBrush() {
                     hint = "Turn a Base-85 to Base-189 cliff into a ramp\nRamps join the ramps beside them and meet cliffs at the ends";
                 } else if (paint.name == "Slope 255") {
                     hint = "Turn a Base-189 to Base-255 cliff into a ramp\nRamps join the ramps beside them and meet cliffs at the ends";
+                } else if (paint.name == kEvergreenPlateauRampButton) {
+                    hint = "Turn a straight Base-85-1 to Base-190-1 cliff into a ramp\nRamps join the ramps beside them into one wide ramp and meet cliffs at the ends";
                 } else if (paint.name == kEvergreen2PeakRampButton) {
                     hint = "Turn a straight Base-190-2 to Base-255-2 cliff into a ramp\nEach ramp stays on its own cliff";
                 } else if (paint.name == kEvergreen2RampButton) {

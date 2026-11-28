@@ -304,6 +304,16 @@ private:
     // Island-0 Medium and Large place the island chosen ahead of time, so the cursor
     // can show its size. This is that island's index in hillSections_, or -1.
     int nextSeaIsland() const;
+    // For a group whose sections sit on different worlds' bases: the world whose base is under the cursor, or empty.
+    std::string groundWorldUnderHover() const;
+    // Evergreen's river buttons each use one grass's rivers: "Evergreen" for River 85-1 and River Bridge 85-1,
+    // "Evergreen2" for the 85-2 ones, and empty for every other brush.
+    std::string evergreenRiverFolder() const;
+    struct RiverSection;
+    // True when a river section may be used by the armed brush (see evergreenRiverFolder).
+    bool riverSectionUsable(const RiverSection& section) const;
+    // The grass the river catalog was last built for, so switching Evergreen river buttons rebuilds it.
+    std::string riverCatalogFolder_;
     // Horizontal Mtn and Vertical Mtn (Lush) are rows of 32 x 32 pieces: an end, middle
     // pieces, and the other end. A click places the two ends, and dragging along the
     // mountain adds middle pieces. Horizontal runs west to east, Vertical north to south.
@@ -653,6 +663,8 @@ private:
     struct RiverSection {
         std::string name;
         std::string key;
+        // The folder it was filed in, such as Evergreen or Evergreen2 under Rivers.
+        std::string category;
         std::string sectionPath;
         std::optional<SectionStamp> stamp;
     };
@@ -697,6 +709,9 @@ private:
         std::string noun;
         std::string baseName;
         int baseHeight = 0;
+        // The world whose base this section sits on, when it is not the brush's own: Evergreen's Pool button holds pools for
+        // Base-85-1 (Evergreen) and Base-85-2 (Evergreen2), and paints the ones made for the grass under the cursor.
+        std::string baseWorld;
         // False when only the flat base counts, not tiles it shares with a neighbouring height.
         bool baseFringe = true;
         std::optional<SectionStamp> stamp;

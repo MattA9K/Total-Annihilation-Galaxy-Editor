@@ -163,6 +163,12 @@ inline constexpr int kSlopeEvergreen2Family = 4;
 // three straight edges only, like family 3. Their cliffs, in folder Evergreen2-190, read as Cliff-Stone255-High-B.
 inline constexpr int kSlopeEvergreen2PeakFamily = 5;
 
+// Evergreen's ramps from Base-85-1 grass up to the Base-190-1 grass plateau: Single-Ever190-High-B and the other three
+// straight edges. The tileset's run middles and ends for it (Slope-Ever190-High-X, -TransitionY) were generated from those
+// singles, so ramps side by side join into one wide ramp; corners are refused. Its cliffs, in folder Evergreen, read as
+// Cliff-Ever190-High-B.
+inline constexpr int kSlopeEvergreenPlateauFamily = 6;
+
 // Families with a one-sided piece for each arm of a corner, and a single low corner of their own.
 inline bool slopeCornerRuns(int family) {
     return family == 202 || family == kSlopeSnowFamily || family == kSlopeEvergreenFamily || family == kSlopeSnowPeakFamily
@@ -197,6 +203,8 @@ inline std::string slopeQualify(std::string name, int family) {
         name.insert(dash + 1, lowered ? "eg2-" : "EG2-");
     } else if (family == kSlopeEvergreen2PeakFamily) {
         name.insert(dash + 1, lowered ? "stone255-" : "Stone255-");
+    } else if (family == kSlopeEvergreenPlateauFamily) {
+        name.insert(dash + 1, lowered ? "ever190-" : "Ever190-");
     } else {
         name.insert(dash + 1, std::to_string(family) + "-");
     }
@@ -227,7 +235,8 @@ inline SlopeShape parseSlopeShape(std::string_view label, int family = 0) {
 // family 155 read the plain Cliff-High cliffs and keep the family number in the
 // slope names only.
 const bool qualifiedCliffs = family == 255 || family == 230 || family == 183 || family == kSlopeRampFamily || family == kSlopeSnowPeakFamily
-    || family == kSlopeEvergreenPeakFamily || family == kSlopeEvergreen2Family || family == kSlopeEvergreen2PeakFamily;
+    || family == kSlopeEvergreenPeakFamily || family == kSlopeEvergreen2Family || family == kSlopeEvergreen2PeakFamily
+    || family == kSlopeEvergreenPlateauFamily;
 const Taken cliffHigh = take("cliff-high-", qualifiedCliffs);
 const Taken cliffLow = take("cliff-low-", qualifiedCliffs);
 const Taken slopeHigh = take("slope-high-", true);
@@ -396,9 +405,20 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         } else if (family == kSlopeEvergreen2PeakFamily) {
             text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
             range = "\nRamps only go on straight cliffs from Base-190-2 up to Base-255-2";
+        } else if (family == kSlopeEvergreenPlateauFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this tile" : cell.label);
+            range = "\nRamps only go on straight cliffs from Base-85-1 up to Base-190-1";
         }
         text += range;
         plan.reason = std::move(text);
+        return plan;
+    }
+    // Evergreen's Base-85-1 to Base-190-1 ramps run along straight cliffs only (their wide pieces were made from the
+    // straight singles), so any corner is refused up front.
+    if (family == kSlopeEvergreenPlateauFamily && !slopeStraight(here.mask)) {
+        const RiverCell cell = lookup(x, y);
+        plan.reason = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
+            + "\nRamps only go on straight cliffs from Base-85-1 up to Base-190-1";
         return plan;
     }
     if (slopeClosedRuns(family) && slopeCornerCount(here.mask) == 1) {
@@ -425,6 +445,9 @@ inline RiverPlan planSlope(int x, int y, const RiverLookup& lookup, const std::f
         } else if (family == kSlopeEvergreen2PeakFamily) {
             text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
                 + "\nRamps only go on straight cliffs from Base-190-2 up to Base-255-2";
+        } else if (family == kSlopeEvergreenPlateauFamily) {
+            text = std::string("Ramps cannot go on ") + (cell.label.empty() ? "this corner" : cell.label)
+                + "\nRamps only go on straight cliffs from Base-85-1 up to Base-190-1";
         }
         plan.reason = std::move(text);
         return plan;

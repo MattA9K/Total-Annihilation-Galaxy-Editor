@@ -6506,6 +6506,33 @@ void testSlopes() {
     expect(!stoneCrossed.slope(1, 1, stoneKeys, stone).allowed() && !stoneCrossed.slope(2, 1, everPeakKeys, everPeak).allowed()
             && !stoneCrossed.slope(2, 1, stoneKeys, stone).allowed() == false,
         "the two Base-255 ramp buttons leave each other's cliffs alone");
+    // Evergreen's Base-85-1 to Base-190-1 ramps: four straight singles read off Cliff-Ever190 cliffs.
+    const int everPlateau = galaxy::kSlopeEvergreenPlateauFamily;
+    const auto plateauKeys = [](std::string_view key) { return key.starts_with("Single-Ever190-High-") && key.size() == std::string_view("Single-Ever190-High-B").size(); };
+    SlopeTestGrid plateauPair(4, 3, "Base-85");
+    plateauPair.at(1, 1) = "Cliff-Ever190-High-T";
+    plateauPair.at(2, 1) = "Cliff-Ever190-High-T";
+    plateauPair.slope(1, 1, plateauKeys, everPlateau);
+    expect(plateauPair.slope(2, 1, plateauKeys, everPlateau).allowed() && plateauPair.at(1, 1) == "Single-Ever190-High-T" && plateauPair.at(2, 1) == "Single-Ever190-High-T",
+        "Evergreen Base-190-1 ramps are singles, got " + plateauPair.at(1, 1) + " and " + plateauPair.at(2, 1));
+    const auto plateauWideKeys = [&](std::string_view key) {
+        return plateauKeys(key) || (key.starts_with("Slope-Ever190-High-") && key.find("Low") == std::string_view::npos);
+    };
+    SlopeTestGrid plateauWide(5, 3, "Base-85");
+    plateauWide.at(1, 1) = "Cliff-Ever190-High-T";
+    plateauWide.at(2, 1) = "Cliff-Ever190-High-T";
+    plateauWide.at(3, 1) = "Cliff-Ever190-High-T";
+    for (int cx = 1; cx <= 3; ++cx) {
+        plateauWide.slope(cx, 1, plateauWideKeys, everPlateau);
+    }
+    expect(plateauWide.at(1, 1) == "Slope-Ever190-High-T-TransitionR" && plateauWide.at(2, 1) == "Slope-Ever190-High-T" && plateauWide.at(3, 1) == "Slope-Ever190-High-T-TransitionL",
+        "Evergreen Base-190-1 ramps side by side make one wide ramp, got " + plateauWide.at(1, 1) + ", " + plateauWide.at(2, 1) + " and " + plateauWide.at(3, 1));
+    SlopeTestGrid plateauCrossed(3, 3, "Base-85");
+    plateauCrossed.at(1, 1) = "Cliff-High-T";
+    plateauCrossed.at(2, 1) = "Cliff-Ever190-Low-TL";
+    expect(!plateauCrossed.slope(1, 1, plateauKeys, everPlateau).allowed() && !plateauCrossed.slope(2, 1, plateauKeys, everPlateau).allowed()
+            && !plateauCrossed.slope(2, 1, everKeys, ever).allowed(),
+        "the Base-190-1 ramp button refuses other cliffs and corners, and the Base-190-2 button refuses its cliffs");
     SlopeTestGrid everOther(3, 3, "Base-85");
     everOther.at(1, 1) = "Cliff-Other-High-B";
     const galaxy::RiverPlan everOtherRefused = everOther.slope(1, 1, everKeys, ever);
