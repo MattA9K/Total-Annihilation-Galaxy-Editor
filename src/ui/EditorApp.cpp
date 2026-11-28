@@ -13772,6 +13772,11 @@ void EditorApp::ensureBrushPaints() {
             && lowerText(section.category) == "hills1";
         const bool evergreenHill2 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
             && lowerText(section.category) == "hills2";
+        // Evergreen-UTAS-1.hpi Large hills, the same way: HillsLarge1 as drawn, HillsLarge2 repainted with Base-85-2 grass.
+        const bool evergreenHillLarge1 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "hillslarge1";
+        const bool evergreenHillLarge2 = isEvergreenWorld(brushWorld_) && lowerText(section.world) == "evergreen"
+            && lowerText(section.category) == "hillslarge2";
         const bool lushHill = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
             && lowerText(section.category) == "hills";
         const bool lushSwamp = lowerText(brushWorld_) == "lush" && lowerText(section.world) == "lush"
@@ -13846,7 +13851,8 @@ void EditorApp::ensureBrushPaints() {
             && !lushPond && !lushHill16 && !lushFeature255 && !desertHugeHill
             && !desertHill16 && !desertPlateau && !desertRough && !desertDune
             && !waterWorldFloorMisc && !waterWorldArmMedium && !waterWorldArmLarge && !evergreenIsland && !evergreenIslandLarge
-            && !evergreenPool1 && !evergreenPool2 && !evergreenHill1 && !evergreenHill2 && acidFolder == nullptr) {
+            && !evergreenPool1 && !evergreenPool2 && !evergreenHill1 && !evergreenHill2
+            && !evergreenHillLarge1 && !evergreenHillLarge2 && acidFolder == nullptr) {
             continue;
         }
         if (isBaseBrushTile(section.world, section.name)) {
@@ -14106,15 +14112,15 @@ void EditorApp::ensureBrushPaints() {
             hill.baseWorld = evergreenPool1 ? "Evergreen" : "Evergreen2";
             hillSections_.push_back(std::move(hill));
         }
-        if (evergreenHill1 || evergreenHill2) {
+        if (evergreenHill1 || evergreenHill2 || evergreenHillLarge1 || evergreenHillLarge2) {
             HillSection hill;
             hill.name = section.name;
             hill.sectionPath = section.archivePath;
-            hill.group = "Hill";
+            hill.group = evergreenHill1 || evergreenHill2 ? "Hill" : "Hill Large";
             hill.noun = "hill";
             hill.baseName = "base-85";
             hill.baseHeight = 85;
-            hill.baseWorld = evergreenHill1 ? "Evergreen" : "Evergreen2";
+            hill.baseWorld = evergreenHill1 || evergreenHillLarge1 ? "Evergreen" : "Evergreen2";
             hillSections_.push_back(std::move(hill));
         }
         if (lushIsland) {
@@ -18277,7 +18283,7 @@ void EditorApp::ensureBrushPaints() {
         }
         if (isEvergreenWorld(brushWorld_)) {
             // Evergreen's islands on its Base-0 water, once the tileset has them.
-            for (const char* button : {"Island", "Island Large", "Pool", "Hill"}) {
+            for (const char* button : {"Island", "Island Large", "Pool", "Hill", "Hill Large"}) {
                 for (const HillSection& hill : hillSections_) {
                     if (hill.group == button && hill.tiles > 0) {
                         addHillButton(button, hill.sectionPath);
